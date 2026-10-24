@@ -305,6 +305,7 @@ if(BUILD_TESTING)
             openingProgressPaintsAfterTheEventLoop
             openingFirstPaintCallback
             readingStripChangesLeaveBodyUnpainted
+            chapterPageSurvivesLongTitles
             batteryTextAlignment
             annotationPaintPreservesText
             annotationDamageBatchesLogicalUpdate

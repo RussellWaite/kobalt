@@ -259,7 +259,9 @@ Content content(Field field, const Values &values, bool uppercase) {
         }
         break;
     case Field::ChapterAndPage:
-        result.text = joined(values.chapter, pageOf(values.chapterPage, values.chapterPages));
+        result.chapterTitle = values.chapter;
+        result.chapterPosition = pageOf(values.chapterPage, values.chapterPages);
+        result.text = joined(result.chapterTitle, result.chapterPosition);
         break;
     case Field::TitleAndPage:
         result.text = joined(values.title, pageOf(values.page, values.pages));
@@ -294,8 +296,11 @@ Content content(Field field, const Values &values, bool uppercase) {
         result.text = percentDone(values.page, values.pages);
         break;
     }
-    if (uppercase)
+    if (uppercase) {
         result.text = result.text.toUpper();
+        result.chapterTitle = result.chapterTitle.toUpper();
+        result.chapterPosition = result.chapterPosition.toUpper();
+    }
     return result;
 }
 

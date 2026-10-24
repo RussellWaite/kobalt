@@ -115,6 +115,8 @@ struct Values {
 // One slot's text, and a battery icon drawn after it when `batteryIcon` is set.
 struct Content {
     QString text;
+    // Keep the combined chapter field's parts so fitting can preserve its page count.
+    QString chapterTitle, chapterPosition;
     bool batteryIcon = false;
     int battery = -1;
     bool charging = false;
@@ -122,7 +124,8 @@ struct Content {
         return text.isEmpty() && !batteryIcon;
     }
     bool operator==(const Content &other) const {
-        return text == other.text && batteryIcon == other.batteryIcon && battery == other.battery &&
+        return text == other.text && chapterTitle == other.chapterTitle && chapterPosition == other.chapterPosition &&
+               batteryIcon == other.batteryIcon && battery == other.battery &&
                charging == other.charging;
     }
     bool operator!=(const Content &other) const {

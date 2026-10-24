@@ -7,7 +7,13 @@
 
 class QPainter;
 
+namespace kobalt::headerfooter {
+struct Content;
+}
+
 namespace kobalt::ui {
+// Elides only the title in a combined chapter field.
+QString headerFooterText(const headerfooter::Content &content, const QFont &font, int width);
 // Plain interface labels retain Qt's native path unless the face needs private rendering.
 class InterfaceLabel : public QLabel {
 public:

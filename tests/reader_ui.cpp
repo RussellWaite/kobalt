@@ -6,6 +6,7 @@
 #include "interfaces/reader/ui/controls/sliders.h"
 #include "interfaces/reader/ui/controls/rows.h"
 #include "interfaces/reader/ui/controls/panels.h"
+#include "interfaces/reader/ui/controls/text.h"
 #include "interfaces/reader/ui/controls/paging.h"
 #include "interfaces/reader/ui/dialogs/modals.h"
 #include "interfaces/reader/ui/style/fonts.h"
@@ -15,6 +16,7 @@
 #include "interfaces/reader/ui/style/theme.h"
 #include "interfaces/reader/views/opening.h"
 #include "interfaces/reader/views/reading_page.h"
+#include "interfaces/reader/settings/header_footer_panel.h"
 #include "interfaces/reader/panels/bookmark_list.h"
 #include "platforms/android/canvas.h"
 #include "platforms/android/canvas_refresh.h"
@@ -25,6 +27,7 @@
 #include "platforms/kobo/display/panel_damage.h"
 #include "support/host_presentation.h"
 #include "support/reader_inputs.h"
+#include "support/strings.h"
 #include "engine/crengine/reader_model.h"
 #include <QApplication>
 #include <QFontDatabase>
@@ -1730,6 +1733,99 @@ private slots:
         page.refreshContent();
         QCoreApplication::processEvents();
         QVERIFY(paints.painted.isEmpty());
+    }
+    void chapterPageSurvivesLongTitles_data() { variants(); }
+    void chapterPageSurvivesLongTitles() {
+        QFETCH(bool, dark);
+        QFETCH(int, ppi);
+        const int previousDensity = ui::density();
+        struct Restore {
+            int density;
+            ~Restore() { ui::setDensity(density); }
+        } restore{previousDensity};
+        ui::setDensity(ppi);
+        ReadingPage page(nullptr, [] {});
+        page.resize(ui::px(500), ui::px(700));
+        page.setFont(ui::headerFooterFont());
+        page.image = QImage(page.size(), QImage::Format_RGB32);
+        page.image.fill(dark ? Qt::black : Qt::white);
+        auto palette = page.palette();
+        palette.setColor(QPalette::Window, dark ? Qt::black : Qt::white);
+        palette.setColor(QPalette::WindowText, dark ? Qt::white : Qt::black);
+        page.setPalette(palette);
+        page.chrome.progressBar = false;
+        reader::SlotMap preview(nullptr, false);
+        preview.setPalette(palette);
+        preview.resize(ui::px(1000), preview.sizeHint().height());
+        preview.show();
+        headerfooter::Values values;
+        values.chapter = QStringLiteral("A techjogok munkavállalói jogok: a Para és a tuvlapok ").repeated(4);
+        values.chapterPage = 123;
+        values.chapterPages = 456;
+        for (const auto &size : {QStringLiteral("small"), QStringLiteral("large")}) {
+            page.chrome.headerSize = page.chrome.footerSize = size;
+            for (int slot = 0; slot < headerfooter::slotCount; ++slot) {
+                page.chrome.slotFields.fill(headerfooter::Field::Nothing);
+                page.slotContents = {};
+                page.chrome.slotFields[slot] = headerfooter::Field::ChapterAndPage;
+                const auto content = headerfooter::content(headerfooter::Field::ChapterAndPage, values, slot % 2);
+                page.slotContents[slot] = content;
+                auto font = page.font();
+                font.setPixelSize(slot < 3 ? page.headerTextPixels() : page.footerTextPixels());
+                const int ribbon = slot < 3 ? qRound(page.width() * .036) + ui::metrics::reading::headerTextGap : 0;
+                const int room = page.width() - 2 * ui::metrics::reading::headerSide -
+                                 (slot % 3 == 1 ? 2 * ribbon : slot % 3 == 2 ? ribbon : 0);
+                const auto fitted = ui::headerFooterText(content, font, room);
+                QVERIFY(fitted.endsWith(content.chapterPosition));
+                QVERIFY(fitted.contains(QChar(0x2026)));
+                QVERIFY(ui::interfaceTextWidth(fitted, font) <= room);
+                const auto ellipsisAndPage = strings::get("reader.chapter_position")
+                    .arg(QString(QChar(0x2026)), content.chapterPosition);
+                QCOMPARE(ui::headerFooterText(content, font, ui::interfaceTextWidth(ellipsisAndPage, font)),
+                         ellipsisAndPage);
+                QCOMPARE(ui::headerFooterText(content, font, ui::interfaceTextWidth(content.chapterPosition, font)),
+                         content.chapterPosition);
+                QCOMPARE(ui::headerFooterText(content, font, ui::interfaceTextWidth(content.text, font)), content.text);
+                page.refreshContent();
+                const auto actual = page.snapshot();
+                const auto captures = qEnvironmentVariable("KOBALT_CAPTURE_HEADER_FOOTER");
+                if (!captures.isEmpty()) {
+                    QVERIFY(QDir().mkpath(captures));
+                    const auto band = slot < 3 ? page.headerTextRect() : page.footerTextRect();
+                    QVERIFY(actual.copy(band).save(captures + QString("/strip-%1-%2-%3-%4.png")
+                        .arg(dark ? "dark" : "light").arg(ppi).arg(size).arg(slot)));
+                }
+                // A plain field with the complete page suffix must produce the same pixels.
+                page.slotContents[slot] = {};
+                page.slotContents[slot].text = fitted;
+                page.refreshContent();
+                QCOMPARE(actual, page.snapshot());
+
+                reader::SlotContents contents{};
+                contents[slot] = content;
+                preview.setSlots(page.chrome, contents);
+                auto *cell = preview.cell(slot);
+                namespace hf = ui::metrics::headerFooter;
+                const int left = slot % 3 == 0 ? int(hf::mapSideInset) : hf::slotGap / 2;
+                const int right = slot % 3 == 2 ? int(hf::mapSideInset) : hf::slotGap / 2;
+                const int previewRoom = cell->width() - left - right - 2 * (ui::metrics::list::lineInset - hf::slotGap / 2);
+                const auto previewImage = cell->grab().toImage();
+                contents[slot] = {};
+                contents[slot].text = ui::headerFooterText(content, font, previewRoom);
+                QVERIFY(contents[slot].text.endsWith(content.chapterPosition));
+                preview.setSlots(page.chrome, contents);
+                QCOMPARE(previewImage, cell->grab().toImage());
+            }
+        }
+        auto font = ui::headerFooterFont(24);
+        for (const auto &title : {QStringLiteral("第一章　とても長い章の名前").repeated(20),
+                                 QStringLiteral("A title containing · 9 of 10 · and more text ").repeated(10)}) {
+            values.chapter = title;
+            const auto content = headerfooter::content(headerfooter::Field::ChapterAndPage, values, false);
+            const auto fitted = ui::headerFooterText(content, font, ui::px(250));
+            QVERIFY(fitted.endsWith(content.chapterPosition));
+            QVERIFY(ui::interfaceTextWidth(fitted, font) <= ui::px(250));
+        }
     }
     void batteryTextAlignment_data() { variants(); }
     void batteryTextAlignment() {

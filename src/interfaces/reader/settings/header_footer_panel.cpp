@@ -40,6 +40,7 @@ void paintValue(QPainter &painter, const QRect &bounds, const Content &content, 
     const auto textFont = content.batteryIcon && !content.text.isEmpty()
         ? ui::batteryTextFont(font, body, ui::headerFooterTextWeight()) : font;
     painter.save();
+    painter.setClipRect(bounds, Qt::IntersectClip);
     painter.setFont(textFont);
     const int icon = content.batteryIcon ? qCeil(ui::batteryWidth(body)) : 0;
     const int gap = content.batteryIcon && !content.text.isEmpty() ? int(m::reading::batteryGap) : 0;
@@ -50,7 +51,7 @@ void paintValue(QPainter &painter, const QRect &bounds, const Content &content, 
                                    : ui::interfaceTextWidth(text, textFont);
     if (textWidth > room) {
         halfSpaces = false;
-        text = ui::elideInterfaceText(text, textFont, room);
+        text = ui::headerFooterText(content, textFont, room);
         textWidth = text.isEmpty() ? 0 : ui::interfaceTextWidth(text, textFont);
     }
     const int total = textWidth + gap + icon;

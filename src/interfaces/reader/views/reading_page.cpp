@@ -75,7 +75,7 @@ void paintContent(QPainter &painter, const QRect &bounds, Field field, const Con
     QString text = content.text;
     int width = textWidth(textFont, field, text);
     if (width > room) {
-        text = ui::elideInterfaceText(text, textFont, room);
+        text = ui::headerFooterText(content, textFont, room);
         width = ui::interfaceTextWidth(text, textFont);
         field = Field::Nothing;
     }
@@ -84,6 +84,7 @@ void paintContent(QPainter &painter, const QRect &bounds, Field field, const Con
                   : align & Qt::AlignHCenter ? bounds.x() + (bounds.width() - total) / 2
                                              : bounds.x();
     painter.save();
+    painter.setClipRect(bounds, Qt::IntersectClip);
     painter.setFont(textFont);
     if (!text.isEmpty()) {
         if (content.batteryIcon)

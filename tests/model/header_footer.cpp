@@ -116,6 +116,18 @@ int main() {
     require(content(Field::ChapterAndPage, values, false).text ==
                 strings::get("reader.chapter_position").arg(values.chapter, QStringLiteral("6 of 20")),
             "Chapter and page is wrong");
+    const auto combined = content(Field::ChapterAndPage, values, true);
+    require(combined.chapterTitle == values.chapter.toUpper() && combined.chapterPosition == QStringLiteral("6 OF 20"),
+            "Combined chapter parts lost their case or page count");
+    auto missingChapter = values;
+    missingChapter.chapter.clear();
+    require(content(Field::ChapterAndPage, missingChapter, false).text == QStringLiteral("6 of 20"),
+            "An empty chapter left a separator before its page count");
+    auto missingTotal = values;
+    missingTotal.chapterPages = 0;
+    require(content(Field::ChapterAndPage, missingTotal, false).chapterPosition.isEmpty() &&
+                content(Field::ChapterAndPage, missingTotal, false).text == values.chapter,
+            "An unknown chapter total left a page suffix");
     require(content(Field::TitleAndPage, values, false).text.endsWith(QStringLiteral(" 6 of 193")),
             "Title and page is wrong");
     require(pageCount(Field::ChapterPage) && pageCount(Field::BookPage) && !pageCount(Field::ChapterAndPage),

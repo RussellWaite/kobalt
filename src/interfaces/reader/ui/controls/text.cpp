@@ -4,6 +4,8 @@
 #include "../style/font_data.h"
 #include "../style/styles.h"
 #include "../style/theme.h"
+#include "reading/header_footer.h"
+#include "support/strings.h"
 #include <QAbstractTextDocumentLayout>
 #include <QFontInfo>
 #include <QFontMetrics>
@@ -22,6 +24,37 @@
 
 namespace kobalt::ui {
 namespace m = metrics;
+QString headerFooterText(const headerfooter::Content &content, const QFont &font, int width) {
+    if (interfaceTextWidth(content.text, font) <= width)
+        return content.text;
+    if (content.chapterPosition.isEmpty())
+        return elideInterfaceText(content.text, font, width);
+    const QString ellipsis(QChar(0x2026));
+    const auto joined = [&](const QString &title) {
+        return strings::get("reader.chapter_position").arg(title, content.chapterPosition);
+    };
+    QString best = joined(ellipsis);
+    if (interfaceTextWidth(best, font) > width)
+        return content.chapterPosition;
+    QTextBoundaryFinder finder(QTextBoundaryFinder::Grapheme, content.chapterTitle);
+    QVector<int> boundaries;
+    finder.toStart();
+    for (int end = finder.toNextBoundary(); end >= 0; end = finder.toNextBoundary())
+        boundaries.append(end);
+    // Measure the whole candidate so shaping and rounding at the join agree with painting.
+    int first = 0, last = boundaries.size() - 1;
+    while (first <= last) {
+        const int middle = first + (last - first) / 2;
+        const auto text = joined(content.chapterTitle.left(boundaries[middle]) + ellipsis);
+        if (interfaceTextWidth(text, font) <= width) {
+            best = text;
+            first = middle + 1;
+        } else {
+            last = middle - 1;
+        }
+    }
+    return best;
+}
 namespace {
 struct ExcerptLine {
     QString text;
