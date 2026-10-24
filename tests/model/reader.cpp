@@ -19,6 +19,7 @@
 #include <lvfntman.h>
 #include <lvbionic.h>
 #include <QCryptographicHash>
+#include <QColor>
 #include <QBuffer>
 #include <QElapsedTimer>
 #include <QFile>
@@ -166,6 +167,98 @@ static void checkKoboStyleHacks() {
     require(streamed.image(0) == expected.image(0), "Resource opening retained Kobo style hacks");
     require(preview.openPreview(streamed, QSize(800, 1000), &error), qPrintable(error));
     require(preview.image(0) == expected.image(0), "Preview retained Kobo style hacks");
+}
+static void checkDarkModeTextColors() {
+    struct Case {
+        const char *ink;
+        const char *paper;
+        QRgb nightInk;
+        QRgb nightPaper = 0;
+    };
+    const Case cases[] = {
+        {"#12120d", "transparent", qRgb(237, 237, 242)},
+        {"#0d1212", "transparent", qRgb(242, 237, 237)},
+        {"#120d12", "transparent", qRgb(237, 242, 237)},
+        {"#20202a", "transparent", qRgb(223, 223, 213)},
+        {"#20202b", "transparent", qRgb(32, 32, 43)},
+        {"#121212", "transparent", qRgb(237, 237, 237)},
+        {"#12120d", "#dddddd", qRgb(237, 237, 242), qRgb(34, 34, 34)},
+        {"#e8f0f0", "#222222", qRgb(23, 15, 15), qRgb(221, 221, 221)},
+        {"#0000ff", "transparent", qRgb(0, 0, 255)},
+        {"#cc2200", "transparent", qRgb(204, 34, 0)},
+        {"#12120d", "#ffff00", qRgb(18, 18, 13), qRgb(255, 255, 0)},
+        {"#121212", "#ffff00", qRgb(18, 18, 18), qRgb(255, 255, 0)},
+        {"#12120d", "#fffef5", qRgb(18, 18, 13), qRgb(255, 254, 245)},
+        {"#e8f0f0", "#224466", qRgb(232, 240, 240), qRgb(34, 68, 102)},
+        {"#eeeeee", "#224466", qRgb(238, 238, 238), qRgb(34, 68, 102)},
+    };
+    kobalt::ReaderModel model(kobalt::test::readerFonts());
+    for (const auto &test : cases) {
+        for (const bool inlinePaper : {false, true}) {
+            const QByteArray ink(test.ink), paper(test.paper);
+            const auto background = " style='background-color:" + paper + "'";
+            const auto body = "<p style='margin:0;text-indent:0;color:" + ink +
+                              (inlinePaper ? "'" : ";background-color:" + paper + "'") + ">" +
+                              (inlinePaper ? "<span" + background + ">" : "<span>") +
+                              "Readable publisher text.</span></p>";
+            const auto bytes = storedEpub({
+                {"mimetype", "application/epub+zip"},
+                {"META-INF/container.xml", "<container xmlns='urn:oasis:names:tc:opendocument:xmlns:container' version='1.0'><rootfiles><rootfile full-path='book.opf' media-type='application/oebps-package+xml'/></rootfiles></container>"},
+                {"book.opf", "<package xmlns='http://www.idpf.org/2007/opf' version='2.0'><metadata><title>Text colors</title></metadata><manifest><item id='c' href='c.xhtml' media-type='application/xhtml+xml'/></manifest><spine><itemref idref='c'/></spine></package>"},
+                {"c.xhtml", "<html xmlns='http://www.w3.org/1999/xhtml'><head><title>Text colors</title></head><body>" + body + "</body></html>"},
+            });
+            QString error;
+            require(model.open(bytes, QSize(800, 300), {{"font_pixels", 48}}, &error), qPrintable(error));
+            const auto day = model.image(0);
+            const auto position = model.position();
+            const auto pages = model.pages();
+            model.setDarkMode(true);
+            const auto night = model.image(0);
+            const auto dayInk = QColor(test.ink).rgb();
+            const bool hasPaper = paper != "transparent";
+            const auto dayPaper = QColor(test.paper).rgb();
+            const bool coloredPaper = hasPaper && dayPaper == test.nightPaper;
+            QRect paperBounds;
+            int checked = 0, checkedPaper = 0;
+            for (int y = 0; y < day.height(); ++y) {
+                for (int x = 0; x < day.width(); ++x) {
+                    if (day.pixel(x, y) == dayInk) {
+                        require(night.pixel(x, y) == test.nightInk,
+                                qPrintable(QString("Dark text color changed incorrectly: %1 on %2 (%3 background)")
+                                               .arg(test.ink, test.paper, inlinePaper ? "inline" : "block")));
+                        ++checked;
+                    }
+                    if (hasPaper && day.pixel(x, y) == dayPaper) {
+                        const auto after = night.pixel(x, y);
+                        // A faint glyph edge can round to the paper color only in day mode.
+                        require(qAbs(qRed(after) - qRed(test.nightPaper)) <= 2 &&
+                                    qAbs(qGreen(after) - qGreen(test.nightPaper)) <= 2 &&
+                                    qAbs(qBlue(after) - qBlue(test.nightPaper)) <= 2,
+                                qPrintable(QString("Dark paper changed incorrectly: %1 on %2 (%3 background), got %4")
+                                               .arg(test.ink, test.paper, inlinePaper ? "inline" : "block")
+                                               .arg(night.pixel(x, y), 8, 16, QChar('0'))));
+                        paperBounds |= QRect(x, y, 1, 1);
+                        ++checkedPaper;
+                    }
+                }
+            }
+            require(checked > 100, "Text-color fixture did not render solid glyph pixels");
+            require(!hasPaper || checkedPaper > 100, "Text-color fixture did not render its background");
+            if (coloredPaper) {
+                for (int y = paperBounds.top(); y <= paperBounds.bottom(); ++y)
+                    for (int x = paperBounds.left(); x <= paperBounds.right(); ++x) {
+                        const auto before = day.pixel(x, y), after = night.pixel(x, y);
+                        // Integer glyph blending can differ by two levels after inversion.
+                        require(qAbs(qRed(before) - qRed(after)) <= 2 && qAbs(qGreen(before) - qGreen(after)) <= 2 &&
+                                    qAbs(qBlue(before) - qBlue(after)) <= 2,
+                                "Dark mode changed text contrast on colored paper");
+                    }
+            }
+            require(model.pages() == pages && model.position() == position, "Dark colors moved the reading position");
+            model.setDarkMode(false);
+            require(model.image(0) == day, "Returning to light mode changed publisher text colors");
+        }
+    }
 }
 static void checkPagePixelConversion() {
     for (const auto size : {QSize(1, 1), QSize(31, 33), QSize(65, 63), QSize(1264, 1680), QSize(2049, 2049)}) {
@@ -624,6 +717,7 @@ int main(int argc, char **argv) {
     checkJpeg(true);
     checkSvg();
     checkKoboStyleHacks();
+    checkDarkModeTextColors();
     checkPagePixelConversion();
     require(argc == 3, "Pass the text and color test EPUB paths");
     QFile file(QString::fromLocal8Bit(argv[1]));

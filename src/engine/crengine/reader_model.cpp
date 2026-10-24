@@ -133,9 +133,12 @@ public:
         const auto background = GetBackgroundColor();
         const bool neutral = qRed(color) == qGreen(color) && qRed(color) == qBlue(color);
         const bool coloredPaper = qRed(background) != qGreen(background) || qRed(background) != qBlue(background);
-        // Preserve the publisher's contrast on colored backgrounds. Inverting
-        // black text on a preserved yellow highlight would make it white.
-        const lUInt32 ink = dark && neutral && coloredPaper && (background >> 24) != 255 ? color ^ 0x00ffffffU : color;
+        const bool preserveContrast = coloredPaper && (background >> 24) != 255;
+        // CREngine pre-inverts every non-gray text color. Undo that for faint
+        // tints on neutral paper so near-black text becomes light in dark mode.
+        // On preserved colored paper, keep the publisher's original contrast.
+        const bool invertInk = dark && (preserveContrast ? neutral : !neutral && !hasVisibleColour(color));
+        const lUInt32 ink = invertInk ? color ^ 0x00ffffffU : color;
         LVColorDrawBuf::Draw(x, y, bitmap, width, height, &ink);
     }
     void Draw(LVImageSourceRef image, int x, int y, int width, int height, bool dither) override {
