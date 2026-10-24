@@ -101,6 +101,9 @@ private:
 // negative percent draws an empty battery. Insets scale with the body height.
 void paintBattery(QPainter &painter, const QRectF &body, int percent, bool charging, const QColor &ink,
                   const QColor &paper);
+// Draws the charging bolt upright around center, at the scale of a body
+// `scale` times the reference battery's height.
+void paintBatteryBolt(QPainter &painter, const QPointF &center, qreal scale, const QColor &ink, const QColor &paper);
 // The width of the battery drawn for a body of this height, terminal included.
 qreal batteryWidth(qreal bodyHeight);
 // Fit a fixed percentage sample to the icon's body, independent of its value.

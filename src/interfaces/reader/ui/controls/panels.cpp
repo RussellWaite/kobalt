@@ -262,15 +262,19 @@ void paintBattery(QPainter &painter, const QRectF &body, int percent, bool charg
     auto fill = body.adjusted(part(4), part(4), -part(4), -part(4));
     fill.setWidth(qRound(fill.width() * qMax(0, percent) / 100.0));
     painter.fillRect(fill, ink);
-    if (charging) {
-        const auto center = body.center();
-        const QPolygonF bolt(QVector<QPointF>{center + QPointF(2, -9) * scale, center + QPointF(-5, 1) * scale,
-                                              center + QPointF(0, 1) * scale, center + QPointF(-2, 9) * scale,
-                                              center + QPointF(5, -1) * scale, center + QPointF(0, -1) * scale});
-        painter.setPen(QPen(paper, 2 * scale));
-        painter.setBrush(ink);
-        painter.drawPolygon(bolt);
-    }
+    if (charging)
+        paintBatteryBolt(painter, body.center(), scale, ink, paper);
+    painter.restore();
+}
+void paintBatteryBolt(QPainter &painter, const QPointF &center, qreal scale, const QColor &ink, const QColor &paper) {
+    const QPolygonF bolt(QVector<QPointF>{center + QPointF(2, -9) * scale, center + QPointF(-5, 1) * scale,
+                                          center + QPointF(0, 1) * scale, center + QPointF(-2, 9) * scale,
+                                          center + QPointF(5, -1) * scale, center + QPointF(0, -1) * scale});
+    painter.save();
+    painter.setRenderHint(QPainter::Antialiasing);
+    painter.setPen(QPen(paper, 2 * scale));
+    painter.setBrush(ink);
+    painter.drawPolygon(bolt);
     painter.restore();
 }
 qreal batteryWidth(qreal bodyHeight) {
