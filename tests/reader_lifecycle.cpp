@@ -41,6 +41,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QFontDatabase>
+#include <QImageWriter>
 #include <QJsonArray>
 #include <QLabel>
 #include <QLineEdit>
@@ -1815,6 +1816,20 @@ private slots:
         QCOMPARE(loaded.progress, snapshot.progress);
         QCOMPARE(loaded.remaining, snapshot.remaining);
         QCOMPARE(loaded.dark, snapshot.dark);
+        QCOMPARE(loaded.percent, -1);
+        snapshot.percent = 42;
+        QVERIFY(storage::writeSleepSnapshot(path, snapshot, "book-stamp"));
+        QCOMPARE(storage::readSleepSnapshot(path, "book-stamp", sleep::Mode::Page).percent, 42);
+        {
+            // Images saved before the percentage was stored still load.
+            QImageWriter writer(path, "png");
+            writer.setText("kobalt", R"({"version":1,"token":"book-stamp","mode":"page","orientation":4,)"
+                                     R"("progress":"42% read","remaining":"","dark":false,"dim":true})");
+            QVERIFY(writer.write(snapshot.image));
+        }
+        const auto older = storage::readSleepSnapshot(path, "book-stamp", sleep::Mode::Page);
+        QCOMPARE(older.image, snapshot.image);
+        QCOMPARE(older.percent, -1);
         QVERIFY(storage::readSleepSnapshot(path, "other-book", sleep::Mode::Page).image.isNull());
         QVERIFY(storage::readSleepSnapshot(path, "", sleep::Mode::Page).image.isNull());
         QVERIFY(storage::readSleepSnapshot(path, "book-stamp", sleep::Mode::Cover).image.isNull());
@@ -1989,18 +2004,27 @@ private slots:
     void sleepScreenUpdatesWhilePluggedIn_data() {
         QTest::addColumn<QString>("mode");
         QTest::addColumn<bool>("dark");
+        QTest::addColumn<QString>("tile");
         for (const auto &mode : {QString("stock"), QString("page"), QString("cover")}) {
-            QTest::newRow(qPrintable(mode + "-light")) << mode << false;
-            QTest::newRow(qPrintable(mode + "-dark")) << mode << true;
+            QTest::newRow(qPrintable(mode + "-light")) << mode << false << QString();
+            QTest::newRow(qPrintable(mode + "-dark")) << mode << true << QString();
+        }
+        for (const auto &tile : {QString("band"), QString("bookmark")}) {
+            QTest::newRow(qPrintable("page-" + tile + "-light")) << QString("page") << false << tile;
+            QTest::newRow(qPrintable("cover-" + tile + "-dark")) << QString("cover") << true << tile;
         }
     }
     void sleepScreenUpdatesWhilePluggedIn() {
         QFETCH(QString, mode);
         QFETCH(bool, dark);
+        QFETCH(QString, tile);
         QTemporaryDir directory;
         QVERIFY(directory.isValid());
         storage::Paths paths{directory.path()};
-        QVERIFY(storage::writeJson(paths.preferences(), {{sleep::preferenceKey, mode}, {"dark_mode", dark}}));
+        QJsonObject preferences{{sleep::preferenceKey, mode}, {"dark_mode", dark}};
+        if (!tile.isEmpty())
+            preferences[sleep::tileKey] = tile;
+        QVERIFY(storage::writeJson(paths.preferences(), preferences));
         auto state = std::make_shared<test::SleepPresentationState>();
         BatteryStatus battery{66, false, false};
         std::function<void()> changed;
@@ -2046,13 +2070,19 @@ private slots:
         QCOMPARE(state->presented, 1);
         const auto initial = state->image;
         QVERIFY(!initial.isNull());
+        // A point on the page that the selected tile does not cover.
+        const QPoint outside = tile == "bookmark" ? QPoint(100, 200) : QPoint(1000, 200);
         battery.percent = 68;
         changed();
         QCOMPARE(state->updated, 1);
         QVERIFY(state->image != initial);
-        QCOMPARE(state->image.pixel(1000, 200), initial.pixel(1000, 200));
+        QCOMPARE(state->image.pixel(outside), initial.pixel(outside));
         QVERIFY(!state->damage.isEmpty());
-        QVERIFY(!state->damage.contains(QPoint(1000, 200)));
+        QVERIFY(!state->damage.contains(outside));
+        if (!tile.isEmpty()) {
+            // These tiles keep one area whether or not a time estimate is shown.
+            QCOMPARE(state->damage, reader::sleepScreenCardRect(initial.size(), false, sleep::tile(preferences)));
+        }
         const auto charging = state->image;
         changed();
         QCOMPARE(state->updated, 1);
@@ -2065,7 +2095,7 @@ private slots:
         changed();
         QCOMPARE(state->updated, 3);
         QVERIFY(state->image != charged);
-        QCOMPARE(state->image.pixel(1000, 200), initial.pixel(1000, 200));
+        QCOMPARE(state->image.pixel(outside), initial.pixel(outside));
         const auto unplugged = state->image;
         battery.percent = 20;
         changed();
@@ -2120,6 +2150,69 @@ private slots:
         QCOMPARE(reader::sleepStatusText(reader::SleepStatus::Sleeping), QString("Sleeping"));
         QCOMPARE(reader::sleepStatusText(reader::SleepStatus::Charging), QString("Charging"));
         QCOMPARE(reader::sleepStatusText(reader::SleepStatus::Charged), QString("Charged"));
+        ui::setDensity(previous);
+    }
+
+    void sleepTilesRepaintOnlyTheirArea_data() {
+        QTest::addColumn<int>("ppi");
+        QTest::addColumn<bool>("dark");
+        QTest::addColumn<int>("tileIndex");
+        for (const int ppi : {212, 300}) {
+            for (const auto tile : sleep::tiles) {
+                const auto name = QString::number(ppi) + "-" + sleep::value(tile);
+                QTest::newRow(qPrintable(name + "-light")) << ppi << false << int(tile);
+                QTest::newRow(qPrintable(name + "-dark")) << ppi << true << int(tile);
+            }
+        }
+    }
+    void sleepTilesRepaintOnlyTheirArea() {
+        QFETCH(int, ppi);
+        QFETCH(bool, dark);
+        QFETCH(int, tileIndex);
+        const auto tile = sleep::Tile(tileIndex);
+        const int previous = ui::density();
+        ui::setDensity(ppi);
+        for (const QSize size : {QSize(1072, 1448), QSize(1448, 1072)}) {
+            QImage page(size, QImage::Format_RGB32);
+            page.fill(QColor(150, 150, 150));
+            const auto paint = [&](const QImage &background, reader::SleepStatus status, bool dim, int percent = 42) {
+                return reader::sleepScreenImage(background, "42% read", "3 h 37 min to go", dark, 67, status, dim, tile,
+                                                percent);
+            };
+            const auto area = reader::sleepScreenCardRect(size, true, tile);
+            QVERIFY(QRect(QPoint(), size).contains(area));
+            const auto sleeping = paint(page, reader::SleepStatus::Sleeping, true);
+            const auto charging = paint(page, reader::SleepStatus::Charging, true);
+            const auto poweredOff = paint(page, reader::SleepStatus::PoweredOff, true);
+            QVERIFY(sleeping != charging);
+            QVERIFY(sleeping != poweredOff);
+            // A battery update refreshes only the tile's area, so nothing outside it may change.
+            for (int y = 0; y < size.height(); ++y) {
+                for (int x = 0; x < size.width(); ++x) {
+                    if (!area.contains(x, y) && charging.pixel(x, y) != sleeping.pixel(x, y))
+                        QFAIL(qPrintable(QString("tile changed %1,%2 outside its area").arg(x).arg(y)));
+                }
+            }
+            // A battery update paints over the retained frame and must give the
+            // same pixels as painting the new status once.
+            QCOMPARE(paint(charging, reader::SleepStatus::Sleeping, false), sleeping);
+            QCOMPARE(paint(sleeping, reader::SleepStatus::Charging, false), charging);
+            if (tile == sleep::Tile::Card)
+                QCOMPARE(paint(page, reader::SleepStatus::Sleeping, true, 90), sleeping);
+            else
+                QVERIFY(paint(page, reader::SleepStatus::Sleeping, true, 90) != sleeping);
+            // Snapshots saved without a percentage still paint.
+            QVERIFY(!paint(page, reader::SleepStatus::Sleeping, true, -1).isNull());
+            const auto capture = qEnvironmentVariable("KOBALT_SLEEP_TILE_CAPTURE_ROOT");
+            if (!capture.isEmpty()) {
+                QVERIFY(QDir().mkpath(capture));
+                const auto name = QString("%1/%2-%3-%4-%5").arg(capture, sleep::value(tile)).arg(ppi)
+                                      .arg(dark ? "dark" : "light").arg(size.width() > size.height() ? "landscape" : "portrait");
+                QVERIFY(sleeping.save(name + "-sleeping.png"));
+                QVERIFY(charging.save(name + "-charging.png"));
+                QVERIFY(poweredOff.save(name + "-powered-off.png"));
+            }
+        }
         ui::setDensity(previous);
     }
 
@@ -2232,6 +2325,16 @@ private slots:
         }
         for (const auto &invalid : {QJsonValue("unknown"), QJsonValue(true), QJsonValue(QJsonValue::Null)}) {
             QCOMPARE(sleep::mode({{sleep::preferenceKey, invalid}, {"kobalt_sleep_screen", true}}), sleep::Mode::Stock);
+        }
+        QCOMPARE(sleep::tile({}), sleep::Tile::Card);
+        for (const auto tile : sleep::tiles) {
+            QCOMPARE(sleep::tile({{sleep::tileKey, sleep::value(tile)}}), tile);
+            QCOMPARE(appearance::cleanPreferences({{sleep::tileKey, sleep::value(tile)}}).value(sleep::tileKey),
+                     QJsonValue(sleep::value(tile)));
+        }
+        for (const auto &invalid : {QJsonValue("unknown"), QJsonValue(true), QJsonValue(QJsonValue::Null)}) {
+            QCOMPARE(sleep::tile({{sleep::tileKey, invalid}}), sleep::Tile::Card);
+            QVERIFY(!appearance::cleanPreferences({{sleep::tileKey, invalid}}).contains(sleep::tileKey));
         }
     }
 

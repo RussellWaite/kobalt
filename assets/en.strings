@@ -604,6 +604,13 @@
 "settings.sleep_cover_description" = "Shows the book cover with reading progress and battery status.";
 "settings.sleep_page" = "Kobalt with reading page";
 "settings.sleep_page_description" = "Dims the current page and shows reading progress and battery status.";
+"settings.sleep_tile" = "Sleep screen style";
+"settings.sleep_tile_card" = "Card";
+"settings.sleep_tile_card_description" = "Default. A card in the lower-left corner.";
+"settings.sleep_tile_band" = "Footer band";
+"settings.sleep_tile_band_description" = "A strip along the bottom edge. Its top line shows how much you have read.";
+"settings.sleep_tile_bookmark" = "Bookmark";
+"settings.sleep_tile_bookmark_description" = "A ribbon that hangs from the top edge and shows the percentage read.";
 "sleep.sleeping" = "Sleeping";
 "sleep.powered_off" = "Powered off";
 "sleep.charging" = "Charging";

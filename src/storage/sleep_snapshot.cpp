@@ -26,7 +26,8 @@ bool writeSleepSnapshot(const QString &path, const sleep::Snapshot &snapshot, co
         return false;
     const auto metadata = qt::object({{"version", 1}, {"token", token}, {"mode", sleep::value(snapshot.mode)},
                                {"orientation", int(snapshot.orientation)}, {"progress", snapshot.progress},
-                               {"remaining", snapshot.remaining}, {"dark", snapshot.dark}, {"dim", snapshot.dimPage}});
+                               {"remaining", snapshot.remaining}, {"dark", snapshot.dark}, {"dim", snapshot.dimPage},
+                               {"percent", snapshot.percent}});
     const auto bytes = QJsonDocument(metadata).toJson(QJsonDocument::Compact);
     if (bytes.size() > 16384 || !QDir().mkpath(QFileInfo(path).absolutePath()))
         return false;
@@ -60,7 +61,10 @@ sleep::Snapshot readSleepSnapshot(const QString &path, const QString &token, sle
     auto image = reader.read();
     if (!validSize(image.size()))
         return {};
+    // Older images have no percentage. Tiles that draw it leave it out.
+    const int percent = metadata.value("percent").toInt(-1);
     return {std::move(image), Qt::ScreenOrientation(orientation), metadata.value("progress").toString(),
-            metadata.value("remaining").toString(), metadata.value("dark").toBool(), mode, metadata.value("dim").toBool()};
+            metadata.value("remaining").toString(), metadata.value("dark").toBool(), mode, metadata.value("dim").toBool(),
+            percent >= 0 && percent <= 100 ? percent : -1};
 }
 }

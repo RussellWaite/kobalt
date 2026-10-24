@@ -81,6 +81,7 @@ void HomeSleepScreen::prepare(bool enabled, bool powerOff) {
     if (preferences.status != storage::ReadStatus::Ok)
         return;
     snapshot = storage::readSleepSnapshot(paths.sleepScreen(), currentToken(), sleep::mode(preferences.object));
+    snapshot.tile = sleep::tile(preferences.object);
     poweredOff = powerOff;
     compose();
 }
@@ -109,7 +110,8 @@ void HomeSleepScreen::compose() {
                         : battery.fullyCharged ? reader::SleepStatus::Charged
                         : battery.charging ? reader::SleepStatus::Charging : reader::SleepStatus::Sleeping;
     snapshot.image = reader::sleepScreenImage(std::move(snapshot.image), snapshot.progress, snapshot.remaining,
-                                             snapshot.dark, battery.percent, status, snapshot.dimPage);
+                                             snapshot.dark, battery.percent, status, snapshot.dimPage, snapshot.tile,
+                                             snapshot.percent);
     snapshot.dimPage = false;
 }
 void HomeSleepScreen::present() {
@@ -129,8 +131,9 @@ void HomeSleepScreen::updateBattery() {
     const auto status = battery.fullyCharged ? reader::SleepStatus::Charged
                         : battery.charging ? reader::SleepStatus::Charging : reader::SleepStatus::Sleeping;
     snapshot.image = reader::sleepScreenImage(std::move(snapshot.image), snapshot.progress, snapshot.remaining,
-                                             snapshot.dark, battery.percent, status, false);
-    presentation->updateSleepScreen(snapshot.image,
-                                    reader::sleepScreenCardRect(snapshot.image.size(), !snapshot.remaining.isEmpty()));
+                                             snapshot.dark, battery.percent, status, false, snapshot.tile,
+                                             snapshot.percent);
+    presentation->updateSleepScreen(
+        snapshot.image, reader::sleepScreenCardRect(snapshot.image.size(), !snapshot.remaining.isEmpty(), snapshot.tile));
 }
 }

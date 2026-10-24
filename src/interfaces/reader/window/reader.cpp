@@ -159,7 +159,8 @@ sleep::Snapshot Reader::powerScreenSnapshot() {
     if (exportRunning)
         return exitSleepSnapshot;
     if (lifecycleHidden && !sleepImage.isNull())
-        return {sleepImage, sleepOrientation, sleepProgress, sleepRemaining, darkTheme, sleep::mode(preferences), false};
+        return {sleepImage, sleepOrientation, sleepProgress, sleepRemaining, darkTheme, sleep::mode(preferences), false,
+                sleepPercent, sleep::tile(preferences)};
     return captureSleepScreen();
 }
 
@@ -180,7 +181,7 @@ sleep::Snapshot Reader::captureSleepScreen() {
     const int percent = qBound(0, int(100.0 * model->page() / qMax(1, model->pages())), 100);
     return {std::move(frame), kobalt::shownOrientation(QGuiApplication::primaryScreen()),
             strings::get("sleep.percent_read").arg(percent), sleepTimeLeft(book->estimates().bookMilliseconds),
-            darkTheme, mode, !useCover};
+            darkTheme, mode, !useCover, percent, sleep::tile(preferences)};
 }
 
 void Reader::sleepReader() {
@@ -198,11 +199,12 @@ void Reader::sleepReader() {
     sleepOrientation = snapshot.orientation;
     sleepProgress = snapshot.progress;
     sleepRemaining = snapshot.remaining;
+    sleepPercent = snapshot.percent;
     sleepBattery = services.battery();
     const auto status = sleepBattery.fullyCharged ? SleepStatus::Charged
                         : sleepBattery.charging ? SleepStatus::Charging : SleepStatus::Sleeping;
     sleepImage = sleepScreenImage(std::move(snapshot.image), sleepProgress, sleepRemaining, darkTheme,
-                                  sleepBattery.percent, status, snapshot.dimPage);
+                                  sleepBattery.percent, status, snapshot.dimPage, snapshot.tile, sleepPercent);
     services.cancelAnimation();
     page->animationDirection = 0;
     setProperty("reader_animation_direction", 0);
@@ -242,10 +244,12 @@ void Reader::updateSleepBattery() {
                                              : SleepStatus::Sleeping;
     // Paint over the card in the retained frame. Reusing the composed background
     // avoids another cover decode or another dimming pass while asleep.
+    const auto tile = sleep::tile(preferences);
     sleepImage = sleepScreenImage(std::move(sleepImage), sleepProgress, sleepRemaining, darkTheme, battery.percent,
-                                  status, false);
+                                  status, false, tile, sleepPercent);
     if (!isVisible()) {
-        presentation->updateSleepScreen(sleepImage, sleepScreenCardRect(sleepImage.size(), !sleepRemaining.isEmpty()));
+        presentation->updateSleepScreen(sleepImage,
+                                        sleepScreenCardRect(sleepImage.size(), !sleepRemaining.isEmpty(), tile));
     }
 }
 

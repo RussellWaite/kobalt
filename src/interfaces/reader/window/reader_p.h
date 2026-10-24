@@ -212,6 +212,7 @@ private:
     QImage sleepImage, sleepCover;
     sleep::Snapshot exitSleepSnapshot;
     QString sleepProgress, sleepRemaining;
+    int sleepPercent = -1;
     BatteryStatus sleepBattery;
     quint64 sleepCoverRequest = 0;
     Qt::ScreenOrientation sleepOrientation = Qt::PrimaryOrientation;
@@ -393,6 +394,14 @@ private:
     void updateSleepBattery();
     void showSleepScreen();
     void openSleepScreen();
+    void openSleepTile();
+    struct SleepOption {
+        QString value, label, explanation;
+    };
+    // The sleep screen and sleep tile choices share one popup.
+    void openSleepChoice(const QString &name, const QString &optionPrefix, const QString &heading,
+                         const QVector<SleepOption> &options, int current, std::function<void(int)> chosen);
+    bool saveSleepPreferences(const QJsonObject &next);
     void closeSleepScreen();
     void showTapZones();
     void openTapZones();
@@ -443,7 +452,7 @@ private:
     ui::DescribedOption *bionicOption = nullptr;
     kobalt::ui::CaptionButton *refreshButton = nullptr;
     QPointer<kobalt::ui::ModalOverlay> refreshPopup;
-    kobalt::ui::CaptionButton *sleepScreenButton = nullptr;
+    kobalt::ui::CaptionButton *sleepScreenButton = nullptr, *sleepTileButton = nullptr;
     QPointer<kobalt::ui::ModalOverlay> sleepPopup;
     kobalt::ui::CaptionButton *pageNavigationButton = nullptr, *tapZonesButton = nullptr,
                               *navigationBarButton = nullptr;

@@ -71,6 +71,9 @@ inline constexpr Px inset{48}, bottom{96}, width{620}, padding{36}, gap{20}, lin
 inline constexpr Px titleText{60}, detailText{32}, batteryText{28}, batteryGap{12};
 inline constexpr int dimAlpha = 40;
 inline constexpr auto lightPaper = "#ffffff", darkPaper = "#202020";
+inline constexpr Px bandHeight{188}, bandPadding{64}, bandRule{12}, bandTitleText{80}, bandGap{28}, captionText{26};
+inline constexpr Px ribbonWidth{280}, ribbonRight{104}, ribbonTop{120}, ribbonPadding{22}, ribbonNotch{70};
+inline constexpr Px ribbonOutline{4}, ribbonPercentText{104}, ribbonRule{70}, ribbonGap{22};
 }
 namespace scrubber {
 inline constexpr Px barHeight{144}, verticalPadding{16}, gap{20}, captionHeight{68}, padding{16}, text{24};

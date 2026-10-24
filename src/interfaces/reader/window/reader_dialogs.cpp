@@ -742,11 +742,35 @@ QString sleepExplanation(sleep::Mode mode) {
     }
     return {};
 }
+QString sleepTileLabel(sleep::Tile tile) {
+    switch (tile) {
+    case sleep::Tile::Card:
+        return strings::get("settings.sleep_tile_card");
+    case sleep::Tile::Band:
+        return strings::get("settings.sleep_tile_band");
+    case sleep::Tile::Bookmark:
+        return strings::get("settings.sleep_tile_bookmark");
+    }
+    return {};
+}
+QString sleepTileExplanation(sleep::Tile tile) {
+    switch (tile) {
+    case sleep::Tile::Card:
+        return strings::get("settings.sleep_tile_card_description");
+    case sleep::Tile::Band:
+        return strings::get("settings.sleep_tile_band_description");
+    case sleep::Tile::Bookmark:
+        return strings::get("settings.sleep_tile_bookmark_description");
+    }
+    return {};
+}
 }
 
 void Reader::showSleepScreen() {
     sleepScreenButton->setCaption(sleepScreenButton->isEnabled() ? sleepLabel(sleep::mode(preferences)).toUpper()
                                                                  : strings::get("settings.unsupported_caption"));
+    sleepTileButton->setCaption(sleepTileButton->isEnabled() ? sleepTileLabel(sleep::tile(preferences)).toUpper()
+                                                             : strings::get("settings.unsupported_caption"));
 }
 
 void Reader::closeSleepScreen() {
@@ -758,13 +782,61 @@ void Reader::closeSleepScreen() {
     sleepPopup.clear();
 }
 
+bool Reader::saveSleepPreferences(const QJsonObject &next) {
+    if (!writePreferences(next)) {
+        settingsError->setText(strings::get("reader.could_not_save_reader_settings"));
+        settingsError->show();
+        return false;
+    }
+    preferences = next;
+    showSleepScreen();
+    settingsError->clear();
+    settingsError->hide();
+    return true;
+}
+
 void Reader::openSleepScreen() {
+    QVector<SleepOption> options;
+    int current = 0;
+    for (const auto mode : sleep::modes) {
+        if (mode == sleep::mode(preferences))
+            current = int(options.size());
+        options.append({sleep::value(mode), sleepLabel(mode), sleepExplanation(mode)});
+    }
+    openSleepChoice("rrSleepScreen", "rrSleep_", strings::get("settings.sleep_screen"), options, current,
+                    [this](int index) {
+                        auto next = preferences;
+                        next[sleep::preferenceKey] = sleep::value(sleep::modes[index]);
+                        next.remove("kobalt_sleep_screen");
+                        if (saveSleepPreferences(next))
+                            prepareSleepCover();
+                    });
+}
+
+void Reader::openSleepTile() {
+    QVector<SleepOption> options;
+    int current = 0;
+    for (const auto tile : sleep::tiles) {
+        if (tile == sleep::tile(preferences))
+            current = int(options.size());
+        options.append({sleep::value(tile), sleepTileLabel(tile), sleepTileExplanation(tile)});
+    }
+    openSleepChoice("rrSleepTile", "rrSleepTile_", strings::get("settings.sleep_tile"), options, current,
+                    [this](int index) {
+                        auto next = preferences;
+                        next[sleep::tileKey] = sleep::value(sleep::tiles[index]);
+                        saveSleepPreferences(next);
+                    });
+}
+
+void Reader::openSleepChoice(const QString &name, const QString &optionPrefix, const QString &heading,
+                             const QVector<SleepOption> &options, int current, std::function<void(int)> chosen) {
     if (sleepPopup) {
         return;
     }
     namespace c = m::chrome;
     sleepPopup = new ui::ModalOverlay(this);
-    sleepPopup->setObjectName("rrSleepScreenPopup");
+    sleepPopup->setObjectName(name + "Popup");
     sleepPopup->setDimmed(true);
     sleepPopup->setGeometry(rect());
     sleepPopup->installEventFilter(this);
@@ -775,34 +847,19 @@ void Reader::openSleepScreen() {
     card->rows()->setContentsMargins(2, 2, 2, 2);
     card->rows()->setSpacing(0);
     card->rows()->addSpacing(m::notice::cardMargins.top());
-    auto *title = card->title(strings::get("settings.sleep_screen"), "rrSleepScreenTitle");
+    auto *title = card->title(heading, name + "Title");
     title->setContentsMargins(c::inset, 0, c::inset, 0);
     card->rows()->addSpacing(m::notice::cardMargins.bottom());
     const int cardWidth = qMin<int>(m::notice::cardWidth, width() - 2 * m::notice::sideClearance);
     auto *choices = new ui::RadioList(card);
-    choices->setObjectName("rrSleepScreenChoices");
+    choices->setObjectName(name + "Choices");
     choices->setMinimumRowHeight(c::listActionHeight);
     choices->setTopDivider(true);
-    for (const auto mode : sleep::modes) {
-        choices->add("rrSleep_" + sleep::value(mode), sleepLabel(mode), sleepExplanation(mode));
-        if (mode == sleep::mode(preferences)) {
-            choices->setCurrent(choices->options().size() - 1);
-        }
-    }
-    choices->chosen = [this](int index) {
-        auto next = preferences;
-        next[sleep::preferenceKey] = sleep::value(sleep::modes[index]);
-        next.remove("kobalt_sleep_screen");
-        if (writePreferences(next)) {
-            preferences = next;
-            prepareSleepCover();
-            showSleepScreen();
-            settingsError->clear();
-            settingsError->hide();
-        } else {
-            settingsError->setText(strings::get("reader.could_not_save_reader_settings"));
-            settingsError->show();
-        }
+    for (const auto &option : options)
+        choices->add(optionPrefix + option.value, option.label, option.explanation);
+    choices->setCurrent(current);
+    choices->chosen = [this, chosen = std::move(chosen)](int index) {
+        chosen(index);
         closeSleepScreen();
     };
     card->rows()->addWidget(choices);

@@ -1051,6 +1051,7 @@ void Reader::buildSettings() {
     edgeLightOption = settings->edgeLightOption;
     denseGraphOption = settings->denseGraphOption;
     sleepScreenButton = settings->sleepScreenButton;
+    sleepTileButton = settings->sleepTileButton;
     pageNavigationButton = settings->pageNavigationButton;
     tapZonesButton = settings->tapZonesButton;
     navigationBarButton = settings->navigationBarButton;
@@ -1134,6 +1135,9 @@ void Reader::buildSettings() {
     });
     connect(sleepScreenButton, &QPushButton::clicked, this, [this] {
         openSleepScreen();
+    });
+    connect(sleepTileButton, &QPushButton::clicked, this, [this] {
+        openSleepTile();
     });
     connect(tapZonesButton, &QPushButton::clicked, this, [this] {
         openTapZones();

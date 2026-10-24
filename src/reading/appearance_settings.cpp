@@ -79,6 +79,7 @@ QJsonObject cleanPreferences(QJsonObject preferences) {
     choice("widows_orphans", {"publisher", "avoid", "allow"});
     choice("marks_sort", {"position", "newest", "oldest"});
     choice("sleep_screen", {"stock", "cover", "page"});
+    choice("sleep_tile", {"card", "band", "bookmark"});
     choice("header_footer", {"default", "alternative_a", "alternative_b", "custom"});
     choice("default_menu_view", {"none", "seek", "stats"});
     choice("navigation_bar_buttons", {"chapters", "pages"});

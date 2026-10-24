@@ -465,6 +465,12 @@ SettingsPanel::SettingsPanel(QWidget *parent, const SettingsPanelInputs &inputs)
     if (!inputs.sleepScreenSupported)
         sleepScreenButton->setCaption(strings::get("settings.unsupported_caption"));
     systemRows->addWidget(sleepScreenButton);
+    sleepTileButton =
+        ui::makeCaptionButton(systemPage, nullptr, "rrSleepTile", strings::get("settings.sleep_tile"), [] {});
+    sleepTileButton->setEnabled(inputs.sleepScreenSupported);
+    if (!inputs.sleepScreenSupported)
+        sleepTileButton->setCaption(strings::get("settings.unsupported_caption"));
+    systemRows->addWidget(sleepTileButton);
     section(systemPage, systemRows, "rrSystemInterfaceSection", strings::get("settings.section_user_interface"));
     uiFontButton = ui::makeCaptionButton(systemPage, nullptr, "rrUiFont", strings::get("settings.ui_font"), [] {});
     uiMonoFontButton =
@@ -654,7 +660,8 @@ SettingsPanel::SettingsPanel(QWidget *parent, const SettingsPanelInputs &inputs)
     resetRow->setStretch(1, 1);
     resetRow->setStretch(2, 0);
     for (auto *button :
-         {resetDefaults, refreshButton, columnSpacingButton, sleepScreenButton, pageNavigationButton, tapZonesButton, navigationBarButton,
+         {resetDefaults, refreshButton, columnSpacingButton, sleepScreenButton, sleepTileButton, pageNavigationButton,
+          tapZonesButton, navigationBarButton,
           menuViewButton, uiFontButton, uiMonoFontButton, headerFooterFontButton, headerFooterWeightButton,
           defaultFontButton, serifFontButton, sansFontButton, monoFontButton, wordSpacingButton, trackingButton, widowsOrphansButton}) {
         button->setRule(Qt::BottomEdge);
