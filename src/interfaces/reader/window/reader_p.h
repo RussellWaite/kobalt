@@ -68,6 +68,7 @@ public:
     void checkpoint() override;
     void prepareUsb(std::function<void()> finished) override;
     void prepareShutdown(std::function<void()> finished) override;
+    sleep::Snapshot powerScreenSnapshot() override;
     void sleepReader() override;
     void prepareWake() override;
     void cancelWake() override;
@@ -209,6 +210,7 @@ private:
     bool exitPending = false, exportRunning = false;
     bool lifecycleHidden = false;
     QImage sleepImage, sleepCover;
+    sleep::Snapshot exitSleepSnapshot;
     QString sleepProgress, sleepRemaining;
     BatteryStatus sleepBattery;
     quint64 sleepCoverRequest = 0;
@@ -387,6 +389,7 @@ private:
     void applyDarkMode(bool enabled);
     void applyBoldReading(bool enabled);
     void prepareSleepCover();
+    sleep::Snapshot captureSleepScreen();
     void updateSleepBattery();
     void showSleepScreen();
     void openSleepScreen();

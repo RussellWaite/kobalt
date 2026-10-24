@@ -1,5 +1,7 @@
 #include "reading/appearance_settings.h"
 #include "reader_coordinator.h"
+#include "home_sleep_screen.h"
+#include "window_presentation.h"
 #include "usb_transition.h"
 #include "support/qt_compat.h"
 #include "support/strings.h"
@@ -80,9 +82,11 @@ ReaderCoordinator::ReaderCoordinator(ReaderEnvironment &environment, Coordinator
     : QObject(parent), environment_(environment), bindings_(bindings), lifecycle(new kobalt::NativeLifecycle(this)),
       authorization(new kobalt::NativeAuthorization(this)) {
     activeCoordinator = this;
+    homeSleep = std::make_unique<HomeSleepScreen>(environment_.paths, this);
     qApp->installEventFilter(this);
     authorization->revoked = [this](kobalt::NativeAuthorization::Reason) {
         homeAfterClose = false;
+        homeSleep->forget();
         if (run.sourceLease)
             run.sourceLease->revoke();
         timer.stop();
@@ -95,6 +99,9 @@ ReaderCoordinator::ReaderCoordinator(ReaderEnvironment &environment, Coordinator
         });
     };
     lifecycle->sleep = [this] {
+        if (lifecycle->shuttingDown())
+            return;
+        homeSleep->clear();
         homeAfterClose = false;
         authorization->setBlocked(true);
         timer.stop();
@@ -109,13 +116,19 @@ ReaderCoordinator::ReaderCoordinator(ReaderEnvironment &environment, Coordinator
                 run.reader->sleepReader();
         } else if (busy || run.fallbackAlert)
             disposeForTransition([] {});
+        else if (!lifecycle->storageBlocked() && !lifecycle->shuttingDown() &&
+                 ui::initializeInterfaceFonts(environment_.assets))
+            homeSleep->prepare(bindings_.enabled());
     };
     lifecycle->sleepViewReady = [this] {
         if (run.reader && !busy) {
             run.reader->sleepViewReady();
+        } else if (!run.reader && !busy && !lifecycle->storageBlocked()) {
+            homeSleep->present();
         }
     };
     lifecycle->beforeWake = [this] {
+        homeSleep->clear();
         if (run.reader && !busy) {
             run.reader->prepareWake();
         }
@@ -126,6 +139,7 @@ ReaderCoordinator::ReaderCoordinator(ReaderEnvironment &environment, Coordinator
         }
     };
     lifecycle->wake = [this] {
+        homeSleep->clear();
         if (lifecycle->draining || busy) {
             return;
         }
@@ -157,6 +171,7 @@ ReaderCoordinator::ReaderCoordinator(ReaderEnvironment &environment, Coordinator
         }
     };
     lifecycle->prepareUsb = [this](std::function<void()> ready) {
+        homeSleep->clear();
         homeAfterClose = false;
         authorization->setBlocked(true);
         timer.stop();
@@ -171,6 +186,15 @@ ReaderCoordinator::ReaderCoordinator(ReaderEnvironment &environment, Coordinator
                 ready();
             });
     };
+    lifecycle->preparePowerScreen = [this](NativeLifecycle::Shutdown mode) {
+        homeSleep->clear();
+        if (mode == NativeLifecycle::Shutdown::Reboot)
+            return;
+        if (run.reader && !busy && !BrowserHandoff::activeFor(run.reader))
+            homeSleep->preparePowerOff(run.reader->powerScreenSnapshot());
+        else if (!run.reader && !busy && !run.fallbackAlert && ui::initializeInterfaceFonts(environment_.assets))
+            homeSleep->prepare(bindings_.enabled(), true);
+    };
     lifecycle->prepareShutdown = [this](std::function<void()> ready) {
         homeAfterClose = false;
         authorization->setBlocked(true);
@@ -180,6 +204,7 @@ ReaderCoordinator::ReaderCoordinator(ReaderEnvironment &environment, Coordinator
         cleanupCallbacks.append(std::move(ready));
         if (run.reader && !busy)
             run.reader->prepareShutdown([this] {
+                homeSleep->persistPowerOff(run.identity);
                 disposeForTransition([] {});
             });
         else
@@ -193,6 +218,17 @@ ReaderCoordinator::ReaderCoordinator(ReaderEnvironment &environment, Coordinator
     timer.setInterval(250);
     if (!lifecycle->blocked())
         timer.start();
+}
+
+void forgetHomeSleepScreen() {
+    if (activeCoordinator)
+        activeCoordinator->forgetSleepScreen();
+    else if (!NativeLifecycle::suspended())
+        QFile::remove(storage::Paths{QString::fromLatin1(configDir)}.sleepScreen());
+}
+void ReaderCoordinator::forgetSleepScreen() {
+    if (!lifecycle->storageBlocked() && !lifecycle->shuttingDown())
+        homeSleep->forget();
 }
 
 bool interceptHomeKey(QKeyEvent *event) {
@@ -739,6 +775,14 @@ void ReaderCoordinator::showReader() {
         std::move(run.model), run.statePath, environment_.paths, run.identity, run.expectedHash,
         kobalt::nickel::makeReadingBridge(run.identity, std::move(run.nativeProgress)), run.baseline, run.diskBaseline);
     auto services = readerHostServices();
+    const auto identity = run.identity;
+    services.presentation = [this, identity](QWidget *reader) {
+        return makeWindowPresentation(reader, nativeReaderSleepScreenAvailable(),
+            [this, identity](const sleep::Snapshot &snapshot) {
+                if ((!lifecycle->blocked() && !NativeLifecycle::suspended()) || NativeLifecycle::usbSaveAllowed())
+                    homeSleep->remember(snapshot, identity);
+            });
+    };
     services.coverImagePath = run.nativePublication ? run.nativePublication->coverPath() : QString();
     services.automaticBookOpening = bindings_.automaticBookOpening;
     services.setAutomaticBookOpening = bindings_.setAutomaticBookOpening;

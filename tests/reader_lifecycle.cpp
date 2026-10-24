@@ -1,4 +1,6 @@
 #include "storage/highlight_store.h"
+#include "storage/sleep_snapshot.h"
+#include "platforms/kobo/common/last_read_book.h"
 #include "support/paint_regions.h"
 #include <QElapsedTimer>
 #include "assets/assets.h"
@@ -1721,6 +1723,136 @@ private slots:
             orientation.start(Qt::PortraitOrientation);
         }
         QCOMPARE(calls.mid(4), QList<int>({-1, int(Qt::LandscapeOrientation), int(Qt::PortraitOrientation), -2}));
+    }
+
+    void closedReaderRetainsSleepScreen_data() {
+        QTest::addColumn<QString>("mode");
+        QTest::addColumn<bool>("dark");
+        for (const auto &mode : {QString("stock"), QString("page"), QString("cover")})
+            for (bool dark : {false, true})
+                QTest::newRow(qPrintable(mode + (dark ? "-dark" : "-light"))) << mode << dark;
+    }
+    void closedReaderRetainsSleepScreen() {
+        QFETCH(QString, mode);
+        QFETCH(bool, dark);
+        const auto paths = testPaths();
+        QVERIFY(storage::writeJson(paths.preferences(), {{sleep::preferenceKey, mode}, {"dark_mode", dark}}));
+        auto state = std::make_shared<test::SleepPresentationState>();
+        ReaderFixture host(paths, testFonts, testPlaceholder);
+        host.configureServices = [state](ReaderHostServices &services) {
+            services.presentation = [state](QWidget *) { return std::make_unique<test::HostPresentation>(state); };
+        };
+        CloseHost cleanup{host};
+        QSignalSpy opened(&host, &ReaderFixture::opened);
+        host.open(coverBook);
+        QTRY_COMPARE_WITH_TIMEOUT(opened.count(), 1, 30000);
+        host.window()->show();
+        QTRY_VERIFY(host.window()->readyForPresentation());
+        bool coverReady = false;
+        host.session()->coverImage({2048, 2048}, [&](QImage) { coverReady = true; });
+        QTRY_VERIFY(coverReady);
+        host.window()->sleepReader();
+        host.window()->sleepViewReady();
+        const auto expected = state->image;
+        host.window()->wakeReader();
+        QTRY_VERIFY(host.window()->readyForPresentation());
+        const auto backdrop = host.window()->powerScreenSnapshot();
+        if (mode != "stock") {
+            QVERIFY(!backdrop.image.isNull());
+            QCOMPARE(backdrop.dark, dark);
+            QCOMPARE(reader::sleepScreenImage(backdrop.image, backdrop.progress, backdrop.remaining, dark,
+                                               -1, reader::SleepStatus::Sleeping, backdrop.dimPage), expected);
+        }
+        host.window()->close();
+        QTRY_COMPARE(state->savedCount, 1);
+        QCOMPARE(state->saved.image, backdrop.image);
+        QCOMPARE(state->saved.dark, backdrop.dark);
+        QCOMPARE(state->saved.mode, sleep::mode({{sleep::preferenceKey, mode}}));
+        QTRY_VERIFY(host.idle());
+        // Destroying the old presentation clears its active view, not the
+        // separate snapshot handed to the host.
+        QCOMPARE(state->saved.image, backdrop.image);
+    }
+    void usbRetainsBackdropBeforeReleasingReader() {
+        const auto paths = testPaths();
+        QVERIFY(storage::writeJson(paths.preferences(), {{sleep::preferenceKey, "page"}}));
+        auto state = std::make_shared<test::SleepPresentationState>();
+        ReaderFixture host(paths, testFonts, testPlaceholder);
+        host.configureServices = [state](ReaderHostServices &services) {
+            services.presentation = [state](QWidget *) { return std::make_unique<test::HostPresentation>(state); };
+        };
+        CloseHost cleanup{host};
+        QSignalSpy opened(&host, &ReaderFixture::opened);
+        host.open(textBook);
+        QTRY_COMPARE_WITH_TIMEOUT(opened.count(), 1, 30000);
+        host.window()->show();
+        QTRY_VERIFY(host.window()->readyForPresentation());
+        const auto expected = host.window()->powerScreenSnapshot();
+        QVERIFY(!expected.image.isNull());
+        bool released = false;
+        host.window()->prepareUsb([&] { released = true; });
+        QTRY_VERIFY(released);
+        QCOMPARE(state->savedCount, 1);
+        QCOMPARE(state->saved.image, expected.image);
+        QCOMPARE(state->saved.progress, expected.progress);
+    }
+    void persistedSleepScreenRejectsStaleAndDamagedFrames() {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const auto path = directory.path() + "/cache/sleep-screen.png";
+        sleep::Snapshot snapshot;
+        snapshot.image = QImage(100, 200, QImage::Format_RGB32);
+        snapshot.image.fill(Qt::darkGray);
+        snapshot.orientation = Qt::InvertedPortraitOrientation;
+        snapshot.progress = "42% read";
+        snapshot.remaining = "37 min to go";
+        snapshot.dark = true;
+        snapshot.mode = sleep::Mode::Page;
+        QVERIFY(storage::writeSleepSnapshot(path, snapshot, "book-stamp"));
+        const auto loaded = storage::readSleepSnapshot(path, "book-stamp", sleep::Mode::Page);
+        QCOMPARE(loaded.image, snapshot.image);
+        QCOMPARE(loaded.orientation, snapshot.orientation);
+        QCOMPARE(loaded.progress, snapshot.progress);
+        QCOMPARE(loaded.remaining, snapshot.remaining);
+        QCOMPARE(loaded.dark, snapshot.dark);
+        QVERIFY(storage::readSleepSnapshot(path, "other-book", sleep::Mode::Page).image.isNull());
+        QVERIFY(storage::readSleepSnapshot(path, "", sleep::Mode::Page).image.isNull());
+        QVERIFY(storage::readSleepSnapshot(path, "book-stamp", sleep::Mode::Cover).image.isNull());
+        QVERIFY(storage::readSleepSnapshot(path, "book-stamp", sleep::Mode::Stock).image.isNull());
+        snapshot.image = QImage(4096, 4096, QImage::Format_RGB32);
+        QVERIFY(!storage::writeSleepSnapshot(path, snapshot, "book-stamp"));
+        QVERIFY(!storage::readSleepSnapshot(path, "book-stamp", sleep::Mode::Page).image.isNull());
+        QFile file(path);
+        QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+        QVERIFY(file.write("damaged") > 0);
+        file.close();
+        QVERIFY(storage::readSleepSnapshot(path, "book-stamp", sleep::Mode::Page).image.isNull());
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        QVERIFY(file.resize(21 * 1024 * 1024));
+        file.close();
+        QVERIFY(storage::readSleepSnapshot(path, "book-stamp", sleep::Mode::Page).image.isNull());
+    }
+    void homeSleepScreenRequiresUnambiguousLastBook() {
+        const auto name = QStringLiteral("sleep-latest-book-test");
+        {
+            auto database = QSqlDatabase::addDatabase("QSQLITE", name);
+            database.setDatabaseName(":memory:");
+            QVERIFY(database.open());
+            QSqlQuery query(database);
+            QVERIFY(query.exec("CREATE TABLE content (ContentID TEXT, ContentType INTEGER, DateLastRead TEXT)"));
+            QVERIFY(nickel::lastReadBookToken(database).isEmpty());
+            QVERIFY(query.exec("INSERT INTO content VALUES ('first', 6, '2026-10-24T09:00:00Z')"));
+            const auto token = nickel::lastReadBookToken(database, "first");
+            QVERIFY(!token.isEmpty());
+            QCOMPARE(nickel::lastReadBookToken(database), token);
+            QVERIFY(nickel::lastReadBookToken(database, "other").isEmpty());
+            QVERIFY(query.exec("INSERT INTO content VALUES ('second', 6, '2026-10-24T09:00:01Z')"));
+            QVERIFY(nickel::lastReadBookToken(database, "first").isEmpty());
+            QVERIFY(nickel::lastReadBookToken(database) != token);
+            QVERIFY(query.exec("UPDATE content SET DateLastRead = '2026-10-24T09:00:01Z' WHERE ContentID = 'first'"));
+            QVERIFY(nickel::lastReadBookToken(database).isEmpty());
+        }
+        QSqlDatabase::removeDatabase(name);
     }
 
     void customSleepScreenIsOptIn_data() {

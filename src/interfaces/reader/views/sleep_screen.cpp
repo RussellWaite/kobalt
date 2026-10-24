@@ -13,6 +13,8 @@
 namespace kobalt::reader {
 QString sleepStatusText(SleepStatus status) {
     switch (status) {
+    case SleepStatus::PoweredOff:
+        return strings::get("sleep.powered_off");
     case SleepStatus::Charging:
         return strings::get("sleep.charging");
     case SleepStatus::Charged:
@@ -76,8 +78,9 @@ QImage sleepScreenImage(QImage page, const QString &progress, const QString &rem
     const int titleHeight = QFontMetrics(title).height();
     const int detailHeight = QFontMetrics(detail).height();
     const QRect card = sleepScreenCardRect(page.size(), !remaining.isEmpty());
-    const QColor paper(dark ? m::darkPaper : m::lightPaper);
-    const QColor ink(dark ? Qt::white : Qt::black);
+    const bool poweredOff = status == SleepStatus::PoweredOff;
+    const QColor paper = poweredOff ? QColor(Qt::black) : QColor(dark ? m::darkPaper : m::lightPaper);
+    const QColor ink(poweredOff || dark ? Qt::white : Qt::black);
     painter.fillRect(card, paper);
     painter.setPen(QPen(ink, int(m::border)));
     painter.drawRect(card.adjusted(0, 0, -1, -1));
@@ -87,7 +90,7 @@ QImage sleepScreenImage(QImage page, const QString &progress, const QString &rem
     painter.setFont(title);
     const bool validBattery = batteryPercent >= 0 && batteryPercent <= 100;
     int batterySpace = 0;
-    if (status != SleepStatus::Sleeping) {
+    if (status == SleepStatus::Charging || status == SleepStatus::Charged) {
         const qreal body = qRound(detail.pixelSize() * .75);
         const int iconWidth = qCeil(ui::batteryWidth(body));
         const int gap = m::batteryGap;

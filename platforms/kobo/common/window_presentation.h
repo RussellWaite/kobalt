@@ -4,5 +4,6 @@
 class QWidget;
 
 namespace kobalt::nickel {
-std::unique_ptr<WindowPresentation> makeWindowPresentation(QWidget *reader, bool sleepScreenSupported);
+std::unique_ptr<WindowPresentation> makeWindowPresentation(QWidget *reader, bool sleepScreenSupported,
+    std::function<void(const sleep::Snapshot &)> save = {});
 }

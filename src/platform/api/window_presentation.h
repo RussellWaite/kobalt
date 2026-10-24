@@ -2,6 +2,7 @@
 #include <functional>
 #include <memory>
 #include <QImage>
+#include "reading/sleep_screen.h"
 #include <QRect>
 class QDialog;
 class QWidget;
@@ -26,6 +27,9 @@ public:
         return false;
     }
     virtual void clearSleepScreen() {}
+    // Called before the reader releases its page and returns to the host.
+    // An empty image invalidates a previous saved screen.
+    virtual void saveSleepScreen(const sleep::Snapshot &) {}
     // The continuation accepts the dialog. The host keeps the appropriate
     // backing store covered while that continuation installs its reader.
     virtual void acceptHandoff(QDialog &dialog, const std::function<void()> &accept) = 0;

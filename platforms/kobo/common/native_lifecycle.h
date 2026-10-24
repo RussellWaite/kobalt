@@ -20,6 +20,7 @@ extern void (*nativeReboot)(void *);
 class NativeLifecycle : public QObject {
     Q_OBJECT
 public:
+    enum class Shutdown { PowerOff, BatteryLow, Reboot };
     explicit NativeLifecycle(QObject *parent);
     static bool powerAvailable();
     static bool suspended();
@@ -41,6 +42,7 @@ public:
     bool usbPromptExpected() const {
         return expectingUsbPrompt;
     }
+    std::function<void(Shutdown)> preparePowerScreen;
     std::function<void()> sleep, sleepViewReady, wake, beforeWake, cancelWake, usbPrompt;
     static void finishSleepView();
     std::function<void(std::function<void()>)> prepareUsb;
@@ -50,7 +52,6 @@ public:
     static void beginUsb();
     static bool interceptUsb(QObject *manager);
     static bool interceptUsbWorkflow(QObject *manager);
-    enum class Shutdown { PowerOff, BatteryLow, Reboot };
     static bool interceptShutdown(QObject *manager, Shutdown mode);
 #ifndef KOBALT_READER_HARDWARE
     void testCommand();

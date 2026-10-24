@@ -93,6 +93,7 @@ void Reader::prepareUsb(std::function<void()> finished) {
 void Reader::prepareTransition(std::function<void()> finished, int timeoutMs) {
     if (pageScrubber)
         pageScrubber->cancel();
+    auto backdrop = timeoutMs ? powerScreenSnapshot() : sleep::Snapshot{};
     sleepImage = {};
     presentation->clearSleepScreen();
     auto elapsed = std::make_shared<QElapsedTimer>();
@@ -116,7 +117,7 @@ void Reader::prepareTransition(std::function<void()> finished, int timeoutMs) {
         });
     }
     model->nativePosition(
-        [this, completed, elapsed, timeoutMs, finished](const QString &location, const QString &error) {
+        [this, completed, elapsed, timeoutMs, finished, backdrop = std::move(backdrop)](const QString &location, const QString &error) {
             if (std::exchange(*completed, true)) {
                 return;
             }
@@ -128,6 +129,8 @@ void Reader::prepareTransition(std::function<void()> finished, int timeoutMs) {
                 // the reader to resolve a conflict before they continue.
                 book->writeNative(location, error);
                 save(true);
+                if (timeoutMs)
+                    presentation->saveSleepScreen(backdrop);
             }
             finished();
         });
@@ -152,6 +155,34 @@ void Reader::prepareSleepCover() {
         services.coverImagePath);
 }
 
+sleep::Snapshot Reader::powerScreenSnapshot() {
+    if (exportRunning)
+        return exitSleepSnapshot;
+    if (lifecycleHidden && !sleepImage.isNull())
+        return {sleepImage, sleepOrientation, sleepProgress, sleepRemaining, darkTheme, sleep::mode(preferences), false};
+    return captureSleepScreen();
+}
+
+sleep::Snapshot Reader::captureSleepScreen() {
+    // RGB32 needs four bytes per pixel. Bound the optional capture to 16 MiB;
+    // oversized viewports keep Nickel's power screen instead.
+    const qint64 pixels = qint64(page->width()) * page->height();
+    const auto *modal = QApplication::activeModalWidget();
+    const bool foreground = !modal || modal == this || isAncestorOf(modal);
+    const auto mode = sleep::mode(preferences);
+    if (mode == sleep::Mode::Stock || !presentation->supportsSleepScreen() || !foreground || pixels <= 0 ||
+        pixels > 4 * 1024 * 1024 || !readyForPresentation() || appearanceEdit.panelOpen() || model->temporaryTypography())
+        return {};
+    const bool useCover = mode == sleep::Mode::Cover && !sleepCover.isNull();
+    auto frame = useCover ? sleepCoverBackground(sleepCover, page->size()) : page->snapshot(true);
+    if (frame.isNull())
+        return {};
+    const int percent = qBound(0, int(100.0 * model->page() / qMax(1, model->pages())), 100);
+    return {std::move(frame), kobalt::shownOrientation(QGuiApplication::primaryScreen()),
+            strings::get("sleep.percent_read").arg(percent), sleepTimeLeft(book->estimates().bookMilliseconds),
+            darkTheme, mode, !useCover};
+}
+
 void Reader::sleepReader() {
     if (orientation) {
         orientation->freeze();
@@ -163,35 +194,15 @@ void Reader::sleepReader() {
     setProperty("reader_sleep_clean_pending", true);
     model->cancelPendingTurn();
     book->stopReading();
-    sleepImage = {};
-    // RGB32 needs four bytes per pixel. Bound the optional capture to 16 MiB;
-    // oversized viewports keep Nickel's sleep screen instead.
-    const qint64 sleepPixels = qint64(page->width()) * page->height();
-    const auto *modal = QApplication::activeModalWidget();
-    const bool foreground = !modal || modal == this || isAncestorOf(modal);
-    const auto mode = sleep::mode(preferences);
-    if (mode != sleep::Mode::Stock && presentation->supportsSleepScreen() && foreground && sleepPixels > 0 &&
-        sleepPixels <= 4 * 1024 * 1024 && readyForPresentation() && !appearanceEdit.panelOpen() &&
-        !model->temporaryTypography()) {
-        const bool useCover = mode == sleep::Mode::Cover && !sleepCover.isNull();
-        QImage frame = useCover ? sleepCoverBackground(sleepCover, page->size()) : page->snapshot(true);
-        if (!frame.isNull()) {
-            // Capture only the page, including its header and footer. Menus,
-            // dialogs and a temporary typography preview are not sleep content.
-            const int percent = qBound(0, int(100.0 * model->page() / qMax(1, model->pages())), 100);
-            const auto remaining = book->estimates().bookMilliseconds;
-            sleepBattery = services.battery();
-            const auto &battery = sleepBattery;
-            const auto status = battery.fullyCharged ? SleepStatus::Charged
-                                : battery.charging   ? SleepStatus::Charging
-                                                     : SleepStatus::Sleeping;
-            sleepOrientation = kobalt::shownOrientation(QGuiApplication::primaryScreen());
-            sleepProgress = strings::get("sleep.percent_read").arg(percent);
-            sleepRemaining = sleepTimeLeft(remaining);
-            sleepImage = sleepScreenImage(std::move(frame), sleepProgress, sleepRemaining, darkTheme, battery.percent,
-                                          status, !useCover);
-        }
-    }
+    auto snapshot = captureSleepScreen();
+    sleepOrientation = snapshot.orientation;
+    sleepProgress = snapshot.progress;
+    sleepRemaining = snapshot.remaining;
+    sleepBattery = services.battery();
+    const auto status = sleepBattery.fullyCharged ? SleepStatus::Charged
+                        : sleepBattery.charging ? SleepStatus::Charging : SleepStatus::Sleeping;
+    sleepImage = sleepScreenImage(std::move(snapshot.image), sleepProgress, sleepRemaining, darkTheme,
+                                  sleepBattery.percent, status, snapshot.dimPage);
     services.cancelAnimation();
     page->animationDirection = 0;
     setProperty("reader_animation_direction", 0);
@@ -705,6 +716,8 @@ void Reader::closeEvent(QCloseEvent *event) {
         finishExit();
         return;
     }
+    presentation->saveSleepScreen(exitSleepSnapshot);
+    exitSleepSnapshot = {};
     setProperty("reader_exit_clean_pending", true);
     setProperty("reader_preparing_handoff", true);
     // Restore orientation while Home is paused, then repaint its backing store
@@ -1609,6 +1622,8 @@ void Reader::finishExit() {
     }
     exportRunning = true;
     dismissProgressChoice();
+    // Capture before freezing paints for the final native writeback.
+    exitSleepSnapshot = captureSleepScreen();
     // Keep the last reader frame while asynchronous writeback completes.
     setUpdatesEnabled(false);
     setEnabled(false);

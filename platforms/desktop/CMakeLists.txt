@@ -244,6 +244,8 @@ if(BUILD_TESTING)
             pageGestureBurstKeepsOnePendingTurn exitThroughReaderAndReopen staleSearchReplyIgnored searchSurvivesReflow
             sleepRequestFreezesOrientationBeforeHandoff closePublishesHeldOrientationBeforeBackgroundPaint
             closeRestoresOrientationBeforeBackgroundPaint rotationOwnership customSleepScreenIsOptIn
+            closedReaderRetainsSleepScreen usbRetainsBackdropBeforeReleasingReader persistedSleepScreenRejectsStaleAndDamagedFrames
+            homeSleepScreenRequiresUnambiguousLastBook
             sleepScreenUpdatesWhilePluggedIn sleepScreenDimsOnlyItsOwnedPage sleepSnapshotMatchesTheDisplayedPage
             sleepSnapshotReplacesEachClockWithoutChangingTheReadingPage sleepTimeLeftUsesHoursAboveTwoHours
             sleepScreenModesKeepTheStockDefaultAndMigrateTheOptIn sleepCoverFitsWithoutCroppingOrDimming
@@ -259,6 +261,20 @@ if(BUILD_TESTING)
         set_tests_properties(lifecycle.${check} PROPERTIES ENVIRONMENT "${headless_environment}"
             LABELS "lifecycle;integration" TIMEOUT 35)
     endforeach()
+    add_executable(kobalt-power-screen-tests "${KOBALT_ROOT}/tests/kobo_power_screen.cpp"
+        "${KOBALT_ROOT}/platforms/kobo/common/home_sleep_screen.cpp"
+        "${KOBALT_ROOT}/platforms/kobo/common/window_presentation.cpp")
+    set_target_properties(kobalt-power-screen-tests PROPERTIES ENABLE_EXPORTS ON)
+    target_compile_definitions(kobalt-power-screen-tests PRIVATE KOBALT_TEST_ASSET_ROOT="${KOBALT_ASSETS}")
+    target_link_libraries(kobalt-power-screen-tests PRIVATE kobalt-desktop kobalt-core Qt6::Test)
+    target_compile_options(kobalt-power-screen-tests PRIVATE -Wall -Wextra -Werror)
+    add_dependencies(kobalt-tests kobalt-power-screen-tests)
+    add_test(NAME platform.kobo-power-screen COMMAND "${CMAKE_COMMAND}"
+        "-DTEST_EXECUTABLE=$<TARGET_FILE:kobalt-power-screen-tests>"
+        "-DTEST_TMP_ROOT=${CMAKE_CURRENT_BINARY_DIR}/test-tmp"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/run-test.cmake")
+    set_tests_properties(platform.kobo-power-screen PROPERTIES ENVIRONMENT "${headless_environment}"
+        LABELS "platform;integration" TIMEOUT 35)
     add_executable(kobalt-reader-ui-tests "${KOBALT_ROOT}/tests/reader_ui.cpp")
     target_link_libraries(kobalt-reader-ui-tests PRIVATE kobalt-desktop kobalt-core Qt6::Test)
     target_compile_options(kobalt-reader-ui-tests PRIVATE -Wall -Wextra -Werror)

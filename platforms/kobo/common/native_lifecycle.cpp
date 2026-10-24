@@ -230,6 +230,8 @@ bool NativeLifecycle::interceptShutdown(QObject *manager, Shutdown mode) {
         return false;
     if (active->poweringOff)
         return true;
+    if (!active->storageBlocked() && active->preparePowerScreen)
+        active->preparePowerScreen(mode);
     active->poweringOff = true;
     // USB export has already released the book. Do not touch exported storage.
     if (active->exported)

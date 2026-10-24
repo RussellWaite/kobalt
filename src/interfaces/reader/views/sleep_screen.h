@@ -5,7 +5,7 @@
 #include <QRect>
 
 namespace kobalt::reader {
-enum class SleepStatus { Sleeping, Charging, Charged };
+enum class SleepStatus { Sleeping, Charging, Charged, PoweredOff };
 QString sleepStatusText(SleepStatus status);
 // Rounds up to whole minutes. Estimates above 120 minutes use hours and minutes.
 // A negative estimate is unavailable and has no label.

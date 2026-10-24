@@ -56,6 +56,7 @@ extern "C" __attribute__((visibility("default"))) void kobalt_finish_initializat
 }
 extern "C" __attribute__((visibility("default"))) void kobalt_handle_opener(void *mixin, const void *volume,
                                                                             const void *context) {
+    kobalt::nickel::forgetHomeSleepScreen();
     if (kobalt::readerChoice(volume, alternativeEnabled()) && beginOpening && beginOpening(volume, context))
         return;
     nativeHandleOpener(mixin, volume, context);

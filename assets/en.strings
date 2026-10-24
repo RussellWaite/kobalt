@@ -605,6 +605,7 @@
 "settings.sleep_page" = "Kobalt with reading page";
 "settings.sleep_page_description" = "Dims the current page and shows reading progress and battery status.";
 "sleep.sleeping" = "Sleeping";
+"sleep.powered_off" = "Powered off";
 "sleep.charging" = "Charging";
 "sleep.charged" = "Charged";
 /* Arguments: %1 */

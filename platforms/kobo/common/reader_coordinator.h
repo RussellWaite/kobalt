@@ -25,6 +25,9 @@ class SourceLease;
 enum class ReaderBookRoute;
 namespace nickel {
 struct ReaderEnvironment;
+class HomeSleepScreen;
+// Every accepted native opening invalidates a closed reader snapshot.
+void forgetHomeSleepScreen();
 struct CoordinatorBindings {
     bool (*enabled)();
     void (*installInput)(QObject *) = nullptr;
@@ -48,6 +51,7 @@ public:
     bool idleForBenchmark() const;
     bool begin(const RetainOpening &retainOpening);
     bool handleHomeKey(QKeyEvent *event);
+    void forgetSleepScreen();
 
 private:
     bool eventFilter(QObject *object, QEvent *event) override;
@@ -110,6 +114,7 @@ private:
 
     void showReader();
     UsbDialogOverlay usbDialog_;
+    std::unique_ptr<HomeSleepScreen> homeSleep;
 };
 
 }

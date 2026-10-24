@@ -48,6 +48,8 @@ The cache checksum includes an explicit Kobalt parser format version and the doc
 
 `cache/reopen-layout.json` is a separate bounded, version-1 cache of publication inspection results. Its policy follows the build's layout policy. It can be discarded without losing reading data. Bump its format version when inspection verdict rules change incompatibly, independently of the parsed-document format.
 
+`cache/sleep-screen.png` is a disposable Kobo power-screen backdrop saved when a Kobalt book closes or completes its final USB save. PNG metadata version 1 stores the last-read record token, selected mode, orientation, progress, remaining-time text, theme and whether the page needs dimming. The status card is composed when the device sleeps or turns off. The file is replaced atomically and is limited to 20 MiB and 4,194,304 pixels. A new book opening removes it. Missing, damaged, unsupported or stale images fall back to Kobo's built-in sleep screen. It is separate from CREngine's `.cache/` and contains no authoritative reading data.
+
 ## Profile migration and cleanup
 
 SQLite schema version 2 includes annotations, JSON profile records and the Library catalogue. Beta 3 and supported version-1 JSON data import directly into this schema. Only SQLite schema version 2 is supported. Other versions and partial schemas are rejected without repairing or replacing the database. Initial database publication includes every table.

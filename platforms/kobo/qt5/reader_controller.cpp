@@ -64,6 +64,7 @@ extern "C" __attribute__((visibility("default"))) void kobalt_finish_initializat
 }
 extern "C" __attribute__((visibility("default"))) void
 kobalt_show_reader(void *mixin, const void *volume, const void *keys, void *library, const void *bookmark) {
+    kobalt::nickel::forgetHomeSleepScreen();
     // Firmware 4 passes the accepted opening as separate arguments. They are
     // valid only during this call, so the controller retains its own copies.
     if (kobalt::readerChoice(volume, alternativeEnabled()) && beginOpening &&

@@ -1,9 +1,20 @@
 #pragma once
 
 #include <QJsonObject>
+#include <QImage>
 
 namespace kobalt::sleep {
 enum class Mode { Stock, Cover, Page };
+// Keep the backdrop separate from the card so sleep and power-off can use
+// the same saved page with their own current status.
+struct Snapshot {
+    QImage image;
+    Qt::ScreenOrientation orientation = Qt::PrimaryOrientation;
+    QString progress, remaining;
+    bool dark = false;
+    Mode mode = Mode::Stock;
+    bool dimPage = true;
+};
 inline constexpr Mode modes[] = {Mode::Stock, Mode::Cover, Mode::Page};
 inline constexpr auto preferenceKey = "sleep_screen";
 inline QString value(Mode mode) {

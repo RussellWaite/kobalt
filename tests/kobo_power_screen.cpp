@@ -1,0 +1,214 @@
+#include "platforms/kobo/common/home_sleep_screen.h"
+#include "platforms/kobo/common/native_ui.h"
+#include "platforms/kobo/common/window_presentation.h"
+#include "interfaces/reader/views/sleep_screen.h"
+#include "interfaces/reader/ui/style/fonts.h"
+#include "assets/assets.h"
+#include "storage/sleep_snapshot.h"
+#include <QSqlDatabase>
+#include <QSqlQuery>
+#include <QDir>
+#include <QFile>
+#include <QApplication>
+#include <QTemporaryDir>
+#include <QPointer>
+#include <QTest>
+
+// These substitute the native battery service and window types only. The
+// overlay, composition and power-screen owner are the production Kobo code.
+namespace kobalt {
+bool nativeReaderSleepScreenAvailable() { return true; }
+NativeBatteryStatus battery{67, true, false};
+std::function<void()> batteryChanged;
+NativeBatteryStatus nativeReaderBattery() { return battery; }
+void observeNativeBattery(QObject *context, std::function<void()> changed) {
+    QPointer<QObject> guard(context);
+    batteryChanged = [guard, changed] { if (guard) changed(); };
+}
+}
+// Supply the same exported database entry points that the firmware adapters
+// resolve. The production owner still opens its own read-only connection.
+class Device {
+public:
+    static Device *getCurrentDevice();
+    const QString &getDbName() const;
+};
+Device *Device::getCurrentDevice() { static Device device; return &device; }
+const QString &Device::getDbName() const { static const QString name("power-screen-native"); return name; }
+class DatabaseAdapter {
+public:
+    static QSqlDatabase dbConnection(const QString &, bool);
+};
+QSqlDatabase DatabaseAdapter::dbConnection(const QString &name, bool) { return QSqlDatabase::database(name, false); }
+
+class MainWindowView : public QWidget {
+    Q_OBJECT
+};
+class AbstractPowerView : public QWidget {
+    Q_OBJECT
+public:
+    using QWidget::QWidget;
+};
+class PowerScreenTests : public QObject {
+    Q_OBJECT
+private slots:
+    void init() { kobalt::battery = {67, true, false}; }
+    void initTestCase() {
+        QVERIFY(kobalt::ui::initializeInterfaceFonts(kobalt::AssetBundle(QStringLiteral(KOBALT_TEST_ASSET_ROOT), QStringLiteral(KOBALT_VERSION))));
+    }
+    void homeSleepUsesSavedBackdropAndInvalidatesOnOpening() {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const kobalt::storage::Paths paths{directory.path()};
+        const auto connection = Device::getCurrentDevice()->getDbName();
+        {
+            auto database = QSqlDatabase::addDatabase("QSQLITE", connection);
+            database.setDatabaseName(directory.path() + "/native.sqlite");
+            QVERIFY(database.open());
+            QSqlQuery query(database);
+            QVERIFY(query.exec("CREATE TABLE content (ContentID TEXT, ContentType INTEGER, DateLastRead TEXT)"));
+            QVERIFY(query.exec("INSERT INTO content VALUES ('book', 6, '2026-10-24T09:00:00Z')"));
+            MainWindowView window;
+            window.resize(800, 1200);
+            AbstractPowerView power(&window);
+            power.setGeometry(window.rect());
+            window.show();
+            power.show();
+            kobalt::sleep::Snapshot snapshot;
+            snapshot.image = QImage(window.size(), QImage::Format_RGB32);
+            snapshot.image.fill(Qt::gray);
+            snapshot.orientation = Qt::PortraitOrientation;
+            snapshot.progress = "42% read";
+            snapshot.mode = kobalt::sleep::Mode::Page;
+            QVERIFY(kobalt::storage::writeJson(paths.preferences(), {{"schema", 1}, {"sleep_screen", "page"}}));
+            {
+                kobalt::nickel::HomeSleepScreen screen(paths, nullptr);
+                screen.remember(snapshot, "book");
+                QVERIFY(QFile::exists(paths.sleepScreen()));
+            }
+            // A new owner simulates Nickel starting with only the saved file.
+            kobalt::nickel::HomeSleepScreen screen(paths, nullptr);
+            screen.prepare(true);
+            screen.present();
+            auto *frame = power.findChild<QWidget *>("rrSleepFrame");
+            QVERIFY(frame);
+            QCOMPARE(frame->grab().toImage().convertToFormat(QImage::Format_RGB32),
+                kobalt::reader::sleepScreenImage(snapshot.image, snapshot.progress, {}, false, 67,
+                    kobalt::reader::SleepStatus::Charging, true));
+            kobalt::battery = {88, false, false};
+            kobalt::batteryChanged();
+            QCOMPARE(frame->grab().toImage().convertToFormat(QImage::Format_RGB32),
+                kobalt::reader::sleepScreenImage(snapshot.image, snapshot.progress, {}, false, 88,
+                    kobalt::reader::SleepStatus::Sleeping, true));
+            kobalt::battery = {100, true, true};
+            kobalt::batteryChanged();
+            QCOMPARE(frame->grab().toImage().convertToFormat(QImage::Format_RGB32),
+                kobalt::reader::sleepScreenImage(snapshot.image, snapshot.progress, {}, false, 100,
+                    kobalt::reader::SleepStatus::Charged, true));
+            screen.clear();
+            // A later book invalidates persisted data even without a hook,
+            // for example after a database change while Nickel was stopped.
+            QVERIFY(query.exec("INSERT INTO content VALUES ('other', 6, '2026-10-24T09:00:01Z')"));
+            screen.prepare(true);
+            screen.present();
+            QVERIFY(!power.findChild<QWidget *>("rrSleepFrame"));
+            QVERIFY(query.exec("DELETE FROM content WHERE ContentID = 'other'"));
+            screen.prepare(false);
+            screen.present();
+            QVERIFY(!power.findChild<QWidget *>("rrSleepFrame"));
+            screen.forget();
+            QVERIFY(!QFile::exists(paths.sleepScreen()));
+            screen.prepare(true);
+            screen.present();
+            QVERIFY(!power.findChild<QWidget *>("rrSleepFrame"));
+            screen.remember(snapshot, "book");
+            QVERIFY(QFile::exists(paths.sleepScreen()));
+            screen.prepare(true, true);
+            power.hide();
+            power.show();
+            frame = power.findChild<QWidget *>("rrSleepFrame");
+            QVERIFY(frame);
+            QCOMPARE(frame->grab().toImage().convertToFormat(QImage::Format_RGB32),
+                kobalt::reader::sleepScreenImage(snapshot.image, snapshot.progress, {}, false, 67,
+                    kobalt::reader::SleepStatus::PoweredOff, true));
+            database.close();
+        }
+        QSqlDatabase::removeDatabase(connection);
+    }
+    void powerOffUsesPreparedBackdrop_data() {
+        QTest::addColumn<bool>("dark");
+        QTest::newRow("light") << false;
+        QTest::newRow("dark") << true;
+    }
+    void powerOffUsesPreparedBackdrop() {
+        QFETCH(bool, dark);
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        MainWindowView window;
+        window.resize(800, 1200);
+        AbstractPowerView power(&window);
+        power.setGeometry(window.rect());
+        window.show();
+        power.show();
+        kobalt::nickel::HomeSleepScreen screen({directory.path()}, nullptr);
+        kobalt::sleep::Snapshot snapshot;
+        snapshot.image = QImage(window.size(), QImage::Format_RGB32);
+        snapshot.image.fill(Qt::gray);
+        snapshot.orientation = Qt::PortraitOrientation;
+        snapshot.progress = "42% read";
+        snapshot.remaining = "37 min to go";
+        snapshot.dark = dark;
+        snapshot.mode = kobalt::sleep::Mode::Page;
+        screen.preparePowerOff(snapshot);
+        // No storage is needed after preparation, including during shutdown.
+        QVERIFY(directory.remove());
+        power.hide();
+        power.show();
+        auto *frame = power.findChild<QWidget *>("rrSleepFrame");
+        QVERIFY(frame);
+        const auto expected = kobalt::reader::sleepScreenImage(snapshot.image, snapshot.progress, snapshot.remaining,
+            dark, 67, kobalt::reader::SleepStatus::PoweredOff, true);
+        const auto rendered = frame->grab().toImage().convertToFormat(QImage::Format_RGB32);
+        QCOMPARE(rendered, expected);
+        QCOMPARE(rendered, kobalt::reader::sleepScreenImage(snapshot.image, snapshot.progress, snapshot.remaining,
+            !dark, 67, kobalt::reader::SleepStatus::PoweredOff, true));
+        const auto card = kobalt::reader::sleepScreenCardRect(rendered.size(), true);
+        QCOMPARE(rendered.pixel(card.left() + 4, card.top() + 4), qRgb(0, 0, 0));
+        QCOMPARE(rendered.pixel(card.left(), card.top() + 10), qRgb(255, 255, 255));
+        const auto capture = qEnvironmentVariable("KOBALT_POWER_CAPTURE_ROOT");
+        if (!capture.isEmpty()) {
+            QVERIFY(QDir().mkpath(capture));
+            QVERIFY(rendered.save(capture + (dark ? "/power-off-dark.png" : "/power-off-light.png")));
+        }
+        QCOMPARE(kobalt::reader::sleepStatusText(kobalt::reader::SleepStatus::PoweredOff), QString("Powered off"));
+        screen.clear();
+        QVERIFY(!power.findChild<QWidget *>("rrSleepFrame"));
+        power.hide();
+        power.show();
+        QVERIFY(!power.findChild<QWidget *>("rrSleepFrame"));
+    }
+    void nativeViewOwnsTheFrameAndInput() {
+        MainWindowView window;
+        window.resize(800, 1200);
+        auto *power = new AbstractPowerView(&window);
+        power->setGeometry(window.rect());
+        window.show();
+        power->show();
+        auto presentation = kobalt::nickel::makeWindowPresentation(nullptr, true);
+        QImage image(window.size(), QImage::Format_RGB32);
+        image.fill(Qt::white);
+        QVERIFY(presentation->presentSleepScreen(image, Qt::PortraitOrientation));
+        auto *frame = power->findChild<QWidget *>("rrSleepFrame");
+        QVERIFY(frame);
+        QVERIFY(frame->testAttribute(Qt::WA_TransparentForMouseEvents));
+        QCOMPARE(frame->focusPolicy(), Qt::NoFocus);
+        power->resize(600, 900);
+        QCOMPARE(frame->size(), power->size());
+        delete power;
+        QVERIFY(!presentation->updateSleepScreen(image, image.rect()));
+        QVERIFY(!presentation->presentSleepScreen(image, Qt::PortraitOrientation));
+        presentation->clearSleepScreen();
+    }
+};
+QTEST_MAIN(PowerScreenTests)
+#include "kobo_power_screen.moc"

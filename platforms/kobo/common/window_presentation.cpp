@@ -60,7 +60,12 @@ private:
 
 class Presentation final : public WindowPresentation {
 public:
-    Presentation(QWidget *reader, bool sleepScreenSupported) : reader(reader), sleepSupported(sleepScreenSupported) {}
+    Presentation(QWidget *reader, bool sleepScreenSupported, std::function<void(const sleep::Snapshot &)> save)
+        : save(std::move(save)), reader(reader), sleepSupported(sleepScreenSupported) {}
+    void saveSleepScreen(const sleep::Snapshot &snapshot) override {
+        if (save)
+            save(snapshot);
+    }
     ~Presentation() override {
         clearSleepScreen();
         resumeBackground();
@@ -156,13 +161,15 @@ public:
     }
 
 private:
+    std::function<void(const sleep::Snapshot &)> save;
     QPointer<QWidget> reader;
     bool sleepSupported;
     QPointer<SleepFrame> sleepFrame;
     QVector<QPointer<QWidget>> paused;
 };
 }
-std::unique_ptr<WindowPresentation> makeWindowPresentation(QWidget *reader, bool sleepScreenSupported) {
-    return std::make_unique<Presentation>(reader, sleepScreenSupported);
+std::unique_ptr<WindowPresentation> makeWindowPresentation(QWidget *reader, bool sleepScreenSupported,
+    std::function<void(const sleep::Snapshot &)> save) {
+    return std::make_unique<Presentation>(reader, sleepScreenSupported, std::move(save));
 }
 }

@@ -40,6 +40,9 @@ QString Paths::database() const {
 QString Paths::layoutCache() const {
     return child(directory, "cache/reopen-layout.json");
 }
+QString Paths::sleepScreen() const {
+    return child(directory, "cache/sleep-screen.png");
+}
 QString Paths::documentCache() const {
     return child(directory, ".cache");
 }

@@ -1,5 +1,6 @@
 #pragma once
 #include <QWidget>
+#include "reading/sleep_screen.h"
 #include <functional>
 #include <memory>
 
@@ -25,6 +26,7 @@ public:
     // Limit the native-position wait to two seconds before file release.
     virtual void prepareUsb(std::function<void()> finished) = 0;
     virtual void prepareShutdown(std::function<void()> finished) = 0;
+    virtual sleep::Snapshot powerScreenSnapshot() { return {}; }
     virtual void sleepReader() = 0;
     virtual void prepareWake() = 0;
     virtual void cancelWake() = 0;
