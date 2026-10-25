@@ -574,6 +574,17 @@ void ReadingPage::paintEvent(QPaintEvent *) {
     paintContents(painter);
 }
 
+QImage ReadingPage::stripSnapshot(bool footer) const {
+    auto strip = footer ? footerPixels : headerPixels;
+    const int top = footer ? height() - bottomHeight() : 0;
+    const QRect ribbon = renderedRibbon.translated(0, -top);
+    if (!strip.isNull() && ribbon.intersects(strip.rect())) {
+        QPainter painter(&strip);
+        ui::paintBookmarkRibbon(painter, ribbon, palette().color(QPalette::WindowText));
+    }
+    return strip;
+}
+
 QImage ReadingPage::snapshot(bool sleeping) const {
     QImage frame(size(), QImage::Format_RGB32);
     if (!frame.isNull()) {

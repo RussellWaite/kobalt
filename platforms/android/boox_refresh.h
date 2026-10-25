@@ -81,30 +81,24 @@ private:
         }
     } previous;
     static void capture(ReadingPage *page, State &next) {
-        // At most 16 MiB for the temporary snapshot and 4 MiB for each set of
-        // retained strips. The old and new strips overlap until submit accepts.
+        // At most 4 MiB for each set of retained strips. The old and new
+        // strips overlap until submit accepts. Never copy the page body.
         // Closing the reader or resizing its viewport releases the cache.
         const qint64 width = next.bounds.width(), height = next.bounds.height();
         if (width <= 0 || height <= 0 || next.top < 0 || next.bottom < 0 || next.top + next.bottom > height ||
             width * height * 4 > 16 * 1024 * 1024 || width * (next.top + next.bottom) * 4 > 4 * 1024 * 1024) {
             return;
         }
-        if (next.top || next.bottom) {
-            const auto snapshot = page->snapshot();
-            if (snapshot.isNull()) {
-                return;
-            }
-            if (next.top) {
-                next.header = snapshot.copy(0, 0, int(width), next.top);
-            }
-            if (next.bottom) {
-                next.footer = snapshot.copy(0, int(height) - next.bottom, int(width), next.bottom);
-            }
-        }
+        if (next.top)
+            next.header = page->stripSnapshot(false);
+        if (next.bottom)
+            next.footer = page->stripSnapshot(true);
         next.valid = (!next.top || next.header.size() == QSize(int(width), next.top)) &&
                      (!next.bottom || next.footer.size() == QSize(int(width), next.bottom));
     }
     static QRegion stripDamage(const QImage &before, const QImage &after) {
+        if (before.cacheKey() == after.cacheKey())
+            return {};
         if (before.size() != after.size()) {
             return QRegion(before.rect().united(after.rect()));
         }

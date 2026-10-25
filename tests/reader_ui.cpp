@@ -20,6 +20,7 @@
 #include "interfaces/reader/panels/bookmark_list.h"
 #include "platforms/android/canvas.h"
 #include "platforms/android/canvas_refresh.h"
+#include "platforms/android/boox_refresh.h"
 #include "platforms/android/start_screen.h"
 #include "platforms/android/window_geometry.h"
 #include "library/library_store.h"
@@ -1791,8 +1792,16 @@ private slots:
         QCoreApplication::processEvents();
         QCOMPARE(calls, 1);
     }
+    void readingStripChangesLeaveBodyUnpainted_data() { variants(); }
     void readingStripChangesLeaveBodyUnpainted() {
+        QFETCH(bool, dark);
+        QFETCH(int, ppi);
+        ui::setDensity(ppi);
         ReadingPage page(nullptr, [] {});
+        auto colors = page.palette();
+        colors.setColor(QPalette::Window, dark ? Qt::black : Qt::white);
+        colors.setColor(QPalette::WindowText, dark ? Qt::white : Qt::black);
+        page.setPalette(colors);
         page.resize(400, 600);
         page.image = QImage(400, 480, QImage::Format_RGB32);
         page.image.fill(Qt::white);
@@ -1815,6 +1824,51 @@ private slots:
         page.refreshContent();
         QCoreApplication::processEvents();
         QVERIFY(paints.painted.isEmpty());
+        for (const auto size : {QSize(400, 600), QSize(600, 400)}) {
+            page.resize(size);
+            for (const auto &stripSize : {QStringLiteral("small"), QStringLiteral("large")}) {
+                page.chrome.headerSize = page.chrome.footerSize = stripSize;
+                for (const bool bookmarked : {false, true}) {
+                    page.bookmarked = bookmarked;
+                    page.refreshContent();
+                    const auto frame = page.snapshot();
+                    QCOMPARE(page.stripSnapshot(false), frame.copy(0, 0, page.width(), page.topHeight()));
+                    QCOMPARE(page.stripSnapshot(true),
+                             frame.copy(0, page.height() - page.bottomHeight(), page.width(), page.bottomHeight()));
+                }
+            }
+        }
+        android::BooxRefreshPolicy policy;
+        const auto damage = QRegion(page.rect());
+        QVERIFY(policy.prepare(&page, &page, &page, damage, [](const auto &) { return true; }));
+        page.slotContents[0].text = "10:01";
+        page.image = page.image.copy();
+        page.refreshContent(true);
+        page.setProperty("boox_text_frame", true);
+        android::RefreshFrame rejected;
+        QVERIFY(!policy.prepare(&page, &page, &page, damage, [&](const auto &frame) {
+            rejected = frame;
+            return false;
+        }));
+        QVERIFY(page.property("boox_text_frame").toBool());
+        android::RefreshFrame accepted;
+        QVERIFY(policy.prepare(&page, &page, &page, damage, [&](const auto &frame) {
+            accepted = frame;
+            return true;
+        }));
+        QCOMPARE(accepted.screenPixels, rejected.screenPixels);
+        QCOMPARE(accepted.textPixels, rejected.textPixels);
+        page.chrome.slotFields.fill(headerfooter::Field::Nothing);
+        for (const bool progress : {true, false}) {
+            page.chrome.progressBar = progress;
+            page.refreshContent();
+            QVERIFY(page.stripSnapshot(false).isNull());
+            if (progress)
+                QCOMPARE(page.stripSnapshot(true), page.snapshot().copy(0, page.height() - page.bottomHeight(),
+                                                                      page.width(), page.bottomHeight()));
+            else
+                QVERIFY(page.stripSnapshot(true).isNull());
+        }
     }
     void chapterPageSurvivesLongTitles_data() { variants(); }
     void chapterPageSurvivesLongTitles() {
