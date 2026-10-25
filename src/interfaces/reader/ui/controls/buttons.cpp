@@ -7,7 +7,6 @@
 #include "../style/styles.h"
 #include "support/qt_font.h"
 #include <QFontInfo>
-#include <QFontMetrics>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPointer>
@@ -77,7 +76,7 @@ void Button::paintEvent(QPaintEvent *) {
             if (iconAboveLabel) {
                 // Capitals' height is the label's ink, so the icon and that
                 // ink centre as one group, as in the bottom tabs.
-                const int capital = qCeil(QFontMetricsF(font()).tightBoundingRect(QStringLiteral("H")).height());
+                const int capital = interfaceInkBounds(QStringLiteral("H"), font()).height();
                 const int top = (height() - iconSize().height() - gap - capital) / 2;
                 const QRect area((width() - iconSize().width()) / 2, top, iconSize().width(), iconSize().height());
                 icon().paint(&painter, area, Qt::AlignCenter, isEnabled() ? QIcon::Normal : QIcon::Disabled,
@@ -165,13 +164,11 @@ void BackButton::paintEvent(QPaintEvent *) {
     // The arrow's top rounds down when the height and size differ by an odd
     // number, so center on the arrow itself, not on the button.
     const qreal center = arrow.top() + arrow.height() / 2.0;
-    const auto label = painter.fontMetrics().elidedText(
-        text(), Qt::ElideRight,
-        qMax(0, width() - m::navigation::labelLeft - m::navigation::labelRight - contentsMargins().right()));
-    // Center the visible letters on the arrow.
-    const auto bounds = QFontMetricsF(painter.font()).tightBoundingRect(label);
+    const int available = qMax(0, width() - m::navigation::labelLeft - m::navigation::labelRight - contentsMargins().right());
+    const auto label = elideInterfaceText(text(), painter.font(), available);
     painter.setPen(ink);
-    painter.drawText(QPointF(m::navigation::labelLeft, center - bounds.center().y() + labelOffset), label);
+    drawOpticalText(painter, QRectF(m::navigation::labelLeft, center - height() / 2.0 + labelOffset, available, height()), label);
+
 }
 TapZoneButton::TapZoneButton(tapZones::Layout layout, bool rightToLeft, QWidget *parent)
     : Button(parent), layout(layout), rightToLeft(rightToLeft) {
@@ -387,8 +384,8 @@ int CaptionButton::heightForWidth(int width) const {
     namespace c = m::chrome;
     const int available = qMax(1, width - c::inset - c::actionRight);
     const auto label = font(), noteFont = captionFont();
-    const int titleHeight = note.isEmpty() ? QFontMetrics(label).height()
-        : QFontMetrics(label).height() / 2 + px(40) + QFontMetrics(noteFont).height() / 2;
+    const int titleHeight = note.isEmpty() ? interfaceLineHeight(label)
+        : interfaceLineHeight(label) / 2 + px(40) + interfaceLineHeight(noteFont) / 2;
     return qMax(int(c::listActionHeight), titleHeight + px(40) +
         wrappedInterfaceTextHeight(description, interfaceFont(c::descriptionText), available));
 }
@@ -415,7 +412,7 @@ void CaptionButton::paintEvent(QPaintEvent *) {
         if (isIconAboveLabel()) {
             painter.setFont(font());
             const int iconSize = m::chrome::cellIcon, gap = px(8);
-            const int labelHeight = QFontMetrics(font()).height();
+            const int labelHeight = interfaceLineHeight(font());
             const int top = (height() - iconSize - gap - labelHeight) / 2;
             icon().paint(&painter, QRect((width() - iconSize) / 2, top, iconSize, iconSize), Qt::AlignCenter,
                          isEnabled() ? QIcon::Normal : QIcon::Disabled, pressed ? QIcon::On : QIcon::Off);
@@ -461,7 +458,7 @@ void CaptionButton::paintEvent(QPaintEvent *) {
         // The label and its note are one block, centred on its letters. Their
         // line boxes keep the same centre-to-centre distance as before.
         const QFont noteFont = captionFont();
-        const int labelHeight = QFontMetrics(label).height(), noteHeight = QFontMetrics(noteFont).height();
+        const int labelHeight = interfaceLineHeight(label), noteHeight = interfaceLineHeight(noteFont);
         const int pitch = px(40);
         const int titleHeight = note.isEmpty() ? labelHeight : labelHeight / 2 + pitch + noteHeight / 2;
         const auto descriptionFont = interfaceFont(c::descriptionText);
@@ -505,8 +502,8 @@ void CaptionButton::paintEvent(QPaintEvent *) {
     const int left = c::inset + c::cellIcon + px(24), right = chevron ? int(c::actionRight) : int(c::inset);
     const int available = qMax(0, width() - left - right);
     const auto labelFont = interfaceFont(c::labelText), noteFont = captionFont(px(20));
-    const int labelHeight = QFontMetrics(labelFont).height(),
-              noteHeight = note.isEmpty() ? 0 : QFontMetrics(noteFont).height();
+    const int labelHeight = interfaceLineHeight(labelFont),
+              noteHeight = note.isEmpty() ? 0 : interfaceLineHeight(noteFont);
     const int gap = note.isEmpty() ? 0 : px(2), top = (height() - labelHeight - gap - noteHeight) / 2;
     painter.setPen(ink);
     painter.setFont(labelFont);
@@ -548,7 +545,7 @@ QSize CellButton::sizeHint() const {
     // Paint with our own font; the reader's button style sets a larger size.
     QFont label = interfaceFont(m::chrome::countText);
     label.setCapitalization(QFont::AllUppercase);
-    return {2 * m::chrome::inset + qt::textWidth(QFontMetrics(label), text()) + m::chrome::selectorGap + iconPixels,
+    return {2 * m::chrome::inset + interfaceTextWidth(text(), label) + m::chrome::selectorGap + iconPixels,
             m::chrome::actionHeight};
 }
 void CellButton::paintEvent(QPaintEvent *) {

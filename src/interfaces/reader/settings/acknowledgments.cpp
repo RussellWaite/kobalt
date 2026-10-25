@@ -10,13 +10,11 @@
 #include "interfaces/reader/ui/style/styles.h"
 #include "acknowledgments.h"
 #include "interfaces/reader/ui/style/metrics.h"
-#include <QAbstractTextDocumentLayout>
 #include <QFile>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QPainter>
 #include <QResizeEvent>
-#include <QTextBlock>
 
 namespace kobalt {
 namespace styles = kobalt::ui::styles;
@@ -46,12 +44,7 @@ LicenseText::LicenseText(QWidget *parent) : QWidget(parent) {
     // keep their own line breaks.
     const QFont font = kobalt::ui::chromeFont(m::acknowledgments::noticeText);
     setFont(font);
-    document.setDefaultFont(font);
-    document.setDocumentMargin(m::acknowledgments::textMargin);
-    auto option = document.defaultTextOption();
-    option.setWrapMode(QTextOption::WrapAtWordBoundaryOrAnywhere);
-    option.setAlignment(Qt::AlignLeft);
-    document.setDefaultTextOption(option);
+    document.setFont(font);
 }
 void LicenseText::setText(const QString &text) {
     // Notices remain unchanged in the resources. Remove print-layout indentation
@@ -71,7 +64,7 @@ void LicenseText::setText(const QString &text) {
 void LicenseText::changeEvent(QEvent *event) {
     // The document keeps the faces of its font. See refreshInterfaceText().
     if (event->type() == QEvent::FontChange) {
-        document.setDefaultFont(kobalt::ui::renewedFont(document.defaultFont()));
+        document.setFont(kobalt::ui::renewedFont(document.font()));
         paginate();
         page = qBound(0, page, pages() - 1);
         update();
@@ -79,44 +72,23 @@ void LicenseText::changeEvent(QEvent *event) {
     QWidget::changeEvent(event);
 }
 int LicenseText::pages() const {
-    return qMax(1, int(pageBounds.size()));
+    return document.pages();
 }
 void LicenseText::resizeEvent(QResizeEvent *) {
     paginate();
 }
 void LicenseText::paginate() {
-    document.setTextWidth(qMax(1, width()));
-    document.documentLayout()->documentSize();
-    pageBounds.clear();
-    // End each screen between complete lines, including wrapped license text.
-    for (auto block = document.begin(); block.isValid(); block = block.next()) {
-        const auto *layout = block.layout();
-        for (int i = 0; i < layout->lineCount(); ++i) {
-            const auto line = layout->lineAt(i);
-            const qreal top = layout->position().y() + line.y();
-            const qreal bottom = top + line.height();
-            if (pageBounds.isEmpty() ||
-                bottom - pageBounds.last().first > qMax(1, height() - 2 * m::acknowledgments::textMargin))
-                pageBounds.append({top, bottom});
-            else
-                pageBounds.last().second = bottom;
-        }
-    }
+    const int margin = m::acknowledgments::textMargin;
+    document.layout(qMax(1, width() - 2 * margin), qMax(1, height() - 2 * margin));
     page = qBound(0, page, pages() - 1);
 }
 void LicenseText::paintEvent(QPaintEvent *) {
     QPainter painter(this);
     painter.fillRect(rect(), palette().color(QPalette::Window));
-    if (pageBounds.isEmpty())
-        return;
-    const auto bounds = pageBounds.at(page);
-    painter.translate(0, m::acknowledgments::textMargin - bounds.first);
-    const QRectF clip(0, bounds.first, width(), bounds.second - bounds.first);
-    painter.setClipRect(clip);
-    QAbstractTextDocumentLayout::PaintContext context;
-    context.palette = palette();
-    context.clip = clip;
-    document.documentLayout()->draw(&painter, context);
+    const int margin = m::acknowledgments::textMargin;
+    const int pageHeight = qMax(1, height() - 2 * margin), start = page * pageHeight;
+    painter.translate(margin, margin - start);
+    document.draw(painter, QRectF(0, start, qMax(1, width() - 2 * margin), pageHeight), palette());
 }
 Acknowledgments::Acknowledgments(QWidget *parent) : QFrame(parent) {
     setObjectName("rrAcknowledgments");
@@ -255,16 +227,16 @@ void Acknowledgments::redraw(bool paging) {
         int y = c::headerHeight + c::blockTop;
         description->setGeometry(c::inset, y, textWidth, description->heightForWidth(textWidth));
         y = description->geometry().bottom() + 1 + c::textGap;
-        const int captionLine = QFontMetrics(ui::captionFont()).height() + c::textGap;
+        const int captionLine = ui::interfaceLineHeight(ui::captionFont()) + c::textGap;
         const int versionWidth =
             version->text().isEmpty()
                 ? 0
-                : qMin(textWidth / 2, kobalt::qt::textWidth(QFontMetrics(ui::captionFont()), version->text()));
+                : qMin(textWidth / 2, ui::interfaceTextWidth(version->text(), ui::captionFont()));
         version->setGeometry(c::inset, y, versionWidth, captionLine);
         const int licenseLeft = c::inset + (versionWidth ? versionWidth + m::acknowledgments::captionGap : 0);
         license->setGeometry(licenseLeft, y, qMax(1, width() - c::inset - licenseLeft), captionLine);
         y += captionLine;
-        url->setGeometry(c::inset, y, textWidth, QFontMetrics(ui::chromeFont(c::numberText)).height() + c::textGap);
+        url->setGeometry(c::inset, y, textWidth, ui::interfaceLineHeight(ui::chromeFont(c::numberText)) + c::textGap);
         divider = url->geometry().bottom() + 1 + c::blockTop;
         // The document supplies its own margin; line its text up with the inset.
         const int top = divider + m::control::border + c::blockTop - m::acknowledgments::textMargin;

@@ -42,8 +42,7 @@ protected:
         painter.setFont(interfaceFont(m::chrome::labelText));
         painter.setPen(isEnabled() ? foreground : colors.color(QPalette::Mid));
         const int available = qMax(1, width() - textLeft - m::chrome::inset);
-        painter.drawText(QRect(textLeft, 0, available, height()), Qt::AlignLeft | Qt::AlignVCenter,
-                         painter.fontMetrics().elidedText(text(), Qt::ElideRight, available));
+        drawInterfaceText(painter, QRect(textLeft, 0, available, height()), elideInterfaceText(text(), painter.font(), available), Qt::AlignLeft | Qt::AlignVCenter);
     }
 
 private:
@@ -126,35 +125,15 @@ private:
     // Draws or, without a painter, measures one part in up to `lines` lines,
     // eliding the last. Returns its height.
     static int draw(QPainter *painter, const Part &part, int left, int top, int width) {
-        QTextLayout layout(part.text, part.font);
-        QTextOption option;
-        option.setWrapMode(QTextOption::WrapAtWordBoundaryOrAnywhere);
-        layout.setTextOption(option);
-        layout.beginLayout();
-        QVector<QTextLine> lines;
-        for (int row = 0; row < part.lines; ++row) {
-            auto line = layout.createLine();
-            if (!line.isValid())
-                break;
-            line.setLineWidth(width);
-            lines.append(line);
-        }
-        layout.endLayout();
-        const QFontMetrics metrics(part.font);
+        const int height = wrappedInterfaceTextHeight(part.text, part.font, width, part.lines);
         if (painter) {
             painter->setFont(part.font);
             painter->setPen(part.color);
-            for (int row = 0; row < lines.size(); ++row) {
-                const auto &line = lines[row];
-                const bool cut = row == lines.size() - 1 && line.textStart() + line.textLength() < part.text.size();
-                const auto shown = cut ? metrics.elidedText(part.text.mid(line.textStart()), Qt::ElideRight, width)
-                                       : part.text.mid(line.textStart(), line.textLength()).trimmed();
-                painter->drawText(QRect(left, top + row * metrics.height(), width, metrics.height()),
-                                  Qt::AlignLeft | Qt::AlignVCenter, shown);
-            }
+            drawWrappedInterfaceText(*painter, QRect(left, top, width, height), part.text, Qt::AlignLeft | Qt::AlignTop, part.lines);
         }
-        return lines.size() * metrics.height();
+        return height;
     }
+
     int textHeight(int width) const {
         int height = 0;
         for (const auto &part : parts())

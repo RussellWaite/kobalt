@@ -1,9 +1,9 @@
 #pragma once
+#include "text.h"
 #include "../style/fonts.h"
 #include "../style/styles.h"
 #include "../../../../support/qt_font.h"
 #include <QEvent>
-#include <QFontMetricsF>
 #include <QLabel>
 #include <QPainter>
 #include <QtMath>
@@ -15,8 +15,8 @@ class ModeBanner : public QWidget {
 public:
     ModeBanner(const QString &title, const QString &text, QWidget *parent) : QWidget(parent) {
         setAttribute(Qt::WA_OpaquePaintEvent);
-        heading = new QLabel(title, this);
-        helper = new QLabel(text, this);
+        heading = new kobalt::ui::InterfaceLabel(title, this);
+        helper = new kobalt::ui::InterfaceLabel(text, this);
         for (auto *label : {heading, helper}) {
             label->setWordWrap(true);
             label->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
@@ -82,10 +82,10 @@ protected:
 private:
     QLabel *heading = nullptr, *helper = nullptr;
     int titleWidth() const {
-        return qCeil(qt::textWidth(QFontMetricsF(heading->font()), heading->text()));
+        return interfaceTextWidth(heading->text(), heading->font());
     }
     bool fitsInline(int room) const {
-        return titleWidth() + px(24) + qCeil(qt::textWidth(QFontMetricsF(helper->font()), helper->text())) <= room;
+        return titleWidth() + px(24) + interfaceTextWidth(helper->text(), helper->font()) <= room;
     }
     static int wrappedHeight(const QLabel *label, int room) {
         return qMax(label->fontMetrics().height(), label->heightForWidth(room));

@@ -15,7 +15,7 @@ class AssetBundle;
 namespace kobalt::ui {
 // Owns independent font bytes and faces on the GUI thread. It never shares
 // CREngine's worker-owned font manager or changes Qt's font database.
-bool initializePrivateInterfaceText(const AssetBundle &assets);
+bool initializePrivateInterfaceText(const AssetBundle &assets, bool opening = false);
 // Count retained font buffers once, including collections with several faces.
 qint64 privateInterfaceFontBytes();
 enum class PrivateFontRegistration { Failed, Native, Private };
@@ -35,24 +35,37 @@ struct PrivateText {
     QPoint origin;
 };
 enum class PrivateTextEmphasis { Synthetic, FontFace };
-// Keep native painting when the bundled primary face covers the whole label.
+struct PrivateTextStyle {
+    int start = 0, length = 0;
+    QFont font;
+    QColor color;
+    int baselineShift = 0;
+    QImage image{};
+};
+// All application text uses private painting once font sources are initialized.
 bool needsPrivateText(const QString &text, const QFont &font);
+bool privateFontFixedPitch(const QFont &font);
 PrivateText renderPrivateText(const QString &text, const QFont &font, int weight = -1,
                               const QVector<QPair<int, int>> &boldRanges = {},
                               const QVector<QPair<int, int>> &underlineRanges = {},
                               PrivateTextEmphasis emphasis = PrivateTextEmphasis::Synthetic,
-                              Qt::LayoutDirection direction = Qt::LayoutDirectionAuto);
+                              Qt::LayoutDirection direction = Qt::LayoutDirectionAuto,
+                              const QVector<PrivateTextStyle> &styles = {});
 int measurePrivateText(const QString &text, const QFont &font, const QVector<QPair<int, int>> &boldRanges = {},
                        PrivateTextEmphasis emphasis = PrivateTextEmphasis::Synthetic,
                        Qt::LayoutDirection direction = Qt::LayoutDirectionAuto);
 PrivateText measurePrivateTextLayout(const QString &text, const QFont &font,
                                      const QVector<QPair<int, int>> &boldRanges = {},
                                      PrivateTextEmphasis emphasis = PrivateTextEmphasis::Synthetic,
-                                     Qt::LayoutDirection direction = Qt::LayoutDirectionAuto);
+                                     Qt::LayoutDirection direction = Qt::LayoutDirectionAuto,
+                                     const QVector<PrivateTextStyle> &styles = {});
 QSize measurePrivateTextSize(const QString &text, const QFont &font);
 QString elidePrivateText(const QString &text, const QFont &font, int width,
                          const QVector<QPair<int, int>> &boldRanges = {});
 int interfaceTextWidth(const QString &text, const QFont &font);
+int interfaceLineHeight(const QFont &font);
+int interfaceLineAscent(const QFont &font);
+QRect interfaceInkBounds(const QString &text, const QFont &font);
 QString elideInterfaceText(const QString &text, const QFont &font, int width);
 void drawInterfaceText(QPainter &painter, const QRect &area, const QString &text,
                        Qt::Alignment alignment = Qt::AlignLeft | Qt::AlignVCenter, int weight = -1,

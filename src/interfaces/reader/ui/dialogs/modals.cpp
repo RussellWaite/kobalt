@@ -86,9 +86,8 @@ protected:
         painter.setFont(font());
         const int inset = m::control::outlinedHorizontalPadding + m::control::border;
         painter.setPen(ink);
-        painter.drawText(
-            rect().adjusted(inset, m::control::outlinedVerticalPadding, -inset, -m::control::outlinedVerticalPadding),
-            Qt::AlignCenter | Qt::TextWordWrap, text());
+        drawWrappedInterfaceText(painter,
+            rect().adjusted(inset, m::control::outlinedVerticalPadding, -inset, -m::control::outlinedVerticalPadding), text(), Qt::AlignCenter);
     }
 };
 QLabel *modalContent(PopupCard *card, const ModalContent &content) {

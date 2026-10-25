@@ -17,7 +17,6 @@
 #include <QApplication>
 #include <QBuffer>
 #include <QtMath>
-#include <QFontMetrics>
 #include <QButtonGroup>
 #include <QGridLayout>
 #include <QPointer>
@@ -144,7 +143,7 @@ public:
         setAlignment(Qt::AlignCenter);
         setTextFormat(Qt::RichText);
         setContentsMargins(c::inset, 0, c::inset, m::notice::cardMargins.bottom());
-        const int size = qMax(1, QFontMetrics(font()).height());
+        const int size = qMax(1, ui::interfaceLineHeight(font()));
         const int ratio = qMax(1, qCeil(qreal(devicePixelRatio())));
         QImage image(size * ratio, size * ratio, QImage::Format_ARGB32_Premultiplied);
         image.setDevicePixelRatio(ratio);
@@ -175,8 +174,6 @@ public:
         setText(strings::get("settings.justification_tracking_description").arg(icon));
         setAccessibleName(strings::get("settings.justification_tracking_description").arg(strings::get("reader.justify")));
     }
-    int heightForWidth(int width) const override { return QLabel::heightForWidth(width); }
-    QSize sizeHint() const override { return QLabel::sizeHint(); }
 };
 QPushButton *actionButton(QWidget *parent, QBoxLayout *layout, const char *name, const QString &text) {
     auto *button = new ui::Button(text, parent);

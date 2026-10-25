@@ -22,7 +22,6 @@
 #include <QApplication>
 #include <QJsonArray>
 #include <QFontInfo>
-#include <QFontMetrics>
 #include <QFontDatabase>
 #include <QHideEvent>
 #include <QResizeEvent>
@@ -1181,7 +1180,7 @@ void Reader::syncLinkDiscovery() {
     const auto stripButton = [&](QPushButton *button, int strip, int text) {
         const int box =
             qMin(strip - 2 * int(m::links::stripButtonInset),
-                 QFontMetrics(kobalt::ui::interfaceFont(text)).height() + 2 * int(m::links::stripButtonInset));
+                 ui::interfaceLineHeight(ui::interfaceFont(text)) + 2 * int(m::links::stripButtonInset));
         restyle(button, styles::outlined() + QString("QPushButton{%1min-height:0;padding:0 %2px;margin:%3px 0;}")
                                                  .arg(styles::font(text))
                                                  .arg(int(m::links::stripButtonPadding))
@@ -1189,7 +1188,7 @@ void Reader::syncLinkDiscovery() {
         button->setFixedHeight(strip);
     };
     const auto fits = [](int strip, int text) {
-        return strip >= QFontMetrics(kobalt::ui::headerFooterFont(text)).height();
+        return strip >= ui::interfaceLineHeight(ui::headerFooterFont(text));
     };
 
     const QString label = strings::get("reader.highlight_links").arg(count);

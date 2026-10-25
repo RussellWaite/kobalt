@@ -76,10 +76,10 @@ protected:
             }
         }
         painter.setFont(ui::captionFont());
-        const auto metrics = painter.fontMetrics();
+        const auto metrics = painter.font();
         auto label = [&](int index) {
             const auto text = QString::number(index + 1);
-            const int textWidth = kobalt::qt::textWidth(metrics, text);
+            const int textWidth = ui::interfaceTextWidth(text, metrics);
             const int x = qBound(0, left(index) + (barWidth - textWidth) / 2, qMax(0, width() - textWidth));
             return qMakePair(text,
                              QRect(x, chart + m::numberTop, textWidth, qMax(1, this->height() - chart - m::numberTop)));
@@ -91,7 +91,7 @@ protected:
             const auto number = label(selection.current);
             current = number.second;
             painter.setPen(ink);
-            painter.drawText(number.second, Qt::AlignHCenter | Qt::AlignTop, number.first);
+            ui::drawInterfaceText(painter, number.second, number.first, Qt::AlignHCenter | Qt::AlignTop);
         }
         // The first and last numbers are grey and give way to the current one.
         painter.setPen(ui::noteColor(this));
@@ -101,7 +101,7 @@ protected:
             const auto number = label(index);
             if (!current.isNull() && number.second.adjusted(-m::tickHeight, 0, m::tickHeight, 0).intersects(current))
                 continue;
-            painter.drawText(number.second, Qt::AlignHCenter | Qt::AlignTop, number.first);
+            ui::drawInterfaceText(painter, number.second, number.first, Qt::AlignHCenter | Qt::AlignTop);
             if (visible == 1)
                 break;
         }
@@ -159,36 +159,36 @@ private:
     QString unitValue, detailValue, shortValue;
     void arrange() {
         const int inner = qMax(1, width() - 2 * c::inset);
-        const QFontMetrics captionMetrics(ui::captionFont()), figureMetrics(ui::brandFont(m::figureText)),
+        const QFont captionMetrics(ui::captionFont()), figureMetrics(ui::brandFont(m::figureText)),
             unitMetrics(ui::interfaceFont(m::unitText));
-        caption->setGeometry(c::inset, m::cellPadding, inner, captionMetrics.height());
-        percent->setGeometry(c::inset, m::cellPadding, inner, captionMetrics.height());
-        const int figureWidth = qMin(inner, kobalt::qt::textWidth(figureMetrics, figure->text()) + 2);
-        figure->setGeometry(c::inset, m::figureBaseline - figureMetrics.ascent(), figureWidth, figureMetrics.height());
+        caption->setGeometry(c::inset, m::cellPadding, inner, ui::interfaceLineHeight(captionMetrics));
+        percent->setGeometry(c::inset, m::cellPadding, inner, ui::interfaceLineHeight(captionMetrics));
+        const int figureWidth = qMin(inner, ui::interfaceTextWidth(figure->text(), figureMetrics) + 2);
+        figure->setGeometry(c::inset, m::figureBaseline - ui::interfaceLineAscent(figureMetrics), figureWidth, ui::interfaceLineHeight(figureMetrics));
         const int unitLeft = c::inset + figureWidth + m::unitGap;
         // A large figure keeps every digit; its unit shortens instead.
         const int unitWidth = qMax(1, width() - c::inset - unitLeft);
-        unit->setGeometry(unitLeft, m::figureBaseline - unitMetrics.ascent(), unitWidth, unitMetrics.height());
-        unit->setText(unitMetrics.elidedText(unitValue, Qt::ElideRight, unitWidth));
+        unit->setGeometry(unitLeft, m::figureBaseline - ui::interfaceLineAscent(unitMetrics), unitWidth, ui::interfaceLineHeight(unitMetrics));
+        unit->setText(ui::elideInterfaceText(unitValue, unitMetrics, unitWidth));
         detail->setGeometry(c::inset, m::detailTop, inner,
-                            unitMetrics.height() + (m::detailLines - 1) * unitMetrics.lineSpacing());
-        const bool shorten = !shortValue.isEmpty() && kobalt::qt::textWidth(unitMetrics, detailValue) > inner &&
-                             kobalt::qt::textWidth(unitMetrics, shortValue) <= inner;
+                            ui::interfaceLineHeight(unitMetrics) + (m::detailLines - 1) * ui::interfaceLineHeight(unitMetrics));
+        const bool shorten = !shortValue.isEmpty() && ui::interfaceTextWidth(detailValue, unitMetrics) > inner &&
+                             ui::interfaceTextWidth(shortValue, unitMetrics) <= inner;
         detail->setText(twoLines(unitMetrics, shorten ? shortValue : detailValue, inner));
     }
     // A detail that does not fit breaks at the space that gives the most even
     // lines, so "≈ 12 h 45 min left" never leaves one word alone. Without such
     // a space, the first line takes what fits and the second line shortens.
-    static QString twoLines(const QFontMetrics &metrics, const QString &text, int width) {
-        if (kobalt::qt::textWidth(metrics, text) <= width)
+    static QString twoLines(const QFont &metrics, const QString &text, int width) {
+        if (ui::interfaceTextWidth(text, metrics) <= width)
             return text;
         int best = -1, bestWidth = width + 1, last = -1;
         for (int space = text.indexOf(' '); space > 0; space = text.indexOf(' ', space + 1)) {
-            const int first = kobalt::qt::textWidth(metrics, text.left(space));
+            const int first = ui::interfaceTextWidth(text.left(space), metrics);
             if (first > width)
                 break;
             last = space;
-            const int longer = qMax(first, kobalt::qt::textWidth(metrics, text.mid(space + 1)));
+            const int longer = qMax(first, ui::interfaceTextWidth(text.mid(space + 1), metrics));
             if (longer < bestWidth) {
                 best = space;
                 bestWidth = longer;
@@ -197,8 +197,8 @@ private:
         if (best < 0)
             best = last;
         if (best < 0)
-            return metrics.elidedText(text, Qt::ElideRight, width);
-        return text.left(best) + '\n' + metrics.elidedText(text.mid(best + 1), Qt::ElideRight, width);
+            return ui::elideInterfaceText(text, metrics, width);
+        return text.left(best) + '\n' + ui::elideInterfaceText(text.mid(best + 1), metrics, width);
     }
 };
 
@@ -400,12 +400,12 @@ void ChapterGraph::arrange() {
     const int requiredHeight = topPadding + m::graphHeight + (paged() ? c::actionHeight : 0);
     if (height() != requiredHeight)
         resize(width(), requiredHeight);
-    const QFontMetrics captionMetrics(ui::captionFont()), titleMetrics(ui::interfaceFont(c::labelText));
-    chapterCaption->setGeometry(c::inset, topPadding + m::captionTop, inner / 2, captionMetrics.height());
+    const QFont captionMetrics(ui::captionFont()), titleMetrics(ui::interfaceFont(c::labelText));
+    chapterCaption->setGeometry(c::inset, topPadding + m::captionTop, inner / 2, ui::interfaceLineHeight(captionMetrics));
     chapterPage->setGeometry(c::inset + inner / 2, topPadding + m::captionTop, inner - inner / 2,
-                             captionMetrics.height());
+                             ui::interfaceLineHeight(captionMetrics));
     // The title uses the whole row and elides only when it is longer than that.
-    chapterTitle->setGeometry(c::inset, topPadding + m::titleTop, inner, titleMetrics.height());
+    chapterTitle->setGeometry(c::inset, topPadding + m::titleTop, inner, ui::interfaceLineHeight(titleMetrics));
     chapterTitle->setText(ui::elideInterfaceText(title, chapterTitle->font(), inner));
     const int chart = chartTop();
     bars->setGeometry(c::inset, chart + m::barsTop, inner, m::chartHeight - m::barsTop - ui::metrics::control::border);

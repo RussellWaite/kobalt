@@ -39,8 +39,7 @@ protected:
         const int diameter = qMax(px(24), qMin(px(48), width() - 2 * inset));
         auto labelFont = font();
         labelFont.setPixelSize(qMin(px(23), qMax(px(16), width() / 3)));
-        const auto labelBounds = QFontMetrics(labelFont).tightBoundingRect(text());
-        const auto labelLine = QFontMetrics(labelFont).tightBoundingRect(QStringLiteral("Ag"));
+        const auto labelLine = interfaceInkBounds(QStringLiteral("Ag"), labelFont);
         const int ringExtent = ring + (pen + 1) / 2;
         const int gap = px(5);
         // Center the visible circle, selection ring and label as one group.
@@ -60,8 +59,7 @@ protected:
         p.setPen(ink);
         p.setFont(labelFont);
         const int labelTop = chip.y() + diameter + ringExtent + gap;
-        p.drawText(QPoint((width() - labelBounds.width()) / 2 - labelBounds.left(),
-                         labelTop - labelLine.top()), text());
+        drawInterfaceText(p, QRect(0, labelTop, width(), labelLine.height()), text(), Qt::AlignHCenter | Qt::AlignTop);
     }
 
 private:
@@ -96,7 +94,7 @@ public:
                 changed(QString::fromLatin1(key));
             });
         }
-        error = new QLabel(this);
+        error = new kobalt::ui::InterfaceLabel(this);
         error->setObjectName("rrAnnotationPaletteError");
         error->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
         error->setWordWrap(true);
@@ -211,10 +209,10 @@ protected:
         const QRect sample((width() - px(90)) / 2, px(8), px(90), px(44));
         p.setFont(interfaceFont(px(32)));
         p.setPen(ink);
-        p.drawText(sample, Qt::AlignCenter, QStringLiteral("Abc"));
+        drawInterfaceText(p, sample, QStringLiteral("Abc"), Qt::AlignCenter);
         paintHighlightMark(p, {sample}, QRegion(sample), color, style, darkTheme(this));
         p.setFont(font());
-        p.drawText(QRect(px(6), px(62), width() - px(12), px(30)), Qt::AlignCenter, label);
+        drawInterfaceText(p, QRect(px(6), px(62), width() - px(12), px(30)), label, Qt::AlignCenter);
         if (isChecked()) {
             const QRect check(width() - px(40), px(10), px(24), px(24));
             p.setRenderHint(QPainter::Antialiasing);
@@ -256,7 +254,7 @@ public:
                 changed(QString::fromLatin1(style));
             });
         }
-        error = new QLabel(this);
+        error = new kobalt::ui::InterfaceLabel(this);
         error->setObjectName("rrAnnotationStyleError");
         error->setFont(interfaceFont(px(23)));
         error->setWordWrap(true);

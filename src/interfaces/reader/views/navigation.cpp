@@ -94,7 +94,7 @@ protected:
         // The labels are capitals, so the cap height is their ink. Centering
         // the icon box and that ink as one group lines every tab up.
         const auto label = ui::interfaceFont(c::tabText);
-        const int capital = qCeil(QFontMetricsF(label).tightBoundingRect(QStringLiteral("H")).height());
+        const int capital = ui::interfaceInkBounds(QStringLiteral("H"), label).height();
         const int top = labelsHidden ? (height() - c::tabIcon) / 2 : (height() - c::tabIcon - c::tabGap - capital) / 2;
         const QRect icon((width() - c::tabIcon) / 2, top, c::tabIcon, c::tabIcon);
         painter.setPen(color);

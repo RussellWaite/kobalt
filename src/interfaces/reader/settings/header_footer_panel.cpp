@@ -98,7 +98,7 @@ int progressSpace() {
 // A slot's box: its strip's line of text and the padding around it.
 int slotBoxHeight(const QString &size, bool footer) {
     const QFont font = ui::headerFooterFont(m::reading::textPixels(m::reading::textSize(size), footer));
-    return QFontMetrics(font).height() + 2 * hf::slotPadding;
+    return ui::interfaceLineHeight(font) + 2 * hf::slotPadding;
 }
 // A dashed outline on whole pixels, drawn as filled dashes so every density
 // keeps the same crisp border width.
@@ -175,7 +175,7 @@ protected:
             font.setPixelSize(hf::emptyText);
             painter.setFont(font);
             painter.setPen(pressed ? ink : ui::noteColor(this));
-            painter.drawText(bounds, align | Qt::AlignVCenter, strings::get("header_footer.empty"));
+            ui::drawInterfaceText(painter, bounds, strings::get("header_footer.empty"), align | Qt::AlignVCenter);
             return;
         }
         painter.setPen(ink);

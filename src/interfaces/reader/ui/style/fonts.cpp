@@ -185,6 +185,8 @@ bool initializeOpeningFonts(const AssetBundle &assets) {
                 return false;
             sources.insert(face.file, bytes);
         }
+    if (!initializePrivateInterfaceText(assets, true))
+        return false;
     bool changed = false;
     return replaceFaces(std::move(sources), &changed);
 }
@@ -302,9 +304,9 @@ private:
 };
 }
 int opticalCenterShift(const QFont &first, const QFont &last) {
-    const QFontMetricsF top(first), bottom(last);
-    const qreal capitals = top.tightBoundingRect(QStringLiteral("H")).height();
-    return qRound((top.ascent() - capitals - bottom.descent()) / 2);
+    const int capitals = interfaceInkBounds(QStringLiteral("H"), first).height();
+    const int descent = interfaceLineHeight(last) - interfaceLineAscent(last);
+    return qRound((interfaceLineAscent(first) - capitals - descent) / 2.0);
 }
 void keepInterfaceUnhinted(QWidget *window) {
     QCoreApplication::instance()->installEventFilter(new UnhintedFonts(window));

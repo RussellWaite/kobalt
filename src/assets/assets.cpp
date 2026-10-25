@@ -191,6 +191,12 @@ QByteArray AssetBundle::manifestFontData(const QString &name) const {
     }
     return fontData(name);
 }
+std::function<QByteArray()> AssetBundle::deferredManifestFontData(const QString &name) const {
+    // Retain an independent owner: the original bundle can be invalidated or
+    // destroyed before the opening view first needs a fallback face.
+    auto opening = std::make_shared<AssetBundle>(data->root, data->version);
+    return [opening, name] { return opening->manifestFontData(name); };
+}
 std::function<QByteArray()> AssetBundle::deferredFontData(const QString &name) const {
     if (!available())
         return {};

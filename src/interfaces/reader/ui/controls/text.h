@@ -14,7 +14,7 @@ struct Content;
 namespace kobalt::ui {
 // Elides only the title in a combined chapter field.
 QString headerFooterText(const headerfooter::Content &content, const QFont &font, int width);
-// Plain interface labels retain Qt's native path unless the face needs private rendering.
+// Interface labels use the same private font metrics and painting as the reader controls.
 class InterfaceLabel : public QLabel {
 public:
     using QLabel::QLabel;
@@ -24,7 +24,7 @@ public:
 protected:
     void paintEvent(QPaintEvent *event) override;
 };
-int wrappedInterfaceTextHeight(const QString &text, const QFont &font, int width);
+int wrappedInterfaceTextHeight(const QString &text, const QFont &font, int width, int maximumLines = 0);
 void drawWrappedInterfaceText(QPainter &painter, const QRect &bounds, const QString &text,
                               Qt::Alignment alignment = Qt::AlignLeft | Qt::AlignTop, int maximumLines = 0,
                               int lineSpacing = 0, QVector<QRect> *lineRectangles = nullptr);

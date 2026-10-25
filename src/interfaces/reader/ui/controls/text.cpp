@@ -1,4 +1,5 @@
 #include "text.h"
+#include "../style/rich_text.h"
 #include "support/qt_font.h"
 #include "../style/fonts.h"
 #include "../style/font_data.h"
@@ -174,10 +175,15 @@ QString interfaceHtml(const QString &text) {
     return text.toHtmlEscaped().replace('\n', "<br/>");
 }
 }
-int wrappedInterfaceTextHeight(const QString &text, const QFont &font, int width) {
+int wrappedInterfaceTextHeight(const QString &text, const QFont &font, int width, int maximumLines) {
     if (!needsPrivateText(text, font))
         return QFontMetrics(font).boundingRect(QRect(0, 0, qMax(1, width), 0), Qt::TextWordWrap, text).height();
-    return qCeil(excerptTextHeight(interfaceHtml(text), font, qMax(1, width)));
+    QTextDocument document;
+    document.setDefaultFont(font);
+    document.setHtml(interfaceHtml(text));
+    const auto lines = privateExcerptLines(document, font, qMax(1, width));
+    const int count = maximumLines > 0 ? qMin(int(lines.size()), maximumLines) : int(lines.size());
+    return count ? qCeil(lines[count - 1].top + lines[count - 1].height) : 0;
 }
 void drawWrappedInterfaceText(QPainter &painter, const QRect &bounds, const QString &text, Qt::Alignment alignment,
                               int maximumLines, int lineSpacing, QVector<QRect> *lineRectangles) {
@@ -276,19 +282,36 @@ int InterfaceLabel::heightForWidth(int width) const {
     if (!wordWrap() || !needsPrivateText(text(), font()))
         return QLabel::heightForWidth(width);
     const auto margins = contentsMargins();
-    return wrappedInterfaceTextHeight(text(), font(), width - margins.left() - margins.right() - 2 * margin()) +
-           margins.top() + margins.bottom() + 2 * margin();
+    const int available = qMax(1, width - margins.left() - margins.right() - 2 * margin());
+    int height;
+    if (textFormat() == Qt::RichText || (textFormat() == Qt::AutoText && Qt::mightBeRichText(text()))) {
+        PrivateRichText document;
+        document.setFont(font());
+        document.setHtml(text());
+        document.layout(available);
+        height = document.height();
+    } else
+        height = wrappedInterfaceTextHeight(text(), font(), available);
+    return height + margins.top() + margins.bottom() + 2 * margin();
 }
 QSize InterfaceLabel::sizeHint() const {
     if (!needsPrivateText(text(), font()))
         return QLabel::sizeHint();
     const auto margins = contentsMargins();
-    auto size = measurePrivateTextSize(text(), font());
+    QSize size;
+    if (textFormat() == Qt::RichText || (textFormat() == Qt::AutoText && Qt::mightBeRichText(text()))) {
+        PrivateRichText document;
+        document.setFont(font());
+        document.setHtml(text());
+        document.layout(32768);
+        size = QSize(document.naturalWidth(), document.height());
+    } else
+        size = measurePrivateTextSize(text(), font());
     size += QSize(margins.left() + margins.right() + 2 * margin(), margins.top() + margins.bottom() + 2 * margin());
     return size;
 }
 void InterfaceLabel::paintEvent(QPaintEvent *event) {
-    if (!needsPrivateText(text(), font()) || text().isEmpty() || textFormat() == Qt::RichText) {
+    if (!needsPrivateText(text(), font()) || text().isEmpty()) {
         QLabel::paintEvent(event);
         return;
     }
@@ -296,6 +319,16 @@ void InterfaceLabel::paintEvent(QPaintEvent *event) {
     painter.setFont(font());
     painter.setPen(palette().color(isEnabled() ? QPalette::WindowText : QPalette::Mid));
     const QRect bounds = contentsRect().adjusted(margin(), margin(), -margin(), -margin());
+    if (textFormat() == Qt::RichText || (textFormat() == Qt::AutoText && Qt::mightBeRichText(text()))) {
+        PrivateRichText document;
+        document.setFont(font());
+        document.setHtml(text());
+        document.layout(bounds.width());
+        const int offset = alignment() & Qt::AlignVCenter ? (bounds.height() - document.height()) / 2 : 0;
+        painter.translate(bounds.x(), bounds.y() + offset);
+        document.draw(painter, QRectF(0, -offset, bounds.width(), bounds.height()), palette());
+        return;
+    }
     if (wordWrap())
         drawWrappedInterfaceText(painter, bounds, text(), alignment());
     else
@@ -441,10 +474,12 @@ QVector<QPair<int, int>> samplePrefixes(const QString &text) {
 void drawOpticalText(QPainter &painter, const QRectF &area, const QString &text, bool centered,
                      SampleAppearance appearance) {
     if (needsPrivateText(text, painter.font())) {
-        const auto ranges = appearance.bionic == "bold" ? samplePrefixes(text) : QVector<QPair<int, int>>();
+        const bool bold = appearance.bionic == "bold";
+        const auto ranges = bold && !privateFontFixedPitch(painter.font())
+                                ? samplePrefixes(text) : QVector<QPair<int, int>>();
         drawOpticalPrivateText(painter, area.toRect(),
                                elidePrivateText(text, painter.font(), qMax(0, int(area.width())), ranges),
-                               centered ? Qt::AlignHCenter : Qt::AlignLeft, appearance.weight, ranges);
+                               centered ? Qt::AlignHCenter : Qt::AlignLeft, bold ? 0 : appearance.weight, ranges);
         return;
     }
     const bool bold = appearance.bionic == "bold";
@@ -568,7 +603,16 @@ void SampleLabel::paintEvent(QPaintEvent *event) {
                     split = i;
                 }
             }
-            const int lineHeight = measurePrivateTextSize(text(), font()).height() + px(5);
+            const auto sample = renderPrivateText(text() + QStringLiteral(" Hox"), font(), 0).image;
+            int firstInk = sample.height(), lastInk = -1;
+            for (int y = 0; y < sample.height(); ++y)
+                for (int x = 0; x < sample.width(); ++x)
+                    if (qAlpha(sample.pixel(x, y)) > 128) {
+                        firstInk = qMin(firstInk, y);
+                        lastInk = y;
+                        break;
+                    }
+            const int lineHeight = qMax(1, lastInk - firstInk + 1) + px(5);
             if (split >= 0 && lineHeight * 2 <= height()) {
                 const int top = (height() - lineHeight * 2) / 2;
                 drawOpticalText(painter, QRectF(0, top, width(), lineHeight), text().left(split).trimmed(),

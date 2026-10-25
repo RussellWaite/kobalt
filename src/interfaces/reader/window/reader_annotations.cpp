@@ -418,7 +418,7 @@ void Reader::annotationActionsFor(const QVector<AnnotationAction> &actions, QRec
                             QString("QPushButton{min-height:%1px;max-height:%1px;padding:0;border:none;}").arg(rowHeight));
             button->ensurePolished();
             const int rowWidth = m::chrome::inset + m::chrome::cellIcon + ui::px(20) +
-                                 qCeil(qt::textWidth(QFontMetricsF(button->font()), action.label)) + m::chrome::actionRight;
+                                 ui::interfaceTextWidth(action.label, button->font()) + m::chrome::actionRight;
             desiredWidth = qMax(desiredWidth, rowWidth + 2 * int(m::control::border));
         }
     }

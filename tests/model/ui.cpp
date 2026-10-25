@@ -1554,7 +1554,14 @@ int main(int argc, char **argv) {
         const auto id = QFontDatabase::addApplicationFont(kobalt::test::readerFontCopies().file(
             "ebook-core/" + file, kobalt::test::readerAssets().fontData("ebook-core/" + file)));
         require(id >= 0, "Core font could not be registered for optical check");
-        readingFamilies.append(QFontDatabase::applicationFontFamilies(id));
+        const auto families = QFontDatabase::applicationFontFamilies(id);
+        for (const auto &family : families)
+            require(kobalt::ui::registerPrivateInterfaceFont(
+                        kobalt::test::readerFontCopies().file("ebook-core/" + file,
+                            kobalt::test::readerAssets().fontData("ebook-core/" + file)), family) !=
+                        kobalt::ui::PrivateFontRegistration::Failed,
+                    "Core font could not be retained for optical check");
+        readingFamilies.append(families);
     }
     readingFamilies.removeDuplicates();
     for (const auto &face : readingFamilies) {
@@ -1566,7 +1573,9 @@ int main(int argc, char **argv) {
             QPainter painter(&image);
             painter.setFont(font);
             painter.setPen(Qt::black);
-            painter.drawText(QPoint(10, 70), "Hox");
+            const auto glyphs = kobalt::ui::renderPrivateText("Hox", font, 0);
+            require(glyphs.missingGlyphs == 0, "Optical sample lost a glyph");
+            painter.drawImage(QPoint(10, 70) + glyphs.origin, glyphs.image);
         }
         int top = 100, bottom = -1;
         for (int y = 0; y < image.height(); ++y)
@@ -2139,6 +2148,44 @@ int main(int argc, char **argv) {
         app.processEvents();
         require(host.grab().toImage() == page, "Closing the opening popup damaged its parent");
         host.hide();
+    }
+    {
+        using namespace kobalt::ui;
+        const auto alias = QStringLiteral("Dictionary private-only canary");
+        require(registerPrivateInterfaceFont(kobalt::test::readerAssets().file("fonts/IBMPlexMono-Regular.ttf"), alias, true) ==
+                    PrivateFontRegistration::Private, "Cannot retain the dictionary canary font");
+        QFont font(alias);
+        font.setPixelSize(36);
+        PagedText preview;
+        preview.resize(500, 150);
+        preview.setMargins({});
+        preview.setTextFont(font);
+        preview.setHtml("iiiiWWWW");
+        preview.show();
+        const auto actual = preview.grab().toImage().convertToFormat(QImage::Format_RGB32);
+        QImage expected(actual.size(), QImage::Format_RGB32);
+        expected.fill(preview.palette().color(QPalette::Window));
+        const auto glyphs = renderPrivateText("iiiiWWWW", font, -1, {}, {}, PrivateTextEmphasis::FontFace,
+                                             Qt::LeftToRight,
+                                             {{0, 8, font, preview.palette().color(QPalette::WindowText)}});
+        QPainter painter(&expected);
+        painter.drawImage(QPoint(0, glyphs.lineAscent) + glyphs.origin, glyphs.image);
+        painter.end();
+        const auto ink = [](const QImage &image) {
+            QRect bounds;
+            for (int y = 0; y < image.height(); ++y)
+                for (int x = 0; x < image.width(); ++x)
+                    if (qGray(image.pixel(x, y)) < 240)
+                        bounds |= QRect(x, y, 1, 1);
+            return bounds;
+        };
+        if (actual.copy(ink(actual)) != expected.copy(ink(expected))) {
+            std::fprintf(stderr, "Canary actual ink %dx%d expected %dx%d font %s\n", ink(actual).width(),
+                         ink(actual).height(), ink(expected).width(), ink(expected).height(),
+                         qPrintable(preview.textFont().toString()));
+        }
+        require(!ink(expected).isEmpty() && actual.copy(ink(actual)) == expected.copy(ink(expected)),
+                "Dictionary definitions did not use the retained FreeType font glyphs");
     }
     kobalt::ui::PagedText definition;
     definition.resize(400, 95);

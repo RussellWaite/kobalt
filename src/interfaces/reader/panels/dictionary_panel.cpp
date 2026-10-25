@@ -11,7 +11,6 @@
 #include "interfaces/reader/ui/style/styles.h"
 #include "interfaces/reader/ui/style/fonts.h"
 #include "interfaces/reader/ui/style/private_text.h"
-#include <QFontMetrics>
 #include <QPainter>
 #include <QRawFont>
 #include <QRegularExpression>

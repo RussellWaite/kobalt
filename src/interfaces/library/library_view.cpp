@@ -87,8 +87,7 @@ void drawCaption(QPainter &painter, const QRect &rect, const QString &text, Qt::
     auto font = ui::captionFont(pixels);
     painter.setFont(font);
     painter.setPen(color);
-    painter.drawText(rect, alignment | Qt::AlignVCenter,
-                     painter.fontMetrics().elidedText(text.toUpper(), Qt::ElideRight, rect.width()));
+    ui::drawInterfaceText(painter, rect, ui::elideInterfaceText(text.toUpper(), painter.font(), rect.width()), alignment | Qt::AlignVCenter);
 }
 void drawChevron(QPainter &painter, QPoint center, int size, bool down, const QColor &color) {
     painter.save();
@@ -180,8 +179,7 @@ protected:
         if (placed.isEmpty() && !emptyText.isEmpty()) {
             painter.setFont(ui::interfaceFont(c::labelText));
             painter.setPen(ui::noteColor(this));
-            painter.drawText(rect().adjusted(c::inset, 0, -c::inset, -height() / 3), Qt::AlignCenter | Qt::TextWordWrap,
-                             emptyText);
+            ui::drawWrappedInterfaceText(painter, rect().adjusted(c::inset, 0, -c::inset, -height() / 3), emptyText, Qt::AlignCenter);
             return;
         }
         if (view == View::List)
@@ -354,8 +352,7 @@ private:
         painter.fillRect(rect.left() + inset, bottom, rect.width() - 2 * inset, qMax(1, ui::px(2)), ink);
         painter.setPen(ink);
         painter.setFont(ui::brandFont(qMax(8, rect.width() / 7)));
-        painter.drawText(QRect(rect.left() + inset, top + inset / 2, rect.width() - 2 * inset, bottom - top - inset),
-                         Qt::AlignLeft | Qt::AlignTop | Qt::TextWordWrap, book.displayTitle());
+        ui::drawWrappedInterfaceText(painter, QRect(rect.left() + inset, top + inset / 2, rect.width() - 2 * inset, bottom - top - inset), book.displayTitle(), Qt::AlignLeft | Qt::AlignTop);
     }
     void paintCover(QPainter &painter, const QRect &box, const Book &book, const QColor &ink, const QColor &paper,
                     bool fit) {
@@ -391,8 +388,8 @@ private:
             auto title = ui::interfaceFont(c::labelText);
             auto author = ui::interfaceFont(c::descriptionText);
             auto caption = ui::captionFont();
-            const int titleHeight = QFontMetrics(title).height(), authorHeight = QFontMetrics(author).height(),
-                      captionHeight = QFontMetrics(caption).height();
+            const int titleHeight = ui::interfaceLineHeight(title), authorHeight = ui::interfaceLineHeight(author),
+                      captionHeight = ui::interfaceLineHeight(caption);
             const int gap = ui::px(6);
             // Center the lines the row has: title, then author and caption when present.
             const auto caption_ = seriesText(book);
@@ -401,14 +398,12 @@ private:
             int y = area.center().y() - linesHeight / 2;
             painter.setFont(title);
             painter.setPen(ink);
-            painter.drawText(QRect(left, y, textWidth, titleHeight), Qt::AlignLeft | Qt::AlignVCenter,
-                             painter.fontMetrics().elidedText(book.displayTitle(), Qt::ElideRight, textWidth));
+            ui::drawInterfaceText(painter, QRect(left, y, textWidth, titleHeight), ui::elideInterfaceText(book.displayTitle(), painter.font(), textWidth), Qt::AlignLeft | Qt::AlignVCenter);
             y += titleHeight + gap;
             if (!book.author.isEmpty()) {
                 painter.setFont(author);
                 painter.setPen(note);
-                painter.drawText(QRect(left, y, textWidth, authorHeight), Qt::AlignLeft | Qt::AlignVCenter,
-                                 painter.fontMetrics().elidedText(book.author, Qt::ElideRight, textWidth));
+                ui::drawInterfaceText(painter, QRect(left, y, textWidth, authorHeight), ui::elideInterfaceText(book.author, painter.font(), textWidth), Qt::AlignLeft | Qt::AlignVCenter);
                 y += authorHeight + gap;
             }
             if (!caption_.isEmpty())
@@ -455,7 +450,7 @@ private:
         }
     }
     static int percentHeight() {
-        return QFontMetrics(ui::captionFont(c::numberText)).height();
+        return ui::interfaceLineHeight(ui::captionFont(c::numberText));
     }
 };
 
@@ -580,7 +575,7 @@ public:
         back->setObjectName("libraryFoldersBack");
         back->setRule(Qt::RightEdge);
         back->setAccessibleName(strings::get("library.back"));
-        title = new QLabel(strings::get("library.folders"), this);
+        title = new kobalt::ui::InterfaceLabel(strings::get("library.folders"), this);
         title->setTextFormat(Qt::PlainText);
         ui::readerStyle(title, ui::styles::brand(c::titleText) + "background:transparent;");
         heading = new ui::ListHeader(this);
@@ -599,7 +594,7 @@ public:
         check->setPresentation(look);
         add = actionButton(this, strings::get("library.add_folder"), "libraryFoldersAdd", true);
         rescan = actionButton(this, strings::get("library.rescan"), "libraryFoldersRescan", false);
-        description = new QLabel(strings::get("library.folders_description"), this);
+        description = new kobalt::ui::InterfaceLabel(strings::get("library.folders_description"), this);
         description->setWordWrap(true);
         description->setTextFormat(Qt::PlainText);
         ui::readerStyle(description, ui::styles::font(c::descriptionText) +
@@ -833,7 +828,7 @@ QWidget *LibraryView::buildEmpty() {
     across->addStretch(1);
     outer->addLayout(across);
     outer->addStretch(2);
-    auto *message = new QLabel(strings::get("library.empty_title"), page);
+    auto *message = new kobalt::ui::InterfaceLabel(strings::get("library.empty_title"), page);
     message->setObjectName("libraryEmptyTitle");
     // Italic glyphs overhang the label's text metrics on both axes.
     message->setMargin(ui::px(8));
@@ -842,7 +837,7 @@ QWidget *LibraryView::buildEmpty() {
     ui::readerStyle(message, ui::styles::brand(lm::message, true) + "background:transparent;");
     column->addWidget(message);
     column->addSpacing(ui::px(24));
-    auto *body = new QLabel(strings::get("library.empty_body"), page);
+    auto *body = new kobalt::ui::InterfaceLabel(strings::get("library.empty_body"), page);
     body->setObjectName("libraryEmptyBody");
     body->setWordWrap(true);
     body->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
@@ -1099,16 +1094,14 @@ void LibraryView::paintEvent(QPaintEvent *event) {
     painter.setFont(titleFont);
     painter.setPen(ink);
     const auto heading = strings::get("library.title");
-    const int titleWidth = qMin(painter.fontMetrics().horizontalAdvance(heading), qMax(1, right - left));
-    painter.drawText(QRect(left, 0, titleWidth, bar), Qt::AlignLeft | Qt::AlignVCenter,
-                     painter.fontMetrics().elidedText(heading, Qt::ElideRight, qMax(1, right - left)));
+    const int titleWidth = qMin(ui::interfaceTextWidth(heading, painter.font()), qMax(1, right - left));
+    ui::drawInterfaceText(painter, QRect(left, 0, titleWidth, bar), ui::elideInterfaceText(heading, painter.font(), qMax(1, right - left)), Qt::AlignLeft | Qt::AlignVCenter);
     const int shown = index.visibleCount();
     painter.setFont(ui::interfaceFont(c::countText));
     painter.setPen(ui::noteColor(this));
     const int countLeft = left + titleWidth + ui::px(24);
     if (right > countLeft)
-        painter.drawText(QRect(countLeft, 0, right - countLeft, bar), Qt::AlignRight | Qt::AlignVCenter,
-                         painter.fontMetrics().elidedText(countText(shown), Qt::ElideRight, right - countLeft));
+        ui::drawInterfaceText(painter, QRect(countLeft, 0, right - countLeft, bar), ui::elideInterfaceText(countText(shown), painter.font(), right - countLeft), Qt::AlignRight | Qt::AlignVCenter);
 }
 
 void LibraryView::showBookMenu(const QString &key) {

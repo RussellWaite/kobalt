@@ -35,13 +35,13 @@ protected:
         ui::paintEdges(painter, rect(), Qt::BottomEdge, ui::dividerColor(this));
     }
 };
-class StorageLabel : public QLabel {
+class StorageLabel : public ui::InterfaceLabel {
 public:
-    using QLabel::QLabel;
+    using ui::InterfaceLabel::InterfaceLabel;
 
 protected:
     void paintEvent(QPaintEvent *event) override {
-        QLabel::paintEvent(event);
+        ui::InterfaceLabel::paintEvent(event);
         QPainter painter(this);
         painter.setPen(ui::dividerColor(this));
         painter.drawLine(0, 0, width() - 1, 0);

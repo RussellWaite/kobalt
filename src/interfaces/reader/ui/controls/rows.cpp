@@ -354,7 +354,7 @@ void ListHeader::setTrailingInset(int pixels) {
 void ListHeader::resizeEvent(QResizeEvent *) {
     const int available = qMax(0, width() - 2 * m::list::inset - trailingInset);
     const int side =
-        right->text().isEmpty() ? 0 : qMin(available, qt::textWidth(QFontMetrics(right->font()), right->text()));
+        right->text().isEmpty() ? 0 : qMin(available, interfaceTextWidth(right->text(), right->font()));
     left->setGeometry(m::list::inset, 0, qMax(0, available - side - (side ? int(m::list::gap) : 0)),
                       height() - m::control::border);
     right->setGeometry(width() - m::list::inset - trailingInset - side, 0, side, height() - m::control::border);

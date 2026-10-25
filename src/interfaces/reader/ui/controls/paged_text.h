@@ -1,4 +1,5 @@
 #pragma once
+#include "../style/rich_text.h"
 #include <QTextDocument>
 #include <QTextBlock>
 #include <QMargins>
@@ -18,8 +19,10 @@ public:
     explicit PagedText(QWidget *parent = nullptr);
     void setHtml(const QString &html);
     void setTextFont(const QFont &font);
+    // Minimum leading relative to the font. Zero keeps the source formatting.
+    void setMinimumLineHeight(int percent);
     QFont textFont() const {
-        return document.defaultFont();
+        return document.font();
     }
     void setMargins(const QMargins &value);
     int pages() const;
@@ -34,11 +37,11 @@ protected:
     void changeEvent(QEvent *event) override;
 
 private:
-    PagedDocument document;
+    PrivateRichText document;
     int current = 0;
+    int minimumLineHeight = 0;
     QMargins margins;
     QString source;
-    QVector<QPair<QTextBlock, QTextBlockFormat>> insertedBreaks;
     void paginate();
 };
 }

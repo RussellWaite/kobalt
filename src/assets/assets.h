@@ -21,6 +21,8 @@ public:
     // Checks one font against the manifest without verifying the whole bundle
     // first. After a full verification, this is the same as fontData().
     QByteArray manifestFontData(const QString &name) const;
+    // Retain an independent manifest reader for text shown before full verification.
+    std::function<QByteArray()> deferredManifestFontData(const QString &name) const;
     const QString &root() const;
 
 private:

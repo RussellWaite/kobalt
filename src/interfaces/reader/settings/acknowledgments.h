@@ -6,7 +6,7 @@
 #include <QJsonArray>
 #include <QLabel>
 #include <QPushButton>
-#include <QTextDocument>
+#include "interfaces/reader/ui/style/rich_text.h"
 #include <functional>
 
 namespace kobalt {
@@ -23,8 +23,7 @@ protected:
     void changeEvent(QEvent *event) override;
 
 private:
-    QTextDocument document;
-    QVector<QPair<qreal, qreal>> pageBounds;
+    ui::PrivateRichText document;
     void paginate();
 };
 

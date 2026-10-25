@@ -179,7 +179,7 @@ void BluetoothIndicator::paintEvent(QPaintEvent *) {
                      palette().color(QPalette::WindowText));
 }
 
-BatteryIndicator::BatteryIndicator(QWidget *parent) : QLabel(parent) {
+BatteryIndicator::BatteryIndicator(QWidget *parent) : InterfaceLabel(parent) {
     setFixedSize(m::panel::batteryWidth, m::panel::statusHeight);
     setContentsMargins(0, 0, m::panel::batteryTextInset, 0);
     setAlignment(Qt::AlignRight | Qt::AlignVCenter);
@@ -298,7 +298,7 @@ QFont batteryTextFont(QFont font, qreal bodyHeight, int weight) {
     return font;
 }
 void BatteryIndicator::paintEvent(QPaintEvent *event) {
-    QLabel::paintEvent(event);
+    InterfaceLabel::paintEvent(event);
     QPainter painter(this);
     const QRectF body(width() - m::panel::batteryIconSize + 1, (height() - m::panel::batteryBodyHeight) / 2.0,
                       m::panel::batteryBodyWidth, m::panel::batteryBodyHeight);

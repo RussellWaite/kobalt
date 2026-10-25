@@ -6,7 +6,6 @@
 #include "interfaces/reader/ui/style/private_text.h"
 #include "support/strings.h"
 
-#include <QFontMetrics>
 #include <QPainter>
 #include <QPolygonF>
 #include <QtMath>
@@ -91,14 +90,13 @@ void paintUprightBattery(QPainter &painter, const Battery &battery, int left, qr
     }
     // Place the percentage so the middle of its ink meets the middle of the
     // status letters, rather than centering line boxes of different fonts.
-    const QFontMetricsF metrics(battery.font);
-    const QRectF letters = metrics.tightBoundingRect(battery.text);
+    const QRectF letters = ui::interfaceInkBounds(battery.text, battery.font);
     const qreal textBaseline = center.y() - (letters.top() + letters.bottom()) / 2;
     const QFont previous = painter.font();
     painter.setFont(battery.font);
     ui::drawInterfaceText(painter,
-                          QRect(left + battery.iconWidth + battery.gap, qRound(textBaseline - metrics.ascent()),
-                                battery.textWidth, qCeil(metrics.height())),
+                          QRect(left + battery.iconWidth + battery.gap, qRound(textBaseline - ui::interfaceLineAscent(battery.font)),
+                                battery.textWidth, ui::interfaceLineHeight(battery.font)),
                           battery.text, Qt::AlignLeft | Qt::AlignTop);
     painter.setFont(previous);
 }
@@ -106,8 +104,8 @@ void paintCard(QPainter &painter, const QRect &card, const Content &content, con
     const int padding = qMin(int(m::padding), painter.device()->width() / 16);
     const QFont title = ui::brandFont(m::titleText);
     const QFont detail = detailFont();
-    const int titleHeight = QFontMetrics(title).height();
-    const int detailHeight = QFontMetrics(detail).height();
+    const int titleHeight = ui::interfaceLineHeight(title);
+    const int detailHeight = ui::interfaceLineHeight(detail);
     painter.fillRect(card, paper);
     painter.setPen(QPen(ink, int(m::border)));
     painter.drawRect(card.adjusted(0, 0, -1, -1));
@@ -153,7 +151,7 @@ void paintBand(QPainter &painter, const QRect &band, const Content &content, con
     QStringList lines{content.progress.toUpper()};
     if (!content.remaining.isEmpty())
         lines << content.remaining.toUpper();
-    const int captionHeight = QFontMetrics(caption).height();
+    const int captionHeight = ui::interfaceLineHeight(caption);
     // Elide against the column's limit and align right in it. Eliding to the
     // measured width can drop the last letter when the advance is fractional.
     const int captionLimit = width / 2;
@@ -170,11 +168,10 @@ void paintBand(QPainter &painter, const QRect &band, const Content &content, con
         y += captionHeight + int(m::lineGap);
     }
     const QFont title = ui::brandFont(m::bandTitleText);
-    const QFontMetrics titleMetrics(title);
-    const int titleTop = top + (height - titleMetrics.height()) / 2;
-    const int baseline = titleTop + titleMetrics.ascent();
+    const int titleTop = top + (height - ui::interfaceLineHeight(title)) / 2;
+    const int baseline = titleTop + ui::interfaceLineAscent(title);
     const auto statusText = sleepStatusText(content.status);
-    const qreal inkTop = baseline + QFontMetricsF(title).tightBoundingRect(statusText).top();
+    const qreal inkTop = baseline + ui::interfaceInkBounds(statusText, title).top();
     int available = width - captionWidth - gap;
     Battery battery;
     if (content.showsBattery()) {
@@ -185,7 +182,7 @@ void paintBand(QPainter &painter, const QRect &band, const Content &content, con
     painter.setFont(title);
     const auto status = ui::elideInterfaceText(statusText, title, qMax(0, available));
     const int statusWidth = qMin(qMax(0, available), ui::interfaceTextWidth(status, title));
-    ui::drawInterfaceText(painter, QRect(left, titleTop, statusWidth, titleMetrics.height()), status);
+    ui::drawInterfaceText(painter, QRect(left, titleTop, statusWidth, ui::interfaceLineHeight(title)), status);
     if (content.showsBattery())
         paintUprightBattery(painter, battery, left + statusWidth + padding, inkTop, baseline, content, ink, paper);
 }
@@ -194,8 +191,8 @@ void paintBand(QPainter &painter, const QRect &band, const Content &content, con
 struct RibbonLines {
     QFont caption = ui::captionFont(m::captionText), figure = ui::brandFont(m::ribbonPercentText),
           detail = ui::interfaceFont(m::captionText), battery = ui::chromeFont(m::batteryText);
-    int captionHeight = QFontMetrics(caption).height(), figureHeight = QFontMetrics(figure).height(),
-        detailHeight = QFontMetrics(detail).height(), batteryHeight = QFontMetrics(battery).height();
+    int captionHeight = ui::interfaceLineHeight(caption), figureHeight = ui::interfaceLineHeight(figure),
+        detailHeight = ui::interfaceLineHeight(detail), batteryHeight = ui::interfaceLineHeight(battery);
     int height() const {
         return int(m::ribbonTop) + captionHeight + int(m::ribbonGap) + int(m::border) + int(m::ribbonGap) / 2 +
                figureHeight + int(m::ribbonGap) / 2 + detailHeight + int(m::ribbonGap) + batteryHeight +
@@ -311,8 +308,8 @@ QRect sleepScreenCardRect(QSize size, bool showRemaining, sleep::Tile tile) {
     }
     const int inset = qMin(int(m::inset), size.width() / 12);
     const int padding = qMin(int(m::padding), size.width() / 16);
-    const int titleHeight = QFontMetrics(ui::brandFont(m::titleText)).height();
-    const int detailHeight = QFontMetrics(detailFont()).height();
+    const int titleHeight = ui::interfaceLineHeight(ui::brandFont(m::titleText));
+    const int detailHeight = ui::interfaceLineHeight(detailFont());
     const int height =
         padding * 2 + titleHeight + int(m::gap) + detailHeight + (showRemaining ? detailHeight + int(m::lineGap) : 0);
     return {inset, qMax(inset, size.height() - height - int(m::bottom)), qMin(int(m::width), size.width() - 2 * inset),

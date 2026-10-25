@@ -1,5 +1,6 @@
 #pragma once
 #include "../style/theme.h"
+#include "text.h"
 #include <QFrame>
 #include <QFont>
 #include <QLabel>
@@ -108,7 +109,7 @@ void paintBatteryBolt(QPainter &painter, const QPointF &center, qreal scale, con
 qreal batteryWidth(qreal bodyHeight);
 // Fit a fixed percentage sample to the icon's body, independent of its value.
 QFont batteryTextFont(QFont font, qreal bodyHeight, int weight = -1);
-class BatteryIndicator : public QLabel {
+class BatteryIndicator : public InterfaceLabel {
 public:
     explicit BatteryIndicator(QWidget *parent);
     void setStatus(int percent, bool charging);

@@ -135,8 +135,7 @@ void ChapterContents::redraw() {
     for (const auto &item : items)
         rootDepth = qMin(rootDepth, qMax(0, item.depth));
     // Every row reserves the widest page caption, so titles end in one column.
-    const QFontMetrics captionMetrics(ui::captionFont());
-    const int pageWidth = pagesKnown ? kobalt::qt::textWidth(captionMetrics, QString::number(lastPage + 1)) : 0;
+    const int pageWidth = pagesKnown ? ui::interfaceTextWidth(QString::number(lastPage + 1), ui::captionFont()) : 0;
     const int digits = qMax(2, int(QString::number(items.size()).size()));
     for (int row = 0; row < buttons.size(); ++row) {
         const int index = page * rows + row;

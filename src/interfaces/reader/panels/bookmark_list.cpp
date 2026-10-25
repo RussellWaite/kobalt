@@ -194,7 +194,7 @@ int BookmarkList::rowHeight() const {
     const int excerptHeight = privateText ? qMax(ui::measurePrivateTextSize(sample, font).height(),
                                                  ui::renderPrivateText(sample, font).image.height())
                                           : qMax(metrics.height(), metrics.tightBoundingRect(sample).height());
-    const int lineHeight = qMax(excerptHeight, QFontMetrics(ui::interfaceFont(c::labelText)).height());
+    const int lineHeight = qMax(excerptHeight, ui::interfaceLineHeight(ui::interfaceFont(c::labelText)));
     return qMax(int(ui::metrics::list::threeLines),
                 2 * int(ui::metrics::list::lineInset) + 4 * lineHeight + int(ui::metrics::control::border));
 }
