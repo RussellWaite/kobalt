@@ -216,13 +216,14 @@ void paintBookmark(QPainter &painter, const QRect &ribbon, const Content &conten
     painter.setRenderHint(QPainter::Antialiasing, false);
     painter.setPen(Qt::NoPen);
     painter.setBrush(ink);
-    painter.drawPolygon(QPolygonF{{left, top}, {right, top}, {right, bottom}, {middle, bottom - notch}, {left, bottom}});
+    painter.drawPolygon(QPolygonF(QVector<QPointF>{{left, top}, {right, top}, {right, bottom},
+                                                 {middle, bottom - notch}, {left, bottom}}));
     painter.setBrush(fill);
-    painter.drawPolygon(QPolygonF{{left + outline, top},
-                                  {right - outline, top},
-                                  {right - outline, bottom - outline * slope - rise},
-                                  {middle, bottom - notch - rise},
-                                  {left + outline, bottom - outline * slope - rise}});
+    painter.drawPolygon(QPolygonF(QVector<QPointF>{{left + outline, top},
+                                                 {right - outline, top},
+                                                 {right - outline, bottom - outline * slope - rise},
+                                                 {middle, bottom - notch - rise},
+                                                 {left + outline, bottom - outline * slope - rise}}));
     painter.restore();
     const RibbonLines lines;
     const int padding = qMin(int(m::ribbonPadding), ribbon.width() / 8);
