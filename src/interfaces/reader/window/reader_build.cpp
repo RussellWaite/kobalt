@@ -251,11 +251,7 @@ void Reader::buildReadingPage() {
     dictionaryPanel = new kobalt::DictionaryPanel(this);
     dictionaryPanel->setLanguage(model->state().value("language").toString());
     dictionaryPanel->dismissed = [this] {
-        if (annotationMode)
-            dismissLookup();
-        else
-            clearAnnotationDraft();
-        updateLinkReturn();
+        dismissDictionary();
     };
     dictionaryPanel->chosen = [this](const QString &id) {
         if (lifecycleHidden || services.suspended() || closing)
@@ -1337,10 +1333,14 @@ void Reader::connectPageInput() {
             annotationTap(bodyPoint);
             return;
         }
+        if (dictionaryPanel->isVisible()) {
+            dismissDictionary();
+            return;
+        }
         if (!annotationStart.isEmpty() && !topControls->isVisible())
             dismissLookup(true);
         const qreal x = qreal(point.x()) / qMax(1, page->width());
-        if (dictionaryPanel->isVisible() || searchPanel->isVisible() || linksActive() || lookupPending) {
+        if (searchPanel->isVisible() || linksActive() || lookupPending) {
             dismissLookup();
             updateLinkReturn();
             return;

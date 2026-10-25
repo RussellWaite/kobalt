@@ -953,9 +953,23 @@ void Reader::dismissLookup(bool keepGesture) {
     if (brightnessNotice)
         brightnessNotice->hide();
     page->mark({});
-    if (dictionaryPanel)
+    if (dictionaryPanel) {
+        const bool wasVisible = dictionaryPanel->isVisible();
         dictionaryPanel->hide();
+        if (wasVisible) {
+            requestFlash("dictionary");
+            page->update();
+        }
+    }
     updateOrientationBlock();
+}
+
+void Reader::dismissDictionary() {
+    if (annotationMode)
+        dismissLookup();
+    else
+        clearAnnotationDraft();
+    updateLinkReturn();
 }
 
 void Reader::lookupWord(QPoint point) {

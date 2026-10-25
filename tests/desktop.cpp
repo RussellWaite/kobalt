@@ -1291,6 +1291,68 @@ private slots:
         hover(library->viewport());
         QVERIFY(!touchPointer());
     }
+    void dictionaryDismissal_data() {
+        QTest::addColumn<bool>("dark");
+        QTest::addColumn<int>("action");
+        const QStringList actions{"left", "centre", "right", "close", "hide-reader"};
+        for (bool dark : {false, true})
+            for (int action = 0; action < actions.size(); ++action)
+                QTest::newRow(qPrintable(QString("%1-%2").arg(dark ? "dark" : "light", actions[action]))) << dark << action;
+    }
+    void dictionaryDismissal() {
+        QFETCH(bool, dark);
+        QFETCH(int, action);
+        Fixture fixture(dark);
+        QVERIFY(fixture.prepared);
+        QSignalSpy opened(&fixture.window, &desktop::Window::bookOpened);
+        fixture.window.openBook(book);
+        QTRY_COMPARE_WITH_TIMEOUT(opened.count(), 1, 10000);
+        QTRY_VERIFY(!fixture.state().value("busy").toBool());
+        openPrologueBody(fixture);
+        auto *page = static_cast<ReadingPage *>(fixture.widget("rrPage"));
+        auto *reader = fixture.window.readerWindow();
+        auto *canvas = fixture.window.findChild<QGraphicsView *>();
+        const auto word = fixture.wordPoint();
+        QVERIFY(word.x() >= 0);
+        const auto position = fixture.state().value("position");
+        QVERIFY(fixture.selectWord(page, word));
+        QTRY_VERIFY(fixture.visible("rrDictionary"));
+        QVERIFY(page->annotationContains(word - QPoint(0, page->topHeight())));
+        QVERIFY(!qobject_cast<QAbstractButton *>(fixture.widget("rrAnnotate"))->isChecked());
+        android::takeRefreshFrame(reader, canvas->viewport(), QRegion(page->rect()));
+        if (action == 4) {
+            auto *dictionary = fixture.widget("rrDictionary");
+            reader->hide();
+            const bool dismissedWhileHidden = dictionary->isHidden();
+            reader->show();
+            QVERIFY(dismissedWhileHidden);
+            QTRY_VERIFY(!fixture.visible("rrDictionary"));
+            QCOMPARE(fixture.state().value("position"), position);
+            return;
+        }
+        if (action == 3) {
+            QVERIFY(fixture.press("rrDictionaryClose"));
+        } else {
+            auto *dictionary = fixture.widget("rrDictionary");
+            const int y = dictionary->y() > 0 ? dictionary->y() - ui::px(24)
+                                             : dictionary->geometry().bottom() + ui::px(24);
+            const auto point = page->mapFrom(reader, QPoint((1 + 4 * action) * reader->width() / 10, y));
+            QVERIFY(!page->annotationContains(point - QPoint(0, page->topHeight())));
+            QCOMPARE(reader->childAt(page->mapTo(reader, point)), page);
+            QVERIFY(fixture.click(page, point));
+        }
+        QTRY_VERIFY(!fixture.visible("rrDictionary"));
+        QTRY_VERIFY(!fixture.state().value("busy").toBool());
+        QCOMPARE(fixture.state().value("position"), position);
+        QVERIFY(!fixture.visible("rrControlsTop"));
+        QTRY_VERIFY(!page->annotationContains(word - QPoint(0, page->topHeight())));
+        QVERIFY(page->annotationHandleHitRegion().isEmpty());
+        QVERIFY(!fixture.visible("rrAnnotationPopover"));
+        QVERIFY(!qobject_cast<QAbstractButton *>(fixture.widget("rrAnnotate"))->isChecked());
+        const QRegion damage(page->rect());
+        QVERIFY(android::takeRefreshFrame(reader, canvas->viewport(), damage).clean);
+        QVERIFY(!android::takeRefreshFrame(reader, canvas->viewport(), damage).clean);
+    }
     void wordSelection_data() { annotationSelection_data(); }
     void wordSelection() {
         QFETCH(bool, dark);

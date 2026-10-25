@@ -365,6 +365,7 @@ private:
     quint64 lookupEpoch = 0;
     bool lookupPending = false;
     void dismissLookup(bool keepGesture = false);
+    void dismissDictionary();
     void lookupWord(QPoint point);
     void lookupSelection();
     void resizeText();
