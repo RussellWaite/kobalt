@@ -131,7 +131,9 @@ struct PrivateRichText::Data {
                 font.setPixelSize(qMax(1, font.pixelSize() * 7 / 10));
             }
             const auto color = character.foreground().style() == Qt::NoBrush ? QColor() : character.foreground().color();
-            styles.append({fragment.position() - block.position(), fragment.length(), font, color, shift, inlineImage(character)});
+            const auto background = character.background().style() == Qt::NoBrush ? QColor() : character.background().color();
+            styles.append({fragment.position() - block.position(), fragment.length(), font, color, shift,
+                           inlineImage(character), background});
         }
         QString marker;
         if (auto *list = block.textList()) {
@@ -362,7 +364,8 @@ void PrivateRichText::draw(QPainter &painter, const QRectF &clip, const QPalette
         if (styles.isEmpty())
             styles.append({0, int(line.text.size()), line.font, palette.color(QPalette::WindowText)});
         for (auto &style : styles)
-            if (!style.color.isValid() || style.color == Qt::black)
+            if (!style.color.isValid() || (style.color == Qt::black &&
+                    (!style.background.isValid() || style.background.alpha() == 0)))
                 style.color = palette.color(QPalette::WindowText);
         const auto rendered = renderPrivateText(line.text, line.font, -1, {}, {}, PrivateTextEmphasis::FontFace,
                                                 line.direction, styles);

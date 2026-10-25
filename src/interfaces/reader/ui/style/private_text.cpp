@@ -400,10 +400,13 @@ static PrivateText layoutPrivateText(const QString &input, const QFont &font, in
     for (const auto &range : underlineRanges) {
         cacheKey += ':' + QString::number(range.first) + ',' + QString::number(range.second);
     }
-    for (const auto &style : styles)
+    for (const auto &style : styles) {
         cacheKey += ":style:" + QString::number(style.start) + ',' + QString::number(style.length) + ':' +
                     style.font.toString() + ':' + style.color.name(QColor::HexArgb) + ':' + QString::number(style.baselineShift) +
                     ':' + QString::number(style.image.cacheKey());
+        if (style.background.isValid())
+            cacheKey += ":background:" + style.background.name(QColor::HexArgb);
+    }
     cacheKey += ':' + text;
     if (const auto *cached = fonts().layouts.object(cacheKey)) {
         return *cached;
@@ -526,11 +529,19 @@ static PrivateText layoutPrivateText(const QString &input, const QFont &font, in
     const int pixels = font.pixelSize() > 0 ? font.pixelSize() : 32;
     QVector<Glyph> glyphs;
     QVector<QPair<QRect, QColor>> underlines;
+    QVector<QPair<QRect, QColor>> backgrounds;
     QRect bounds;
     qint64 pen = 0;
     int maximumLineDescent = 0;
     uint previousCluster = uint(-1);
+    const auto retainBackground = [&](qint64 start, const PrivateTextStyle *style) {
+        if (rasterize && style && style->background.isValid() && pen > start) {
+            const int left = int(start / 64), right = int((pen + 63) / 64);
+            backgrounds.append({QRect(left, 0, right - left, 0), style->background});
+        }
+    };
     for (const auto &run : runs) {
+        const qint64 start = pen;
         const auto *style = run.style < 0 ? nullptr : &styles[run.style];
         const auto &runFont = style ? style->font : font;
         if (style && !style->image.isNull()) {
@@ -546,6 +557,7 @@ static PrivateText layoutPrivateText(const QString &input, const QFont &font, in
                 }
                 pen += qint64(image.width()) * 64;
             }
+            retainBackground(start, style);
             continue;
         }
         const int pixels = runFont.pixelSize() > 0 ? runFont.pixelSize() : 32;
@@ -699,6 +711,7 @@ static PrivateText layoutPrivateText(const QString &input, const QFont &font, in
         }
         hb_buffer_destroy(buffer);
         hb_font_destroy(hbFont);
+        retainBackground(start, style);
     }
     result.advance = int(qMin<qint64>(2147483647, qMax<qint64>(0, (pen + 63) / 64)));
     if (!rasterize) {
@@ -709,6 +722,11 @@ static PrivateText layoutPrivateText(const QString &input, const QFont &font, in
         return result;
     }
     bounds = bounds.united(QRect(0, -pixels, result.advance, pixels));
+    for (auto &background : backgrounds) {
+        background.first = QRect(background.first.x(), -result.lineAscent,
+                                 background.first.width(), result.lineHeight);
+        bounds = bounds.united(background.first);
+    }
     if (bounds.isEmpty() || bounds.width() > 16384 || bounds.height() > 4096 ||
         qint64(bounds.width()) * bounds.height() > 8 * 1024 * 1024) {
         return result;
@@ -717,6 +735,8 @@ static PrivateText layoutPrivateText(const QString &input, const QFont &font, in
     result.origin = bounds.topLeft();
     result.image.fill(Qt::transparent);
     QPainter painter(&result.image);
+    for (const auto &background : backgrounds)
+        painter.fillRect(background.first.translated(-bounds.topLeft()), background.second);
     for (const auto &glyph : glyphs) {
         painter.drawImage(glyph.position - bounds.topLeft(), glyph.mask);
     }

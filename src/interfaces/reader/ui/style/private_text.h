@@ -41,6 +41,7 @@ struct PrivateTextStyle {
     QColor color;
     int baselineShift = 0;
     QImage image{};
+    QColor background{};
 };
 // All application text uses private painting once font sources are initialized.
 bool needsPrivateText(const QString &text, const QFont &font);

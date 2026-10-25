@@ -18,6 +18,50 @@
 inline void checkPrivateRichText() {
     using namespace kobalt::ui;
     const auto font = chromeFont(28);
+    for (const bool dark : {false, true}) {
+        for (const auto &container : {QStringLiteral("span"), QStringLiteral("paragraph"), QStringLiteral("cell")}) {
+            for (int sample = 0; sample < 3; ++sample) {
+                const QColor foreground = sample == 1 ? Qt::black : Qt::white;
+                const QColor background = sample == 0 ? Qt::black : sample == 1 ? Qt::white : Qt::blue;
+                PrivateRichText document;
+                document.setFont(font);
+                const auto style = QString("color:%1;background-color:%2").arg(foreground.name(), background.name());
+                document.setHtml(container == "span"
+                    ? QString("<p style='margin:0'><span style='%1'>MMMM</span></p>").arg(style)
+                    : container == "paragraph" ? QString("<p style='margin:0;%1'>MMMM</p>").arg(style)
+                    : QString("<table cellspacing='0' cellpadding='0'><tr><td style='%1'>MMMM</td></tr></table>").arg(style));
+                document.layout(400);
+                QPalette palette;
+                palette.setColor(QPalette::Window, dark ? Qt::black : Qt::white);
+                palette.setColor(QPalette::WindowText, dark ? Qt::white : Qt::black);
+                QImage image(400, document.height(), QImage::Format_RGB32);
+                image.fill(palette.color(QPalette::Window));
+                {
+                    QPainter painter(&image);
+                    document.draw(painter, image.rect(), palette);
+                }
+                const auto capture = qEnvironmentVariable("KOBALT_RICH_TEXT_CAPTURE");
+                if (!capture.isEmpty()) {
+                    require(QDir().mkpath(capture), "Cannot create rich-text capture directory");
+                    require(image.save(capture + QString("/contrast-%1-%2-%3.png")
+                        .arg(dark ? "dark" : "light", container, QString::number(sample))),
+                        "Cannot save rich-text contrast capture");
+                }
+                QRect backdrop;
+                for (int y = 0; y < image.height(); ++y)
+                    for (int x = 0; x < image.width(); ++x)
+                        if (image.pixelColor(x, y) == background)
+                            backdrop |= QRect(x, y, 1, 1);
+                require(backdrop.width() >= document.naturalWidth() && backdrop.height() > 20,
+                        "Rich-text background was dropped");
+                int ink = 0;
+                for (int y = backdrop.top(); y <= backdrop.bottom(); ++y)
+                    for (int x = backdrop.left(); x <= backdrop.right(); ++x)
+                        ink += image.pixelColor(x, y) == foreground;
+                require(ink > 100, "Explicit rich-text foreground lost contrast against its background");
+            }
+        }
+    }
     QVector<QImage> bullets;
     for (const auto &style : {QStringLiteral("disc"), QStringLiteral("circle"), QStringLiteral("square")}) {
         PrivateRichText document;

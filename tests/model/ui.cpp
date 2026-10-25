@@ -2765,6 +2765,40 @@ int main(int argc, char **argv) {
         require(definition->textFont().family() == body && definition->textFont().pixelSize() == overrideSize,
                 "Resetting the dictionary face did not restore the book font at the selected dictionary size");
     }
+    for (const bool dark : {false, true}) {
+        QWidget host;
+        host.resize(600, 800);
+        host.setPalette(kobalt::ui::readerPalette(host.palette(), dark));
+        host.show();
+        kobalt::DictionaryPanel panel(&host);
+        kobalt::DictionaryResult contrast;
+        contrast.received = true;
+        contrast.dictionary = "Contrast fixture";
+        const QColor foreground = dark ? Qt::black : Qt::white;
+        const QColor background = dark ? Qt::white : Qt::black;
+        contrast.html = QString("<p><span style='color:%1;background-color:%2'>MMMM</span></p>")
+                            .arg(foreground.name(), background.name());
+        panel.open("word", contrast, QRect(10, 10, 40, 40));
+        app.processEvents();
+        auto *definition = panel.findChild<QWidget *>("rrDefinition");
+        require(definition && definition->isVisible(), "Contrast fixture did not open a dictionary definition");
+        const auto image = definition->grab().toImage().convertToFormat(QImage::Format_RGB32);
+        const auto capture = qEnvironmentVariable("KOBALT_RICH_TEXT_CAPTURE");
+        if (!capture.isEmpty())
+            require(image.save(capture + QString("/dictionary-%1.png").arg(dark ? "dark" : "light")),
+                    "Cannot save dictionary contrast capture");
+        QRect backdrop;
+        for (int y = 0; y < image.height(); ++y)
+            for (int x = 0; x < image.width(); ++x)
+                if (image.pixelColor(x, y) == background)
+                    backdrop |= QRect(x, y, 1, 1);
+        require(backdrop.width() > 30 && backdrop.height() > 20, "Dictionary definition lost its explicit background");
+        int ink = 0;
+        for (int y = backdrop.top(); y <= backdrop.bottom(); ++y)
+            for (int x = backdrop.left(); x <= backdrop.right(); ++x)
+                ink += image.pixelColor(x, y) == foreground;
+        require(ink > 100, "Dictionary definition text is invisible against its background");
+    }
     kobalt::DictionaryPanel dictionary(&reader);
     QVector<kobalt::DictionaryChoice> dictionaries;
     for (int i = 0; i < 13; ++i)
