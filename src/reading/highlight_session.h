@@ -25,9 +25,11 @@ public:
         return error_;
     }
     const QVector<Highlight> &highlights() const;
-    // Payloads are fetched only for visible list rows or an edited passage.
+    // Ordinary reading fetches payloads only for visible rows or an edited passage.
     bool excerpts(const QStringList &ids, QVector<HighlightExcerpt> *rows);
     bool detail(const QString &id, Highlight *row);
+    // Fetch one revision-checked snapshot in source order. Requires resolved locations.
+    bool exportDetails(QVector<Highlight> *rows);
     bool sync();
     // Stop an abandoned lookup without discarding already resolved locations.
     void cancelLookup();

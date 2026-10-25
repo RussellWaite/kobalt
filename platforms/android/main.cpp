@@ -40,7 +40,11 @@ class Window : public QWidget {
 public:
     Window(EngineFontInputs fonts, QString placeholder)
         : controller(storage::Paths{QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + "/config"},
-                     std::move(fonts), std::move(placeholder), android::readerServices,
+                     std::move(fonts), std::move(placeholder), [this] {
+                         auto services = android::readerServices();
+                         services.nativeDialogParent = [this] { return this; };
+                         return services;
+                     },
                      [](Qt::ScreenOrientation) { /* Android owns display rotation. */ }),
           store(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + "/config",
                 std::make_shared<android::LibrarySource>()) {

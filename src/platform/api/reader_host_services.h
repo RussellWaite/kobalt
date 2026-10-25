@@ -29,6 +29,10 @@ struct BatteryStatus {
 struct ReaderHostServices {
     // Desktop-only presentation preferences; fixtures retain device chrome.
     bool desktopUi = false;
+    // Kobo supplies its default export folder. Other hosts open a save-location picker.
+    std::function<QString()> annotationExportDirectory;
+    // Optional native dialog parent for hosts that embed the reader in a canvas.
+    std::function<QWidget *()> nativeDialogParent;
     // Missing capability means monochrome; independent of theme and animation preferences.
     std::function<bool()> colorDisplay;
     // Optional desktop query. Device previews retain simulated status chrome.

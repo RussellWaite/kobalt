@@ -126,6 +126,7 @@ private:
 }
 ReaderHostServices readerHostServices() {
     ReaderHostServices result;
+    result.annotationExportDirectory = [] { return QStringLiteral("/mnt/onboard/Kobalt/Annotations"); };
     result.colorDisplay = [] {
         return pageAnimationPanel() == AnimationPanel::Colour;
     };

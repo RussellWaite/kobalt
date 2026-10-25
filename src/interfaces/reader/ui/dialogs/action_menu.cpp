@@ -13,7 +13,7 @@ namespace kobalt::ui {
 namespace m = metrics;
 namespace {
 // One action: an optional icon and a label across the card's full width,
-// with a divider above. A held row turns the list's pressed gray.
+// with a divider above. A held row inverts its background, icon and label.
 class ActionRow final : public Button {
 public:
     ActionRow(const ActionMenuItem &item, bool divider, QWidget *parent)
@@ -28,16 +28,19 @@ public:
 protected:
     void paintEvent(QPaintEvent *) override {
         QPainter painter(this);
-        const auto paper = palette().color(QPalette::Window), ink = palette().color(QPalette::WindowText);
-        painter.fillRect(rect(), isDown() ? palette().color(QPalette::Midlight) : paper);
+        const auto colors = parentWidget() ? parentWidget()->palette() : palette();
+        const auto paper = colors.color(QPalette::Window), ink = colors.color(QPalette::WindowText);
+        const bool pressed = isEnabled() && isDown();
+        const auto foreground = pressed ? paper : ink;
+        painter.fillRect(rect(), pressed ? ink : paper);
         if (divider)
             painter.fillRect(0, 0, width(), m::control::border, dividerColor(this));
         const int iconSize = m::control::iconSize, left = m::chrome::inset;
         if (item.hasIcon)
-            controlIcon(item.icon, ink).paint(&painter, QRect(left, (height() - iconSize) / 2, iconSize, iconSize));
+            controlIcon(item.icon, foreground).paint(&painter, QRect(left, (height() - iconSize) / 2, iconSize, iconSize));
         const int textLeft = left + iconSize + m::chrome::selectorGap;
         painter.setFont(interfaceFont(m::chrome::labelText));
-        painter.setPen(isEnabled() ? ink : palette().color(QPalette::Mid));
+        painter.setPen(isEnabled() ? foreground : colors.color(QPalette::Mid));
         const int available = qMax(1, width() - textLeft - m::chrome::inset);
         painter.drawText(QRect(textLeft, 0, available, height()), Qt::AlignLeft | Qt::AlignVCenter,
                          painter.fontMetrics().elidedText(text(), Qt::ElideRight, available));

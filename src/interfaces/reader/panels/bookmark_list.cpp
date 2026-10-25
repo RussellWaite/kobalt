@@ -87,6 +87,14 @@ BookmarkList::BookmarkList(QWidget *parent) : Panel(parent) {
             tabRequested(true);
     });
     sortButton = new ui::CellButton(ui::ControlIcon::Sort, this);
+    moreButton = new ui::CellButton(ui::ControlIcon::More, this);
+    moreButton->setObjectName("rrAnnotationMore");
+    moreButton->setAccessibleName(strings::get("annotations.more"));
+    moreButton->setRule(Qt::LeftEdge);
+    connect(moreButton, &QPushButton::clicked, this, [this] {
+        closeSort();
+        if (actionsRequested) actionsRequested();
+    });
     sortButton->setObjectName("rrMarksSort");
     sortButton->setAccessibleName(strings::get("marks.sort_title"));
     sortButton->setRule(Qt::LeftEdge);
@@ -308,12 +316,17 @@ void BookmarkList::arrange() {
         ++page;
     rows = (page + 1 < pageStarts.size() ? pageStarts[page + 1] : items.size()) - pageStarts[page];
     const int barHeight = c::actionHeight - c::heavyRule;
-    const int tabWidth = qMax(1, (width() - 2 * c::cellWidth) / 2);
+    const bool canExport = annotations && bool(actionsRequested);
+    moreButton->setVisible(canExport);
+    moreButton->setEnabled(canExport && !loading && !items.isEmpty());
+    const int reserved = (canExport ? 3 : 2) * c::cellWidth;
+    const int tabWidth = qMax(1, (width() - reserved) / 2);
     close->setGeometry(0, 0, c::cellWidth, barHeight);
     annotationsTab->setGeometry(c::cellWidth, 0, tabWidth, barHeight);
-    bookmarksTab->setGeometry(c::cellWidth + tabWidth, 0, qMax(1, width() - 2 * c::cellWidth - tabWidth), barHeight);
+    bookmarksTab->setGeometry(c::cellWidth + tabWidth, 0, qMax(1, width() - reserved - tabWidth), barHeight);
+    moreButton->setGeometry(width() - c::cellWidth, 0, c::cellWidth, barHeight);
     listHeader->setGeometry(0, c::actionHeight, width(), ui::metrics::list::headerHeight);
-    sortButton->setGeometry(width() - c::cellWidth, 0, c::cellWidth, barHeight);
+    sortButton->setGeometry(width() - (canExport ? 2 : 1) * c::cellWidth, 0, c::cellWidth, barHeight);
     if (sortPopup) {
         sortPopup->setGeometry(rect());
         sortPopup->centerCard();

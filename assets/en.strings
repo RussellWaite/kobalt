@@ -831,6 +831,29 @@
 "annotations.mark_text" = "Mark text";
 "annotations.apply_changes" = "Apply changes";
 "annotations.end_here" = "Highlight to here";
+"annotations.export" = "Export all annotations";
+"annotations.more" = "More annotation actions";
+"annotations.export_markdown" = "Export as Markdown…";
+"annotations.export_html" = "Export as HTML…";
+"annotations.export_compression" = "Exports are compressed ZIP files. Unarchive the ZIP to open the Markdown or HTML file.";
+/* Arguments: %1 */
+"annotations.export_format_title" = "Export annotations as %1";
+"annotations.export_action" = "Export ZIP";
+"annotations.export_title" = "Export annotations?";
+"annotations.export_untitled" = "Untitled book";
+"annotations.export_replace_title" = "Replace annotation export?";
+"annotations.export_replace_action" = "Replace ZIP";
+/* Arguments: %1, %2 */
+"annotations.export_replace_description" = "A %2 ZIP export already exists for “%1”. Replace it with all current annotations? Unarchive the ZIP to open the %2 file.";
+/* Arguments: %1 */
+"annotations.export_destination" = "Save to %1.";
+"annotations.export_complete" = "Annotations exported.";
+/* Arguments: %1, %2 */
+"annotations.export_description" = "Export all annotations from “%1” as a compressed %2 file? Unarchive the ZIP to open the %2 file.";
+"annotations.export_failed" = "Could not export annotations. Check available storage and try again.";
+"annotations.export_filter" = "ZIP archives (*.zip)";
+/* Arguments: %1 */
+"annotations.export_saved" = "Annotations exported to %1";
 "annotations.retry_save" = "Retry save";
 "annotations.cancel_selection" = "Clear selection";
 "annotations.discard_and_stop" = "Discard selection and stop highlighting";

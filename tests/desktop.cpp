@@ -19,6 +19,7 @@
 #include "storage/reader_storage.h"
 #include "storage/bookmark_store.h"
 #include "storage/highlight_store.h"
+#include "publication/zip_resource.h"
 #include "build_info.h"
 #include "support/book_fixtures.h"
 #include "support/engine_fixtures.h"
@@ -40,6 +41,7 @@
 #include <QDirIterator>
 #include <QFile>
 #include <QFileInfo>
+#include <QFileDialog>
 #include <QFontDatabase>
 #include <QGraphicsView>
 #include <QLabel>
@@ -164,12 +166,16 @@ struct Fixture {
     desktop::Window window;
 
     // `library` fills the profile with a synthetic library; `reading` marks one book in progress.
-    explicit Fixture(bool dark = false, bool variableFont = false, bool library = false, bool reading = true)
+    explicit Fixture(bool dark = false, bool variableFont = false, bool library = false, bool reading = true,
+                     bool annotationExports = false)
         : fontInputs(engineFontInputs(*assets, {}, variableFont ? directory.path() + "/fonts" : QString(), {})),
           window(prepare(dark, variableFont, library, reading), fontInputs, placeholderFontFamily(*assets, *copies),
                  [this] {
                      ++clockReads;
                      return QStringLiteral("09:00");
+                 }, [this, annotationExports](ReaderHostServices &services) {
+                     if (annotationExports)
+                         services.annotationExportDirectory = [this] { return paths.directory + "/exports/annotations"; };
                  }) {
         window.resize(920, 800);
         window.show();
@@ -302,9 +308,15 @@ struct Fixture {
     }
     QWidget *widget(const char *name) {
         auto *reader = window.readerWindow();
-        return reader ? reader->findChild<QWidget *>(name) : nullptr;
+        auto *widget = reader ? reader->findChild<QWidget *>(name) : nullptr;
+        return widget ? widget : window.findChild<QWidget *>(name);
     }
     bool press(const char *name) { return click(widget(name)); }
+    bool pressAnnotationExport(const char *action = "rrAnnotationExportHtml") {
+        if (!press("rrAnnotationMore")) return false;
+        if (!QTest::qWaitFor([this, action] { return visible(action); })) return false;
+        return press(action);
+    }
     bool drag(QWidget *target, QPoint from, QPoint to, bool holdFirst = false) {
         auto *reader = window.readerWindow();
         auto *canvas = window.findChild<QGraphicsView *>();
@@ -680,6 +692,10 @@ void tour(Fixture &fixture, const QString &name, bool screenshots) {
         QCOMPARE(heading->font().pixelSize(), int(ui::metrics::chrome::titleText));
     }
     QVERIFY(scene("annotations"));
+    if (!screenshots) {
+        QVERIFY(fixture.widget("rrAnnotationMore")->isVisible());
+        QVERIFY(!fixture.widget("rrAnnotationMore")->isEnabled());
+    }
     QVERIFY(fixture.press("rrBookmarkListClose"));
     if (!fixture.visible("rrSearchOpen"))
         QVERIFY(fixture.press("rrPage"));
@@ -777,6 +793,33 @@ void tour(Fixture &fixture, const QString &name, bool screenshots) {
     QVERIFY(fixture.press("rrPage"));
     QTRY_VERIFY(fixture.visible("rrAnnotate"));
     QVERIFY(fixture.press("rrAnnotate"));
+    if (screenshots) {
+        QTRY_VERIFY(!fixture.visible("rrAnnotationModeNotice"));
+        QVERIFY(fixture.press("rrPage"));
+        QTRY_VERIFY(fixture.visible("rrBookmarks"));
+        QVERIFY(fixture.press("rrBookmarks"));
+        QTRY_VERIFY(fixture.widget("rrAnnotationMore")->isVisible() &&
+                    fixture.widget("rrAnnotationMore")->isEnabled());
+        QVERIFY(fixture.widget("rrAnnotationMore")->x() > fixture.widget("rrMarksSort")->x());
+        QVERIFY(scene("annotation-export-list"));
+        QVERIFY(fixture.press("rrAnnotationMore"));
+        QTRY_VERIFY(fixture.visible("rrAnnotationExportHtml"));
+        QVERIFY(scene("annotation-export-menu"));
+        auto *exportAction = qobject_cast<QPushButton *>(fixture.widget("rrAnnotationExportHtml"));
+        auto *canvas = fixture.window.findChild<QGraphicsView *>();
+        QVERIFY(exportAction && canvas);
+        const auto exportPoint = canvas->mapFromScene(exportAction->mapTo(fixture.window.readerWindow(), exportAction->rect().center()));
+        QTest::mousePress(canvas->viewport(), Qt::LeftButton, Qt::NoModifier, exportPoint);
+        QTRY_VERIFY(exportAction->isDown());
+        QVERIFY(scene("annotation-export-pressed"));
+        QTest::mouseRelease(canvas->viewport(), Qt::LeftButton, Qt::NoModifier, exportPoint);
+        QTRY_VERIFY(fixture.visible("rrAnnotationExportConfirm"));
+        QVERIFY(scene("annotation-export-confirmation"));
+        QVERIFY(fixture.press("rrAnnotationExportConfirm"));
+        QTRY_VERIFY(fixture.visible("rrAnnotationExportDone"));
+        QVERIFY(scene("annotation-export-saved"));
+        QVERIFY(fixture.press("rrAnnotationExportDone"));
+    }
 }
 }
 
@@ -1146,6 +1189,7 @@ private slots:
         QTRY_VERIFY(fixture.visible("rrBookmarks"));
         QVERIFY(fixture.press("rrBookmarks"));
         QTRY_VERIFY(fixture.visible("rrBookmarkRemove0"));
+        QVERIFY(!fixture.widget("rrAnnotationMore")->isVisible());
         QVERIFY(fixture.press("rrBookmarkRemove0"));
         QTRY_VERIFY(fixture.visible("rrRemoveBookmark"));
         QCOMPARE(fixture.stored("bookmarks.json", "bookmarks"), original);
@@ -1174,7 +1218,15 @@ private slots:
         QTRY_VERIFY(!fixture.state().value("busy").toBool());
         QCOMPARE(fixture.state().value("bookmark_count").toInt(), 0);
     }
-    void annotations_data() { bookmarks_data(); }
+    void annotations_data() {
+        QTest::addColumn<bool>("dark");
+        QTest::addColumn<bool>("pickerExport");
+        QTest::addColumn<bool>("markdownExport");
+        QTest::newRow("light-default-html") << false << false << false;
+        QTest::newRow("dark-default-markdown") << true << false << true;
+        QTest::newRow("light-picker-markdown") << false << true << true;
+        QTest::newRow("dark-picker-html") << true << true << false;
+    }
     void bookmarkMerge() {
         Fixture fixture;
         QVERIFY(fixture.prepared);
@@ -1949,7 +2001,7 @@ private slots:
         QTRY_COMPARE(fixture.stored("highlights.json", "highlights").size(), 2);
         QVERIFY(fixture.stored("highlights.json", "highlights").contains(saved.first()));
     }
-    void annotationOverlap_data() { annotations_data(); }
+    void annotationOverlap_data() { bookmarks_data(); }
     void annotationOverlap() {
         QFETCH(bool, dark);
         Fixture fixture(dark);
@@ -2144,7 +2196,10 @@ private slots:
     }
     void annotations() {
         QFETCH(bool, dark);
-        Fixture fixture(dark);
+        QFETCH(bool, pickerExport);
+        QFETCH(bool, markdownExport);
+        const char *exportAction = markdownExport ? "rrAnnotationExportMarkdown" : "rrAnnotationExportHtml";
+        Fixture fixture(dark, false, false, true, !pickerExport);
         QVERIFY(fixture.prepared);
         QVERIFY(storage::writeJson(fixture.paths.preferences(), {{"dark_mode", dark}, {"highlight_help_seen", false}}));
         QSignalSpy opened(&fixture.window, &desktop::Window::bookOpened);
@@ -2270,6 +2325,164 @@ private slots:
         auto *bookmarksTab = qobject_cast<QPushButton *>(fixture.widget("rrBookmarksTab"));
         QVERIFY(annotationsTab && bookmarksTab);
         QVERIFY(annotationsTab->isChecked());
+        QTRY_VERIFY(fixture.widget("rrAnnotationMore")->isEnabled());
+        QVERIFY(!fixture.widget("rrAnnotationExportHtml"));
+        QVERIFY(fixture.widget("rrAnnotationMore")->x() > fixture.widget("rrMarksSort")->x());
+        QVERIFY(fixture.press("rrAnnotationMore"));
+        QTRY_VERIFY(fixture.visible("rrAnnotationExportHtml"));
+        QCOMPARE(qobject_cast<QPushButton *>(fixture.widget("rrAnnotationExportHtml"))->text(), strings::get("annotations.export_html"));
+        auto *actions = fixture.widget("rrAnnotationActions");
+        auto *reader = fixture.window.readerWindow();
+        QVERIFY(actions && actions->parentWidget() == reader);
+        QCOMPARE(actions->geometry(), reader->rect());
+        QVERIFY(!fixture.widget("rrBookmarkExport"));
+        QVERIFY(fixture.widget("rrAnnotationExportMarkdown")->isEnabled());
+        if (!pickerExport) {
+            auto *canvas = fixture.window.findChild<QGraphicsView *>();
+            QVERIFY(canvas);
+            for (const char *name : {"rrAnnotationExportMarkdown", "rrAnnotationExportHtml"}) {
+                QPointer<QPushButton> action = qobject_cast<QPushButton *>(fixture.widget(name));
+                QVERIFY(action);
+                const auto sample = [&] {
+                    const auto image = canvas->viewport()->grab().toImage();
+                    const auto point = canvas->mapFromScene(action->mapTo(reader, QPoint(action->width() - 10, action->height() / 3)));
+                    return image.pixelColor(qRound(point.x() * image.devicePixelRatio()), qRound(point.y() * image.devicePixelRatio()));
+                };
+                const auto normal = sample();
+                const auto point = canvas->mapFromScene(action->mapTo(reader, action->rect().center()));
+                const QSignalBlocker holdAction(action.data());
+                QTest::mousePress(canvas->viewport(), Qt::LeftButton, Qt::NoModifier, point);
+                QTRY_VERIFY(action->isDown());
+                QTest::qWait(50);
+                const auto pressed = sample();
+                QTest::mouseRelease(canvas->viewport(), Qt::LeftButton, Qt::NoModifier, point);
+                QTRY_VERIFY(action && !action->isDown());
+                QTRY_COMPARE(sample(), normal);
+                QCOMPARE(pressed, QColor(dark ? Qt::white : Qt::black));
+            }
+        }
+        const int currentPage = fixture.state().value("page").toInt();
+        reader->pageButton(1);
+        QCOMPARE(fixture.state().value("page").toInt(), currentPage);
+        QVERIFY(fixture.click(actions, QPoint(5, 5)));
+        QTRY_VERIFY(!fixture.widget("rrAnnotationActions"));
+        QVERIFY(!fixture.visible("rrAnnotationExportConfirm"));
+        QVERIFY(fixture.press("rrAnnotationMore"));
+        QTRY_VERIFY(fixture.visible("rrAnnotationExportHtml"));
+        actions = fixture.widget("rrAnnotationActions");
+        auto *bookmarksTabWidget = fixture.widget("rrBookmarksTab");
+        QVERIFY(fixture.click(actions, actions->mapFrom(reader, bookmarksTabWidget->mapTo(reader, bookmarksTabWidget->rect().center()))));
+        QTRY_VERIFY(!fixture.widget("rrAnnotationActions"));
+        QVERIFY(annotationsTab->isChecked());
+        QVERIFY(fixture.pressAnnotationExport(exportAction));
+        QTRY_VERIFY(fixture.visible("rrAnnotationExportConfirm"));
+        QVERIFY(!fixture.widget("rrAnnotationExportPicker"));
+        QVERIFY(fixture.press("rrAnnotationExportCancel"));
+        QTRY_VERIFY(!fixture.widget("rrAnnotationExportDialog"));
+        if (pickerExport) {
+            QVERIFY(fixture.pressAnnotationExport(exportAction));
+            QTRY_VERIFY(fixture.visible("rrAnnotationExportConfirm"));
+            QVERIFY(fixture.press("rrAnnotationExportConfirm"));
+            QTRY_VERIFY(fixture.visible("rrAnnotationExportPicker"));
+            auto *picker = qobject_cast<QFileDialog *>(fixture.widget("rrAnnotationExportPicker"));
+            QVERIFY(picker && picker->selectedFiles().value(0).endsWith(".zip"));
+            QVERIFY(!picker->testOption(QFileDialog::DontConfirmOverwrite));
+            QCOMPARE(picker->parentWidget(), static_cast<QWidget *>(&fixture.window));
+            QVERIFY(!picker->graphicsProxyWidget());
+            QPointer<QFileDialog> cancelledPicker = picker;
+            picker->reject();
+            QTRY_VERIFY(cancelledPicker.isNull());
+            QVERIFY(!fixture.visible("rrAnnotationExportDone"));
+        }
+        QVERIFY(!QDir(fixture.paths.directory + "/exports/annotations").exists());
+        QVERIFY(fixture.pressAnnotationExport(exportAction));
+        QTRY_VERIFY(fixture.visible("rrAnnotationExportConfirm"));
+        QVERIFY(fixture.press("rrAnnotationExportConfirm"));
+        QString exportedPath;
+        QPointer<QFileDialog> exportPicker;
+        if (pickerExport) {
+            QTRY_VERIFY(fixture.visible("rrAnnotationExportPicker"));
+            auto *picker = qobject_cast<QFileDialog *>(fixture.widget("rrAnnotationExportPicker"));
+            QVERIFY(picker);
+            exportPicker = picker;
+            QCOMPARE(picker->parentWidget(), static_cast<QWidget *>(&fixture.window));
+            QVERIFY(!picker->graphicsProxyWidget());
+            exportedPath = fixture.directory.path() + "/chosen annotations.zip";
+            auto *filename = picker->findChild<QLineEdit *>("fileNameEdit");
+            QVERIFY(filename);
+            filename->setFocus();
+            filename->setText(exportedPath);
+            QTRY_COMPARE(picker->selectedFiles().value(0), exportedPath);
+            QVERIFY(QMetaObject::invokeMethod(picker, "accept", Qt::QueuedConnection));
+        } else {
+            const QDir exportFolder(fixture.paths.directory + "/exports/annotations");
+            const auto exportedFiles = exportFolder.entryList({"*.zip"}, QDir::Files);
+            QCOMPARE(exportedFiles.size(), 1);
+            exportedPath = exportFolder.filePath(exportedFiles.first());
+        }
+        QTRY_VERIFY(fixture.visible("rrAnnotationExportDone"));
+        QTRY_VERIFY(!fixture.widget("rrAnnotationExportDialog"));
+        QTRY_VERIFY(exportPicker.isNull());
+        QFile exportedFile(exportedPath);
+        QVERIFY(exportedFile.open(QIODevice::ReadOnly));
+        const auto originalZip = exportedFile.readAll();
+        QVERIFY(originalZip.startsWith("PK"));
+        exportedFile.close();
+        ZipResource exportedHtml;
+        QVERIFY(exportedHtml.open(exportedPath, markdownExport ? "annotations.md" : "annotations.html"));
+        QByteArray exportedMarkup;
+        while (!exportedHtml.finished() && exportedHtml.valid()) exportedMarkup += exportedHtml.next();
+        QVERIFY(exportedHtml.valid() && exportedHtml.finished());
+        QCOMPARE(originalZip.mid(originalZip.size() - 14, 4), QByteArray::fromHex("01000100"));
+        if (markdownExport) {
+            QVERIFY(exportedMarkup.startsWith("# ") && exportedMarkup.contains("### Annotation 001"));
+        } else {
+            QVERIFY(exportedMarkup.contains("data:font/ttf;base64,"));
+            QVERIFY(exportedMarkup.contains(">#1</a>"));
+        }
+        QVERIFY(fixture.press("rrAnnotationExportDone"));
+        if (!pickerExport) {
+            QVERIFY(fixture.pressAnnotationExport(exportAction));
+            QTRY_VERIFY(fixture.visible("rrAnnotationExportReplace"));
+            QVERIFY(!fixture.visible("rrAnnotationExportConfirm"));
+            QVERIFY(fixture.press("rrAnnotationExportCancel"));
+            QTRY_VERIFY(!fixture.widget("rrAnnotationExportReplaceDialog"));
+            QFile preserved(exportedPath);
+            QVERIFY(preserved.open(QIODevice::ReadOnly));
+            QCOMPARE(preserved.readAll(), originalZip);
+            preserved.close();
+            QFile replaceTarget(exportedPath);
+            QVERIFY(replaceTarget.open(QIODevice::WriteOnly | QIODevice::Truncate));
+            QCOMPARE(replaceTarget.write("replace this existing export"), qint64(28));
+            replaceTarget.close();
+            QVERIFY(fixture.pressAnnotationExport(exportAction));
+            QTRY_VERIFY(fixture.visible("rrAnnotationExportReplace"));
+            QVERIFY(fixture.press("rrAnnotationExportReplace"));
+            QTRY_VERIFY(fixture.visible("rrAnnotationExportDone"));
+            QTRY_VERIFY(!fixture.widget("rrAnnotationExportReplaceDialog"));
+            QFile replaced(exportedPath);
+            QVERIFY(replaced.open(QIODevice::ReadOnly));
+            const auto replacementZip = replaced.readAll();
+            QVERIFY(replacementZip.startsWith("PK"));
+            QVERIFY(replacementZip != QByteArray("replace this existing export"));
+            replaced.close();
+            QVERIFY(fixture.press("rrAnnotationExportDone"));
+            // A file created after the new-export prompt must also need approval.
+            QVERIFY(QFile::remove(exportedPath));
+            QVERIFY(fixture.pressAnnotationExport(exportAction));
+            QTRY_VERIFY(fixture.visible("rrAnnotationExportConfirm"));
+            QFile appeared(exportedPath);
+            QVERIFY(appeared.open(QIODevice::WriteOnly));
+            QCOMPARE(appeared.write("keep this existing file"), qint64(23));
+            appeared.close();
+            QVERIFY(fixture.press("rrAnnotationExportConfirm"));
+            QTRY_VERIFY(fixture.visible("rrAnnotationExportReplace"));
+            QTRY_VERIFY(!fixture.widget("rrAnnotationExportDialog"));
+            QVERIFY(fixture.press("rrAnnotationExportCancel"));
+            QTRY_VERIFY(!fixture.widget("rrAnnotationExportReplaceDialog"));
+            QVERIFY(appeared.open(QIODevice::ReadOnly));
+            QCOMPARE(appeared.readAll(), QByteArray("keep this existing file"));
+        }
         QVERIFY(fixture.press("rrMarksSort"));
         for (const auto *name : {"rrBookmarkList", "rrMarksSortPopup", "rrModalCard", "rrMarksSort_newest"}) {
             auto *probe = fixture.widget(name);
@@ -3852,7 +4065,7 @@ private slots:
     void screens() {
         QFETCH(int, preset);
         QFETCH(bool, dark);
-        Fixture fixture(dark);
+        Fixture fixture(dark, false, false, true, true);
         QVERIFY(fixture.prepared);
         fixture.window.findChild<QComboBox *>("desktopScreenPicker")->setCurrentIndex(preset);
         const auto device = QStringList{"fill", "six-inch", "seven-inch"}.at(preset);
@@ -4124,7 +4337,7 @@ int main(int argc, char **argv) {
         return result;
     }
     QFile fixture(book);
-    constexpr int expectedScreenshots = 310;
+    constexpr int expectedScreenshots = 340;
     if (captures.size() != expectedScreenshots)
         qCritical() << "Expected" << expectedScreenshots << "screenshots, captured" << captures.size();
     if (!fixture.open(QIODevice::ReadOnly) || captures.size() != expectedScreenshots) {

@@ -91,6 +91,10 @@
       "sha256": "f27c09b92f424e1fdda308284ec89d528eb05e590bedab9a3ca021cd4594611f"
     },
     {
+      "file": "file-zip.svg",
+      "sha256": "f0a32504218438968347f06762eab67a88f9fc87f6d69e6a71e81da00680f135"
+    },
+    {
       "file": "flask.svg",
       "sha256": "6fe1929c860962cadddc917a3d119145444537ccaee6a9d618e7d856c16f8501"
     },

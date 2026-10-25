@@ -1,9 +1,13 @@
 #include "storage/highlight_store.h"
 #include "storage/bookmark_store.h"
+#include "storage/annotation_export.h"
+#include "publication/zip_resource.h"
 #include "check.h"
 
+#include <QBuffer>
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -16,6 +20,16 @@ QByteArray bytes(const QString &path) {
     QFile file(path);
     require(file.open(QIODevice::ReadOnly), "Cannot read fixture");
     return file.readAll();
+}
+QByteArray member(QByteArray archive, const QString &name) {
+    QBuffer source(&archive);
+    require(source.open(QIODevice::ReadOnly), "Cannot open ZIP buffer");
+    ZipResource resource;
+    require(resource.open(source, name), "Cannot read ZIP member");
+    QByteArray content;
+    while (!resource.finished() && resource.valid()) content += resource.next();
+    require(resource.valid() && resource.finished(), "ZIP member failed CRC or bounds checks");
+    return content;
 }
 void replace(const QString &path, const QByteArray &data) {
     QFile file(path);
@@ -46,6 +60,105 @@ int main() {
             "Passages did not round-trip independently");
     auto noted = h;
     noted.note = QString::fromUtf8("First thought\nSecond thought: café 日本語");
+    auto exported = noted;
+    exported.text = QString::fromUtf8("<script>alert('x')</script> & **quoted** café 日本語\nNext line");
+    const auto exportRoot = root.path() + "/exports";
+    const auto exportedPath = exportAnnotations(exportRoot, "one", "../Book: title", "Author", {exported}, AnnotationExportFormat::Markdown);
+    require(!exportedPath.isEmpty() && QFileInfo(exportedPath).absolutePath() == exportRoot &&
+                exportedPath.endsWith(".zip"), "Unsafe export filename");
+    const auto archive = bytes(exportedPath);
+    const auto markdown = member(archive, "annotations.md");
+    const auto htmlArchive = annotationExportArchive("../Book: title", "Author", {exported}, AnnotationExportFormat::Html);
+    const auto html = member(htmlArchive, "annotations.html");
+    require(archive.mid(archive.size() - 14, 4) == QByteArray::fromHex("01000100") &&
+                htmlArchive.mid(htmlArchive.size() - 14, 4) == QByteArray::fromHex("01000100"),
+            "A selected-format ZIP must contain exactly one file");
+    require(archive.startsWith("PK") && html.contains("&lt;script&gt;") &&
+                !html.contains("<script>alert") && html.contains(">#1</a>") &&
+                html.contains("sort-order") && html.contains("data-local-time"),
+            "HTML export lost labels, controls or escaping");
+    require(html.contains("id=\"show-markup\" checked") && html.contains("Show annotation styling"),
+            "HTML has no checked styling toggle");
+    const auto chosenPath = root.path() + "/chosen name.zip";
+    require(writeAnnotationExport(QUrl::fromLocalFile(chosenPath), archive) && bytes(chosenPath) == archive,
+            "Export to a chosen location changed the ZIP");
+    require(!writeAnnotationExport(QUrl::fromLocalFile(chosenPath), {}) && bytes(chosenPath) == archive,
+            "An empty export replaced the chosen file");
+    require(!writeAnnotationExport(QUrl("https://example.com/export.zip"), archive) &&
+                !writeAnnotationExport(QUrl::fromLocalFile(root.path() + "/missing/fail.zip"), archive),
+            "Unsupported or unavailable export destination succeeded");
+    require(markdown.contains("&lt;script&gt;") && !markdown.contains("<script>") &&
+                markdown.contains("\\*\\*quoted\\*\\*") && markdown.contains(noted.note.toUtf8()),
+            "Markdown export lost text, notes or escaping");
+    require(exportAnnotations(exportRoot, "two", "../Book: title", "Author", {exported}, AnnotationExportFormat::Markdown) != exportedPath,
+            "Different books share an export filename");
+    exported.detailsLoaded = false;
+    require(exportAnnotations(exportRoot, "one", "../Book: title", "Author", {exported}, AnnotationExportFormat::Markdown).isEmpty() &&
+                bytes(exportedPath) == archive, "Incomplete payload replaced an export");
+    exported.detailsLoaded = true;
+    exported.note = "Updated note";
+    require(exportAnnotations(exportRoot, "one", "../Book: title", "Author", {exported}, AnnotationExportFormat::Markdown) == exportedPath &&
+                member(bytes(exportedPath), "annotations.md").contains("Updated note"), "Repeat export did not replace the previous export");
+    const auto instant = QDateTime::fromString("2026-10-25T00:30:07.123+02:00", Qt::ISODateWithMs);
+    QVector<Highlight> scale;
+    for (int i = 0; i < 500; ++i) {
+        auto row = noted;
+        row.id = QString::number(i + 1);
+        row.chapter = i < 250 ? "Repeated chapter title" : i < 400 ? "Other chapter" : "Repeated chapter title";
+        row.text = i % 2 ? QString::fromUtf8("Natásha considers the journey.\n\nA second paragraph.") : "Pierre speaks with the prince.";
+        row.note = i % 4 == 0 ? "Note-only search marker.\nAnother thought." : QString();
+        row.color = QStringList{"gray", "yellow", "green", "blue", "pink"}[i % 5];
+        row.style = QStringList{"shaded", "underline", "dotted"}[(i / 5) % 3];
+        // Out-of-order creation times, with ties, exercise global date sorting.
+        row.created = instant.addSecs((i % 17) * 71);
+        scale.append(row);
+    }
+    QDir project(QFileInfo(QString::fromUtf8(__FILE__)).absolutePath());
+    require(project.cd("../.."), "Cannot locate checked-in export font");
+    const auto font = bytes(project.filePath("assets/fonts/ebook-core/Libron-Regular.ttf"));
+    const auto large = annotationExportArchive("<Book & title>", "Author", scale, AnnotationExportFormat::Html, instant, font);
+    const auto largeHtml = member(large, "annotations.html");
+    const auto largeMarkdown = annotationExportArchive("<Book & title>", "Author", scale, AnnotationExportFormat::Markdown, instant);
+    const auto largeMd = member(largeMarkdown, "annotations.md");
+    require(largeHtml.count("<article ") == 500 && largeMd.count("### Annotation ") == 500 &&
+                largeHtml.count("<section class=\"chapter\"") == 3 &&
+                largeHtml.count("<aside class=\"note\"") == 125 &&
+                largeHtml.contains("&lt;Book &amp; title&gt;") &&
+                largeHtml.contains("2026-10-24T22:30:07.123Z") &&
+                largeMd.contains("24 October 2026 at 22:30:07 UTC") && !largeHtml.contains("Page "),
+            "Large export lost records, chapters, timestamps or escaped metadata");
+    require(largeHtml.contains("data:font/ttf;base64," + font.toBase64()) &&
+                largeHtml.contains("<!-- Libron is licensed under the SIL Open Font License (OFL) 1.1.") &&
+                !largeHtml.contains("font-license") && !largeHtml.contains("PERMISSION &amp; CONDITIONS") &&
+                !largeHtml.contains(">Annotation 001</a>"),
+            "HTML lost its embedded font, license or compact number labels");
+    for (const auto &style : {"shaded", "underline", "dotted"})
+        for (const auto &color : {"gray", "yellow", "green", "blue", "pink"})
+            require(largeHtml.contains(QByteArray("data-style=\"") + style + "\" data-color=\"" + color + '"'),
+                    "HTML lost a saved color or mark style");
+    require(largeHtml.contains("--mark:#e8df9b;--mark-ink:#e8df9b") &&
+                largeHtml.contains("--mark:#d7d7d7;--mark-ink:#000000"),
+            "HTML colors differ from the reader palette");
+    auto unknown = noted;
+    unknown.color = "futurecolor";
+    unknown.style = "futurestyle";
+    const auto fallback = member(annotationExportArchive("Book", "", {unknown}, AnnotationExportFormat::Html), "annotations.html");
+    require(fallback.contains("data-style=\"shaded\" data-color=\"gray\"") &&
+                !fallback.contains("data:font/ttf;base64,"), "Unknown styles or absent fonts have no safe fallback");
+    require(member(annotationExportArchive("<Book & title>", "Author", scale, AnnotationExportFormat::Markdown, instant, font), "annotations.md") == largeMd,
+            "HTML font embedding changed the Markdown document");
+    require(annotationExportArchive("Book", "", {}, AnnotationExportFormat::Html).isEmpty() &&
+                annotationExportArchive("Book", "", {noted, noted}, AnnotationExportFormat::Html).isEmpty(),
+            "Empty or duplicate annotation payload was exported");
+    require(annotationExportFileName("one", "Book", AnnotationExportFormat::Html) !=
+                annotationExportFileName("one", "Book", AnnotationExportFormat::Markdown),
+            "HTML and Markdown exports share a destination");
+    const auto example = qEnvironmentVariable("KOBALT_TEST_EXPORT_ARCHIVE");
+    if (!example.isEmpty()) replace(example, large);
+    const auto blockedExport = root.path() + "/blocked-export";
+    replace(blockedExport, "block");
+    require(exportAnnotations(blockedExport, "one", "Book", "Author", {exported}, AnnotationExportFormat::Markdown).isEmpty(),
+            "Failed export reported success");
     store.setHighlights({noted});
     require(store.save() && reopened.load() && reopened.highlights().first().note == noted.note,
             "Annotation note did not round-trip");

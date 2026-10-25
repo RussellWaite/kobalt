@@ -162,11 +162,13 @@ private:
     bool libra = false;
     QRect screenBounds;
 };
-Window::Window(storage::Paths paths, EngineFontInputs fonts, QString placeholder, std::function<QString()> clock)
+Window::Window(storage::Paths paths, EngineFontInputs fonts, QString placeholder, std::function<QString()> clock,
+               std::function<void(ReaderHostServices &)> configureServices)
     : clockSource(std::move(clock)), controller(
           paths, std::move(fonts), std::move(placeholder),
-          [this] {
+          [this, configureServices = std::move(configureServices)] {
               auto services = readerServices();
+              services.nativeDialogParent = [this] { return this; };
               services.devicePreview = [this] {
                   return screenPreset != 0;
               };
@@ -179,6 +181,8 @@ Window::Window(storage::Paths paths, EngineFontInputs fonts, QString placeholder
               services.battery = [this] {
                   return screenPreset ? BatteryStatus{100, false} : BatteryStatus{};
               };
+              if (configureServices)
+                  configureServices(services);
               return services;
           },
           [](Qt::ScreenOrientation) {}),

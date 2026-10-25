@@ -6,6 +6,7 @@
 #include <QHash>
 #include <QUuid>
 #include <algorithm>
+#include <limits>
 
 namespace kobalt {
 HighlightSession::HighlightSession(ReaderSession &model, std::function<QString()> layout, const QString &annotations,
@@ -53,6 +54,22 @@ bool HighlightSession::detail(const QString &id, Highlight *row) {
         return false;
     }
     *row = std::move(loaded.first());
+    return true;
+}
+bool HighlightSession::exportDetails(QVector<Highlight> *rows) {
+    if (!store_ || loadFailed_ || !resolved())
+        return false;
+    QStringList ids;
+    for (const auto &row : highlights()) ids.append(row.id);
+    if (!store_->details(ids, rows, &error_)) return false;
+    QHash<QString, int> order;
+    for (int i = 0; i < highlights().size(); ++i) {
+        const int rank = order_.value(i * 2, -1);
+        order.insert(highlights()[i].id, rank < 0 ? std::numeric_limits<int>::max() : rank);
+    }
+    std::stable_sort(rows->begin(), rows->end(), [&order](const Highlight &a, const Highlight &b) {
+        return order.value(a.id) < order.value(b.id);
+    });
     return true;
 }
 bool HighlightSession::resolved() const {

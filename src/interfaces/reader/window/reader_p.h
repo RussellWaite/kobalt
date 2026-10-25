@@ -15,6 +15,7 @@
 #include "reading/reader_session.h"
 #include "reading/bookmark_session.h"
 #include "reading/highlight_session.h"
+#include "storage/annotation_export.h"
 #include "interfaces/reader/views/reading_page.h"
 #include "interfaces/reader/panels/choice_screen.h"
 #include "interfaces/reader/panels/chapter_graph.h"
@@ -480,6 +481,16 @@ private:
     void syncBookmarks();
     kobalt::BookmarkList *bookmarkList = nullptr;
     QPointer<kobalt::ui::ModalOverlay> removeDialog;
+    QPointer<kobalt::ui::ModalOverlay> marksActions;
+    void openMarksActions();
+    void closeMarksActions();
+    void askExportMarks(AnnotationExportFormat format);
+    QByteArray marksExportArchive(AnnotationExportFormat format);
+    void confirmMarksExport(AnnotationExportFormat format, bool replace, const QString &path, std::function<void()> accepted);
+    void saveMarksExport(AnnotationExportFormat format, const QString &path, bool replaceApproved);
+    void chooseMarksExport(AnnotationExportFormat format);
+    void finishMarksExport(AnnotationExportFormat format, bool saved, const QString &location = {});
+    QPointer<QDialog> annotationExportPicker;
     QPointer<kobalt::ui::ModalOverlay> customReplaceDialog;
     QPointer<kobalt::ui::ModalOverlay> bookmarkErrorDialog, settingsWriteErrorDialog;
     QPointer<kobalt::ui::ModalOverlay> formattingWarningDialog;

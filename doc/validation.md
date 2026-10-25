@@ -96,15 +96,19 @@ Deliberately excluded: duplicate opening/reopening workflows, the retired scroll
 
 ## Screenshots
 
-The screenshot preset includes the Controls settings rows, the direct-link choices and Off, Footnotes only and Footnotes and links pages in each device size and theme. It builds the current code and produces 310 PNGs, a checksum manifest and a local HTML gallery. The gallery can filter filenames and open full-size images. Outputs replace the previous complete set only after every capture succeeds. A failed run preserves the previous complete set. The generator refuses to replace an unrelated directory.
+The screenshot preset includes the Controls settings rows, the direct-link choices and Off, Footnotes only and Footnotes and links pages in each device size and theme. It builds the current code and produces 340 PNGs, a checksum manifest and a local HTML gallery. The gallery can filter filenames and open full-size images. Outputs replace the previous complete set only after every capture succeeds. A failed run preserves the previous complete set. The generator refuses to replace an unrelated directory.
 
 Each light/dark variant of Fill window, six-inch and seven-inch mode captures the cover, reading, menu, chapters, statistics, text controls, font picker, layout, header/footer presets, a bookmarked page, bookmark list, bookmark-removal confirmation, annotation list, search results, settings, About, annotation mode, selection start, annotation actions, a saved highlight and saved-highlight editing actions. The empty Library onboarding is captured in both themes for each device mode. Fill window also captures Dictionaries and UI settings; those tabs must be hidden in the device previews.
+
+Each reader variant also captures the saved annotation list with its three-dot More button, the full-reader options card with Markdown and HTML export actions below the shared ZIP explanation, a held export action, the ZIP export confirmation and the success notice. The fixtures explicitly simulate Nickel export support and show the isolated test profile path in the dialogs.
 
 The 150 Library captures cover empty onboarding, folders with and without a configured folder, Home with and without books in progress, cover grids with Small, Medium and Large covers, the last grid page, first and subsequent list pages, series ordering, both sort sheets, matching and empty searches, the More sheet, scanning, new/reading/finished book menus, removal confirmation and an opening error. Each state runs in both themes in Fill window, six-inch and seven-inch mode. The Library fixture has 37 invented books and authors with generated covers; it reads no personal library and needs no downloaded books. The scanning capture resets and freezes a revealed animation frame. Native operating-system file and folder pickers remain outside this headless gallery.
 
 The book fixture and clock are fixed. Screenshot profiles reload bookmarks with a fixed creation date before capturing the list and confirmation. Dictionary screenshots use a fixed 32 GB of free space instead of querying the development disk. Capture delivers pending layout and paint events before rendering the visible frame. Host Qt rendering can still affect pixels, so compare runs with the same environment. The manifest records image dimensions and SHA-256 checksums, book identity and checksum, application version, Qt version, source commit and modified status. Equal inputs should produce equal images. Compare manifests to detect changes, then inspect the affected images. No golden images are checked into the repository, and image equality does not establish functional correctness. The integration tour also verifies chapter navigation, font and size application, bookmarking and search-result navigation through the real controls.
 
 ## Feature coverage and limits
+
+The highlight-store check covers ZIP export filenames, CRC-checked Markdown and HTML entries, Unicode, escaped markup, saved notes, replacement, incomplete and duplicate payloads, chosen local destinations and failed destinations. A 500-record case checks compact HTML annotation labels, all fifteen color/style combinations, unknown-token fallbacks, repeated chapter names, 125 notes and full creation timestamps. It checks that embedded Libron bytes match the bundled font, the OFL reference is present only as an HTML comment and font embedding does not change Markdown. The desktop export check also verifies font embedding through the app’s real runtime assets. The highlight-session check verifies that compact records hydrate and export in source order without retaining payloads. The desktop annotation fixture checks both the Kobo default-folder confirmation and the save picker in both themes, including the initial ZIP confirmation, cancellation and the generated file. The default-folder cases verify explicit replacement approval, preservation on cancellation and a replacement prompt when a file appears during the new-export confirmation. Picker cases check that overwrite confirmation remains enabled. It checks that the picker belongs to the host window, stays outside the graphics proxy and is destroyed after saving or cancelling. Headless Qt uses its widget file picker for these checks. Native Mac save sheets, Android document-provider writes and Nickel's import scan still need platform validation.
 
 | App feature | Current evidence | Remaining limits |
 | --- | --- | --- |
@@ -168,3 +172,23 @@ The column checks compare each column with a native-size single-column rendering
 The full-width panel check opens Layout and Settings in a wide Mac window in both themes. It verifies that panels and toolbars span the reader, then checks the toolbars in the seven-inch e-reader preview and after narrowing the viewport.
 
 The `model.profile-storage` check imports complete Beta 3 JSON profiles into SQLite schema version 2, preserves bookmarks, and checks settings cleanup, unopened-book state, failed writes, interrupted imports, archive retries and diagnostic-log collisions. It also checks Library catalogue migration, unchanged-row saves, removal and rejection of unsupported SQLite versions without modifying their files. The profile check uses the same production storage code as the app. The Library portion is excluded when compiling this check for Kobo, matching the application target. Physical power-loss durability and storage latency still need hardware validation.
+
+### Export HTML interaction check
+
+The optional Node check runs the production HTML script in a small DOM harness. It checks 500 entries, accent-insensitive passage and note searches, empty results, clearing, global date sorts with source-order ties, fixed annotation numbers, restoring book order, the checked-by-default mark styling toggle across search, sorting and print, print filtering and local timestamps in Europe/Brussels and America/Los_Angeles. This does not render HTML or establish browser behavior for local files. It adds no runtime dependency to the app.
+
+After building `mac-fast-tests`, run from the repository root:
+
+```sh
+mkdir -p build/annotation-export-preview/search-check
+cd platforms/desktop
+KOBALT_TEST_EXPORT_ARCHIVE="$PWD/../../build/annotation-export-preview/search-check/fixture.zip" ctest --preset mac -R '^model.highlight-store$'
+cd ../..
+unzip -p build/annotation-export-preview/search-check/fixture.zip annotations.html > build/annotation-export-preview/search-check/fixture.html
+node tests/support/annotation_export_html.cjs build/annotation-export-preview/search-check/fixture.html
+```
+
+
+The annotation desktop cases check both selected formats across default destinations and save pickers, full-reader menu bounds, status-bar and tab-area dismissal, blocked page buttons and cancellation of replacement. The highlight-store case checks that each selected-format ZIP contains exactly one file and that default Markdown and HTML destinations differ.
+
+The annotation cases press both format rows through the reader canvas in light and dark mode. They check the inverted pressed background and restoration after release. The screenshot gallery includes the held HTML export row in every reader variant.

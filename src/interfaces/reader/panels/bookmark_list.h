@@ -39,6 +39,7 @@ public:
     std::function<void(bool)> tabRequested;
     std::function<void(const QString &)> selected, removeRequested;
     std::function<void()> back;
+    std::function<void()> actionsRequested;
     std::function<void()> loadingCancelled;
     // Return chapter/excerpt rows in the requested ID order for one visible page.
     std::function<bool(const QStringList &, QVector<BookmarkRow> *)> annotationDetails;
@@ -62,6 +63,7 @@ private:
     QVector<QPushButton *> buttons, removes;
     QPushButton *bookmarksTab, *annotationsTab;
     ui::CellButton *sortButton;
+    ui::CellButton *moreButton;
     QPointer<ui::ModalOverlay> sortPopup;
     void openSort();
     void closeSort();

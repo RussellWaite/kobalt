@@ -20,7 +20,8 @@ class DeviceFrame;
 class Window final : public QMainWindow {
     Q_OBJECT
 public:
-    Window(storage::Paths paths, EngineFontInputs fonts, QString placeholder, std::function<QString()> clock = {});
+    Window(storage::Paths paths, EngineFontInputs fonts, QString placeholder, std::function<QString()> clock = {},
+           std::function<void(ReaderHostServices &)> configureServices = {});
     ~Window() override;
     void openBook(const QString &path);
     // Saves the visible preview without Mac chrome. Device surroundings remain transparent.

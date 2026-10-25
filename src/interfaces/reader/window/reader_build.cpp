@@ -626,6 +626,7 @@ void Reader::buildOverlays() {
     choices = new ChoiceScreen(this);
     choices->hide();
     bookmarkList = new kobalt::BookmarkList(this);
+    bookmarkList->actionsRequested = [this] { openMarksActions(); };
     bookmarkList->annotationDetails = [this](const QStringList &ids, QVector<BookmarkRow> *rows) {
         QVector<HighlightExcerpt> excerpts;
         if (!highlights->excerpts(ids, &excerpts))

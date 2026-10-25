@@ -485,7 +485,7 @@ int main(int argc, char **argv) {
             a.note = QString(4096, QChar('n'));
             HighlightStore seed(compactRoot.path(), "compact-session", model.sourceHash(), "Book");
             require(seed.load(), "Cannot initialize compact session storage");
-            seed.setHighlights({a, b});
+            seed.setHighlights({b, a});
             require(seed.save(), "Cannot seed compact session storage");
             int layoutReads = 0;
             HighlightSession compact(model, [&] { ++layoutReads; return layout(); }, compactRoot.path(),
@@ -508,6 +508,13 @@ int main(int argc, char **argv) {
             const auto compactLocations = compact.locations();
             require(layoutReads == 1 && compactLocations.pages.size() == 4,
                     "A location snapshot repeated the layout validity calculation");
+            QVector<Highlight> exportedRows;
+            layoutReads = 0;
+            require(compact.exportDetails(&exportedRows) && exportedRows.size() == 2 &&
+                        exportedRows[0].id == a.id && exportedRows[1].id == b.id && exportedRows[0].note == a.note,
+                    "Export did not hydrate and sort compact records into source order");
+            require(layoutReads == 1, "Export repeated the layout validity calculation for each annotation");
+            isCompact();
             require(compact.recolor(a.id, "blue") && detail(compact, a.id).note == a.note,
                     "Compact recolor erased an unloaded note");
             isCompact();

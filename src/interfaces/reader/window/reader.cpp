@@ -44,6 +44,7 @@ using kobalt::platform::textRefresh;
 using kobalt::Choice;
 
 Reader::~Reader() {
+    delete annotationExportPicker.data();
     book->onEstimatesChanged({});
     model->cancelPagePreview();
     if (pageScrubber) {
@@ -369,7 +370,9 @@ QVector<QWidget *> Reader::popups() const {
             navigationBarPopup.data(),
             menuViewPopup.data(),
             tappableLinksPopup.data(),
+            marksActions.data(),
             removeDialog.data(),
+            annotationExportPicker.data(),
             customReplaceDialog.data(),
             bookmarkErrorDialog.data(),
             formattingWarningDialog.data(),
@@ -422,6 +425,8 @@ bool Reader::event(QEvent *event) {
 
 bool Reader::eventFilter(QObject *watched, QEvent *event) {
     const auto type = event->type();
+    if (watched == bookmarkList && type == QEvent::Hide)
+        closeMarksActions();
     if (type == QEvent::Show && (watched == topControls || watched == general || watched == choices ||
                                  watched == dictionaryPanel || watched == searchPanel || watched == linkPanel ||
                                  watched == linkDialog || watched == syncDialog || watched == finishDialog)) {
@@ -682,6 +687,10 @@ void Reader::resizeEvent(QResizeEvent *) {
     }
     lightPopup->hide();
     dismissLookup();
+    if (marksActions) {
+        marksActions->setGeometry(rect());
+        marksActions->fitCard();
+    }
     header->setGeometry(0, 0, width(), page->topHeight());
     header->setVisible(page->topHeight() > 0);
     topControls->setGeometry(0, 0, width(), navigation ? navigation->toolbarHeight() : m::panel::toolbarHeight);

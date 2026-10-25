@@ -1,6 +1,65 @@
 // Filled outlines from the checked Phosphor SVGs.
 // Each shape is a filled outline on a 256 unit canvas.
 static bool phosphorGeometry(const QString &name, QPainterPath &path) {
+    if (name == QStringLiteral("file-zip")) {
+        path.setFillRule(Qt::WindingFill);
+        path.moveTo(184, 144);
+        path.lineTo(168, 144);
+        path.arcTo(QRectF(160, 144, 16, 16), 90, 90);
+        path.lineTo(160, 208);
+        path.arcTo(QRectF(160, 200, 16, 16), -180, 180);
+        path.lineTo(176, 200);
+        path.lineTo(184, 200);
+        path.arcTo(QRectF(156, 144, 56, 56), -90, 180);
+        path.closeSubpath();
+        path.moveTo(184, 184);
+        path.lineTo(176, 184);
+        path.lineTo(176, 160);
+        path.lineTo(184, 160);
+        path.arcTo(QRectF(172, 160, 24, 24), 90, -180);
+        path.closeSubpath();
+        path.moveTo(136, 152);
+        path.lineTo(136, 208);
+        path.arcTo(QRectF(120, 200, 16, 16), 0, -180);
+        path.lineTo(120, 152);
+        path.arcTo(QRectF(120, 144, 16, 16), -180, -180);
+        path.closeSubpath();
+        path.moveTo(96, 208);
+        path.arcTo(QRectF(80, 200, 16, 16), 0, -90);
+        path.lineTo(56, 216);
+        path.arcTo(QRectF(47.9280162393, 200.0003238604, 16, 16), -89.4844473327, -120.5182310075);
+        path.lineTo(74.16, 160);
+        path.lineTo(56, 160);
+        path.arcTo(QRectF(48, 144, 16, 16), -90, -180);
+        path.lineTo(88, 144);
+        path.arcTo(QRectF(80.0719837607, 143.9996761396, 16, 16), 90.5155526673, -120.5182310075);
+        path.lineTo(69.79, 200);
+        path.lineTo(88, 200);
+        path.arcTo(QRectF(80, 200, 16, 16), 90, -90);
+        path.closeSubpath();
+        path.moveTo(213.66, 82.34);
+        path.lineTo(157.66, 26.34);
+        path.arcTo(QRectF(144.0062907752, 23.9999975266, 16, 16), 45.0318457184, 45.013208645);
+        path.lineTo(56, 24);
+        path.arcTo(QRectF(40, 24, 32, 32), 90, 90);
+        path.lineTo(40, 112);
+        path.arcTo(QRectF(40, 104, 16, 16), -180, 180);
+        path.lineTo(56, 40);
+        path.lineTo(144, 40);
+        path.lineTo(144, 88);
+        path.arcTo(QRectF(144, 80, 16, 16), -180, 90);
+        path.lineTo(200, 96);
+        path.lineTo(200, 112);
+        path.arcTo(QRectF(200, 104, 16, 16), -180, 180);
+        path.lineTo(216, 88);
+        path.arcTo(QRectF(200.0000024734, 79.9937092248, 16, 16), -0.0450543633, 45.0132086449);
+        path.closeSubpath();
+        path.moveTo(160, 80);
+        path.lineTo(160, 51.31);
+        path.lineTo(188.69, 80);
+        path.closeSubpath();
+        return true;
+    }
     if (name == QStringLiteral("folder-plus")) {
         path.setFillRule(Qt::WindingFill);
         path.moveTo(216, 72);
