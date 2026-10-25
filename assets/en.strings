@@ -22,7 +22,7 @@
 "kosync.login" = "Sign in";
 "kosync.logout" = "Sign out";
 "kosync.automatic" = "Automatic sync";
-"kosync.automatic_description" = "Sync when opening a book and while reading. Ask before moving to another device’s position.";
+"kosync.automatic_description" = "Sync on open, close, sleep and wake, and while reading. Ask before moving to a synced position.";
 "kosync.sync_now" = "Sync now";
 "kosync.signed_in" = "Signed in.";
 "kosync.account_changed" = "Sign in to apply the server or username change.";
