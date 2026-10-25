@@ -133,10 +133,13 @@ public:
         resumeBackground();
         for (const auto &window : windows)
             if (window && window->isVisible()) {
-                // Flush one full update before exposing the backing store.
-                // repaint() can first flush a queued update, then draw it again.
-                window->update();
-                QCoreApplication::sendPostedEvents(window, QEvent::UpdateRequest);
+                // Complete deferred child paints before exposing Nickel's
+                // backing store. After a PIN unlock it can still hold the PIN
+                // frame. Do not process unrelated events during the handoff.
+                for (auto *child : window->findChildren<QWidget *>())
+                    QCoreApplication::sendPostedEvents(child, QEvent::UpdateLater);
+                QCoreApplication::sendPostedEvents(window, QEvent::UpdateLater);
+                window->repaint();
             }
     }
     void acceptHandoff(QDialog &dialog, const std::function<void()> &accept) override {

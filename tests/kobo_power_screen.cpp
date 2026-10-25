@@ -12,6 +12,7 @@
 #include <QApplication>
 #include <QTemporaryDir>
 #include <QPointer>
+#include <QPainter>
 #include <QTest>
 
 // These substitute the native battery service and window types only. The
@@ -48,6 +49,33 @@ class AbstractPowerView : public QWidget {
     Q_OBJECT
 public:
     using QWidget::QWidget;
+};
+class PaintProbe : public QWidget {
+public:
+    explicit PaintProbe(QWidget *parent) : QWidget(parent) {
+        setAttribute(Qt::WA_OpaquePaintEvent);
+    }
+    int paints = 0;
+    int deferredUpdates = 0;
+    bool repaintAgain = false;
+    QColor color = Qt::white;
+    QColor painted;
+protected:
+    bool event(QEvent *event) override {
+        if (event->type() == QEvent::UpdateLater)
+            ++deferredUpdates;
+        return QWidget::event(event);
+    }
+    void paintEvent(QPaintEvent *) override {
+        ++paints;
+        painted = color;
+        QPainter(this).fillRect(rect(), color);
+        if (repaintAgain) {
+            repaintAgain = false;
+            color = Qt::gray;
+            update();
+        }
+    }
 };
 class PowerScreenTests : public QObject {
     Q_OBJECT
@@ -208,6 +236,62 @@ private slots:
         QVERIFY(!presentation->updateSleepScreen(image, image.rect()));
         QVERIFY(!presentation->presentSleepScreen(image, Qt::PortraitOrientation));
         presentation->clearSleepScreen();
+    }
+    void sleepHandoffPaintsAfterPinUnlock() {
+        MainWindowView window;
+        window.resize(400, 600);
+        PaintProbe pin(&window);
+        pin.setGeometry(window.rect());
+        pin.color = Qt::black;
+        window.show();
+        pin.show();
+        QCoreApplication::processEvents();
+        QVERIFY(pin.paints > 0);
+
+        QWidget reader;
+        reader.resize(window.size());
+        reader.show();
+        QCoreApplication::processEvents();
+        auto presentation = kobalt::nickel::makeWindowPresentation(&reader, true);
+        presentation->pauseBackground(true);
+        pin.hide();
+        AbstractPowerView power(&window);
+        power.setGeometry(window.rect());
+        PaintProbe sleep(&power);
+        sleep.setGeometry(power.rect());
+        sleep.color = Qt::gray;
+        power.show();
+        sleep.show();
+        QCOMPARE(sleep.paints, 0);
+
+        presentation->resumeAndRepaintBackground();
+        QVERIFY(window.updatesEnabled());
+        QVERIFY(sleep.paints > 0);
+        QCOMPARE(sleep.painted, sleep.color);
+    }
+    void handoffCompletesDeferredChildPaints() {
+        MainWindowView window;
+        window.resize(400, 600);
+        PaintProbe background(&window);
+        background.setGeometry(window.rect());
+        background.color = Qt::black;
+        window.show();
+        background.show();
+        QWidget reader;
+        reader.show();
+        QCoreApplication::processEvents();
+
+        const int deferred = background.deferredUpdates;
+        background.repaintAgain = true;
+        background.repaint();
+        QCOMPARE(background.painted, QColor(Qt::black));
+        QCOMPARE(background.color, QColor(Qt::gray));
+        QCOMPARE(background.deferredUpdates, deferred);
+        auto presentation = kobalt::nickel::makeWindowPresentation(&reader, true);
+        presentation->pauseBackground(true);
+        presentation->resumeAndRepaintBackground();
+        QCOMPARE(background.deferredUpdates, deferred + 1);
+        QCOMPARE(background.painted, background.color);
     }
 };
 QTEST_MAIN(PowerScreenTests)
