@@ -805,7 +805,7 @@ void Reader::openSeek() {
     lightPopup->hide();
     chapterGraph->hide();
     seekOpen = true;
-    syncNavigation();
+    updateLinkReturn();
     pageScrubber->showCurrentPage();
 }
 

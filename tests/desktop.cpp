@@ -4098,6 +4098,66 @@ private slots:
             QVERIFY(!android::takeRefreshFrame(reader, canvas->viewport(), damage).clean);
         }
     }
+    void bookmarkReturn_data() {
+        QTest::addColumn<bool>("dark");
+        QTest::addColumn<QString>("menuView");
+        QTest::addColumn<QString>("detour");
+        for (bool dark : {false, true}) {
+            const auto theme = dark ? "dark" : "light";
+            for (const auto &mode : {"none", "stats", "seek"})
+                QTest::newRow(qPrintable(QString("%1-%2").arg(mode, theme))) << dark << QString(mode) << QString();
+            for (const auto &tab : {"Stats", "Chapters"})
+                QTest::newRow(qPrintable(QString("default-via-%1-%2").arg(tab, theme)))
+                    << dark << QString("none") << QString("rrNav%1").arg(tab);
+        }
+    }
+    void bookmarkReturn() {
+        QFETCH(bool, dark);
+        QFETCH(QString, menuView);
+        QFETCH(QString, detour);
+        Fixture fixture(dark);
+        QVERIFY(fixture.prepared);
+        auto preferences = storage::readJson(fixture.paths.preferences());
+        preferences["default_menu_view"] = menuView;
+        QVERIFY(storage::writeJson(fixture.paths.preferences(), preferences));
+        QSignalSpy opened(&fixture.window, &desktop::Window::bookOpened);
+        fixture.window.openBook(book);
+        QTRY_COMPARE_WITH_TIMEOUT(opened.count(), 1, 10000);
+        QTRY_VERIFY(!fixture.state().value("busy").toBool());
+        openPrologueBody(fixture);
+        auto *page = static_cast<ReadingPage *>(fixture.widget("rrPage"));
+        QVERIFY(fixture.click(page, page->bookmarkCorner().center()));
+        QTRY_COMPARE(fixture.state().value("bookmark_count").toInt(), 1);
+        const auto destination = fixture.state().value("position");
+        for (int i = 0; i < 4; ++i) {
+            const int previous = fixture.state().value("page").toInt();
+            fixture.window.readerWindow()->pageButton(1);
+            QTRY_VERIFY(!fixture.state().value("busy").toBool());
+            QTRY_VERIFY(fixture.state().value("page").toInt() > previous);
+        }
+        const auto origin = fixture.state().value("position");
+        QVERIFY(fixture.press("rrPage"));
+        QVERIFY(fixture.press("rrBookmarks"));
+        QVERIFY(fixture.press("rrBookmark0"));
+        QTRY_VERIFY(!fixture.state().value("busy").toBool());
+        QTRY_COMPARE(fixture.state().value("position"), destination);
+        QVERIFY(fixture.press("rrPage"));
+        if (!detour.isEmpty()) {
+            QVERIFY(fixture.press(qPrintable(detour)));
+            QTRY_VERIFY(fixture.visible(detour == "rrNavStats" ? "rrChapterGraph" : "rrChoices"));
+        }
+        if (menuView != "seek")
+            QVERIFY(fixture.press("rrNavSeek"));
+        auto *scrubber = dynamic_cast<ui::PageScrubber *>(fixture.widget("rrPageScrubber"));
+        QVERIFY(scrubber);
+        QTRY_VERIFY(scrubber->previewReady());
+        QTRY_VERIFY(fixture.visible("rrScrubberReturn"));
+        QVERIFY(fixture.press("rrScrubberReturn"));
+        QTRY_VERIFY(!fixture.state().value("busy").toBool());
+        QTRY_COMPARE(fixture.state().value("position"), origin);
+        QVERIFY(fixture.press("rrPage"));
+        QVERIFY(!fixture.visible("rrScrubberReturn"));
+    }
     void navigation_data() {
         QTest::addColumn<bool>("dark");
         QTest::addColumn<bool>("defaultNavigate");
