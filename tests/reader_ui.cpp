@@ -1939,6 +1939,38 @@ private slots:
                         ink = ink.united(QRect(x, y, 1, 1));
             return ink;
         };
+        ui::BatteryIndicator status(nullptr);
+        status.setPalette(ui::readerPalette(status.palette(), dark));
+        status.setFont(ui::interfaceFont(ui::metrics::panel::batteryText));
+        for (int scale : {1, 2}) {
+            for (int percent : {-1, 9, 50, 100}) {
+                for (bool charging : {false, true}) {
+                    status.setStatus(percent, charging);
+                    QImage image(status.size() * scale, QImage::Format_RGB32);
+                    image.setDevicePixelRatio(scale);
+                    image.fill(paper);
+                    QPainter painter(&image);
+                    status.render(&painter);
+                    painter.end();
+                    const int split = (status.width() - ui::metrics::panel::batteryIconSize) * scale;
+                    const auto text = inkBounds(image, QRect(0, 0, split, image.height()));
+                    const auto icon = inkBounds(image, QRect(split, 0, image.width() - split, image.height()));
+                    QVERIFY(!text.isEmpty() && !icon.isEmpty());
+                    const auto context = QString("status %1 charging=%2 scale=%3 text=%4,%5 icon=%6,%7")
+                        .arg(percent).arg(charging).arg(scale).arg(text.top()).arg(text.height())
+                        .arg(icon.top()).arg(icon.height()).toUtf8();
+                    QVERIFY2(qAbs(text.top() + text.bottom() - icon.top() - icon.bottom()) <= 2 * scale,
+                             context.constData());
+                    const auto capture = qEnvironmentVariable("KOBALT_STATUS_BATTERY_CAPTURE");
+                    if (!capture.isEmpty()) {
+                        QVERIFY(QDir().mkpath(capture));
+                        QVERIFY(image.save(capture + QString("/status-%1-%2-%3x-%4-%5.png")
+                            .arg(dark ? "dark" : "light").arg(ppi).arg(scale).arg(percent)
+                            .arg(charging ? "charging" : "battery")));
+                    }
+                }
+            }
+        }
         for (const auto &family : {QStringLiteral("Libron"), QStringLiteral("Ancizar Serif"), ui::chromeFont(24).family()}) {
             auto font = ui::headerFooterFont(24);
             font.setFamily(family);

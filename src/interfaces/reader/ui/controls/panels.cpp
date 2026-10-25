@@ -298,8 +298,16 @@ QFont batteryTextFont(QFont font, qreal bodyHeight, int weight) {
     return font;
 }
 void BatteryIndicator::paintEvent(QPaintEvent *event) {
-    InterfaceLabel::paintEvent(event);
+    const bool privateText = needsPrivateText(text(), font());
+    if (!privateText)
+        InterfaceLabel::paintEvent(event);
     QPainter painter(this);
+    if (privateText) {
+        painter.setFont(font());
+        painter.setPen(palette().color(isEnabled() ? QPalette::WindowText : QPalette::Mid));
+        // Align the visible digits with the icon, rather than the padded font line.
+        drawOpticalPrivateText(painter, contentsRect(), text(), alignment());
+    }
     const QRectF body(width() - m::panel::batteryIconSize + 1, (height() - m::panel::batteryBodyHeight) / 2.0,
                       m::panel::batteryBodyWidth, m::panel::batteryBodyHeight);
     paintBattery(painter, body, percent, charging, palette().color(QPalette::WindowText),
