@@ -4,6 +4,7 @@
 #include "reading_progress.h"
 #include "storage/reader_storage.h"
 #include "reading_bridge.h"
+#include "reading_timer.h"
 #include <QElapsedTimer>
 #include <QJsonObject>
 #include <memory>
@@ -102,7 +103,7 @@ private:
     ReadingProgress baseline;
     ProgressReconciler reconciliation;
     QElapsedTimer progressPoll;
-    QElapsedTimer activeReading;
+    ReadingTimer activeReading;
     qint64 completedReadingMilliseconds = 0;
     ReadingPace pace_;
     std::unique_ptr<ReadingSpeed> speed;

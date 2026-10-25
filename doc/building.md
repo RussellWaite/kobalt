@@ -57,6 +57,8 @@ CMake generates the English string table from `assets/en.strings` and rejects mi
 
 Kobo uses Nickel's library, so its target excludes the standalone Library model and interface. Shared controls use the C++ library APIs available in the prepared firmware SDK, including the older Qt5 target headers.
 
+The Kobo target selects the suspend-inclusive boot clock for reading duration only. Android and desktop keep the Qt elapsed clock. This selection adds no timer or scheduled wakeup.
+
 The `qt5` and `qt6` presets consume prepared kobuild SDKs, including Sensors. Compiler, sysroot and Qt repairs belong in kobuild. Pull the selected SDK images before building:
 
 ```sh

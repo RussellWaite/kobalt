@@ -116,6 +116,40 @@ private:
 
 int main(int argc, char **argv) {
     QGuiApplication app(argc, argv);
+    {
+        // Replay the Clara BW report: 307 seconds of reading included 223
+        // seconds of kernel standby that CLOCK_MONOTONIC did not count.
+        qint64 boot = 44661;
+        ReadingTimer timer([&] { return boot; });
+        require(!timer.isValid() && timer.elapsed() == 0, "Reading timer started before reading");
+        timer.start();
+        boot = 352003;
+        require(timer.includesStandby() && timer.elapsed() == 307342,
+                "Reading timer lost standby time from the Clara BW report");
+        const auto first = timer.elapsed();
+        timer.invalidate();
+        boot += 600000;
+        require(!timer.isValid() && timer.elapsed() == 0, "Paused reading timer kept counting");
+        timer.start();
+        boot += 60000;
+        require(first + timer.elapsed() == 367342, "Resuming counted deliberate sleep");
+        boot = -1;
+        require(timer.elapsed() == 60000, "A failed clock read changed the accumulated duration");
+        boot = 352003 + 600000 + 90000;
+        require(timer.elapsed() == 90000, "Reading clock did not recover in its original time domain");
+        boot -= 1000;
+        require(timer.elapsed() == 90000, "A backward clock sample reduced reading time");
+        timer.start();
+        boot += 1000;
+        require(timer.elapsed() == 1000, "A new segment retained the previous duration");
+        boot = -1;
+        timer.start();
+        require(!timer.includesStandby() && timer.elapsed() >= 0,
+                "An unavailable boot clock did not select the segment fallback");
+        boot = 1000000000;
+        require(!timer.includesStandby() && timer.elapsed() < 60000,
+                "A recovering clock changed origins halfway through a fallback segment");
+    }
     require(argc == 2, "Expected a synthetic EPUB");
     const auto path = QString::fromLocal8Bit(argv[1]);
     native::ResourceServer server;

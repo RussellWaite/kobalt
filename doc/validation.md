@@ -73,6 +73,8 @@ The source-index check compares cached visibility and overlap results with the p
 
 The SQLite annotation regression rejects survivor updates and replacements while deleting the first, middle and last entries of a 2,000-annotation list. It checks bookmark deletion, appending after gaps, explicit reordering, middle insertion, signed 64-bit order limits, duplicate order rejection and the default JSON-to-SQLite import into schema version 2. Run the same focused cases with `kobalt-annotation-database-tests --order-regressions [TEMP_PARENT]`; an explicit parent keeps temporary databases inside a controlled writable test directory.
 
+The ReadingBook session check replays the Clara BW reading-time failure with a controlled boot clock. It verifies that standby counts, explicit pauses exclude deliberate sleep, and clock failures cannot mix time origins or reduce an accumulated interval. On a physical Clara BW running firmware 4.46.23836, the corrected counter recorded 382.248 seconds at the Stats check, including 330.891 seconds of kernel standby, and displayed 6 minutes. The page did not change during the run. Nickel returned and saved 385 seconds when the book closed shortly afterwards. A second run verified deliberate sleep: the counter paused at 67.537 seconds, retained that total across about 6 minutes 46 seconds asleep, and resumed counting after wake. Stats then displayed 2 minutes. The final active total was 138.575 seconds; Nickel saved 139 seconds across the two active intervals. Both native time writes were verified.
+
 ## Book fixtures
 
 

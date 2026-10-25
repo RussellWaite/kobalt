@@ -79,6 +79,8 @@ list(FILTER shared EXCLUDE REGEX "/(library|interfaces/library)/")
 file(GLOB adapters CONFIGURE_DEPENDS "common/*.cpp" "common/*.h" "qt${KOBALT_QT_MAJOR}/*.cpp" "qt${KOBALT_QT_MAJOR}/*.h" "display/*.cpp")
 add_library(kobalt MODULE ${shared} ${adapters} common/install.c "${hooks}/nh.c" "${hooks}/resources.c"
     "${CMAKE_CURRENT_BINARY_DIR}/nhplugin.h")
+set_source_files_properties("${source}/reading/reading_timer.cpp" PROPERTIES
+    COMPILE_DEFINITIONS KOBALT_READING_CLOCK_BOOTTIME=1)
 option(KOBALT_SQLITE_ANNOTATIONS_DEFAULT "Use SQLite annotation storage by default" ON)
 if(KOBALT_SQLITE_ANNOTATIONS_DEFAULT)
     set_source_files_properties("${source}/storage/annotation_database.cpp" PROPERTIES
