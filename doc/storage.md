@@ -8,7 +8,7 @@ Kobalt separates saved reading data from disposable rendering caches. Storage fo
 
 `tappable_links` is an optional global setting with values `off`, `footnotes` and `all`. Missing or invalid values use Off. It does not change the settings schema or parsed-book cache format.
 
-`dictionary_font_face` and `dictionary_font_size` are optional global preferences. An empty or missing face follows the interface font. A missing size uses 100 percent. Supported sizes are 80, 100, 120 and 140 percent. Invalid values use these defaults. These settings affect dictionary definition text, not book layout or saved annotations. They keep preference schema 1.
+`dictionary_font_face` and `dictionary_font_size` are optional global preferences. An empty or missing face follows the current book’s resolved body font, including its normal reading-font fallback. A missing size uses 100 percent. Supported sizes are 80, 100, 120 and 140 percent. Invalid values use these defaults. These settings affect dictionary definition text, not book layout or saved annotations. They keep preference schema 1.
 
 Book state now lives in `kobalt.sqlite`. Legacy book state uses a host-selected prefix followed by the SHA-256 of the UTF-8 book identity and `.json`. Its `schema` is `1`. The `book` and `fingerprint` fields identify the publication. It stores the canonical reading position, book-specific text preferences and native progress reconciliation fields. Globally owned layout preferences remain in global settings. Marking a book unread resets its position and book-specific preferences, but keeps annotations.
 

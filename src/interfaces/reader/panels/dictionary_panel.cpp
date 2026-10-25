@@ -167,7 +167,11 @@ QFont DictionaryPanel::bookFont(int pixels) const {
     return font;
 }
 void DictionaryPanel::setBookFont(const QString &family) {
+    if (bookFamily == family)
+        return;
     bookFamily = family;
+    if (definitionFamily.isEmpty())
+        setDefinitionFont({}, definitionPercent);
 }
 QFont DictionaryPanel::definitionFont(const QString &family, int percent) {
     QFont font = ui::interfaceFont(qMax(1, qRound(int(c::labelText) * percent / 100.0)));
@@ -176,7 +180,9 @@ QFont DictionaryPanel::definitionFont(const QString &family, int percent) {
     return font;
 }
 void DictionaryPanel::setDefinitionFont(const QString &family, int percent) {
-    text->setTextFont(definitionFont(family, percent));
+    definitionFamily = family;
+    definitionPercent = percent;
+    text->setTextFont(definitionFont(family.isEmpty() ? bookFamily : family, percent));
     text->setMinimumLineHeight(definitionLineHeight(percent, !family.isEmpty()));
     arrange();
 }

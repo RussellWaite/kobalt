@@ -527,8 +527,8 @@ void Reader::applyTheme(bool dark) {
     update();
 }
 
-// The face the book is displayed in, registered with Qt. Publisher fonts use
-// the book's own face when Qt can load it, and the default otherwise.
+// Resolve the displayed book face and retain its bytes for GUI text. Publisher
+// faces use the current text face, with the configured reading default as fallback.
 QString Reader::bookFace() {
     QString face = model->fontFace();
     if (face.isEmpty())
@@ -536,8 +536,11 @@ QString Reader::bookFace() {
     bool loadable = false;
     for (const auto &font : model->fontCatalog())
         loadable |= font.family == face;
-    if (!loadable)
-        face = QString::fromLatin1(kobalt::defaultFontFace);
+    if (!loadable) {
+        face = model->state().value("default_font_face").toString(kobalt::defaultFontFace);
+        if (!model->fontFaces().contains(face))
+            face = QString::fromLatin1(kobalt::defaultFontFace);
+    }
     registerPickerFonts(face);
     return face;
 }
@@ -851,7 +854,7 @@ void Reader::showSettingsFonts() {
            settingsUiMonoFontFace.isEmpty() ? QStringLiteral("IBM Plex Mono") : settingsUiMonoFontFace);
     sample(panel->headerFooterFontButton,
            settingsHeaderFooterFontFace.isEmpty() ? QStringLiteral("IBM Plex Mono") : settingsHeaderFooterFontFace);
-    const auto dictionaryDefault = settingsUiFontFace.isEmpty() ? QStringLiteral("IBM Plex Sans") : settingsUiFontFace;
+    const auto dictionaryDefault = bookFace();
     const auto dictionaryFace = settingsDictionaryFontFace.isEmpty() ? dictionaryDefault : settingsDictionaryFontFace;
     panel->dictionaryFontButton->setCaption((settingsDictionaryFontFace.isEmpty()
         ? strings::get("settings.font_default_value").arg(fontDisplayName(dictionaryDefault))
@@ -910,7 +913,7 @@ void Reader::openSettingsFont(const QString &key) {
         isDefault                    ? QString(defaultFontFace)
         : isUi                       ? QString("IBM Plex Sans")
         : (isMono || isHeaderFooter) ? QString("IBM Plex Mono")
-        : isDictionary               ? (settingsUiFontFace.isEmpty() ? QString("IBM Plex Sans") : settingsUiFontFace)
+        : isDictionary               ? bookFace()
                                      : fallbackFontDefaults(model->fontFaces())[index],
         [this, key, isDefault, isUi, isMono, isHeaderFooter, isDictionary](const QString &family) {
             if (isDefault)

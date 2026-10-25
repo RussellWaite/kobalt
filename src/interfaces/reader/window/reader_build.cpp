@@ -1106,8 +1106,7 @@ void Reader::buildSettings() {
         openSettingsFont("dictionary_font_face");
     });
     connect(settings->dictionaryFontSizeButton, &QPushButton::clicked, this, [this, settings] {
-        const auto family = !settingsDictionaryFontFace.isEmpty() ? settingsDictionaryFontFace
-                            : !settingsUiFontFace.isEmpty() ? settingsUiFontFace : QStringLiteral("IBM Plex Sans");
+        const auto family = settingsDictionaryFontFace.isEmpty() ? bookFace() : settingsDictionaryFontFace;
         registerPickerFonts(family);
         settings->showDictionaryFontSizes(settingsDictionaryFontSize, family, !settingsDictionaryFontFace.isEmpty(), [this](int percent) {
             settingsDictionaryFontSize = percent;

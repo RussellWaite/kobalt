@@ -3118,10 +3118,33 @@ private slots:
         auto *reader = fixture.window.readerWindow();
         auto *page = static_cast<ReadingPage *>(fixture.widget("rrPage"));
         const auto position = fixture.state().value("position");
+        auto bodyFace = fixture.state().value("font_face").toString();
+        if (bodyFace.isEmpty())
+            bodyFace = fixture.state().value("text_font_face").toString();
+        if (bodyFace.isEmpty())
+            bodyFace = QString::fromLatin1(defaultFontFace);
+        auto *definition = dynamic_cast<ui::PagedText *>(fixture.widget("rrDefinition"));
+        QVERIFY(definition);
+        QVERIFY(fixture.selectWord(page, fixture.wordPoint()));
+        QTRY_VERIFY(fixture.visible("rrDictionary"));
+        QCOMPARE(definition->textFont().family(), bodyFace);
+        QVERIFY(fixture.press("rrDictionaryClose"));
         QVERIFY(fixture.press("rrPage"));
         QVERIFY(fixture.press("rrSettings"));
         QVERIFY(fixture.press("rrSettingsSystem"));
+        QVERIFY(revealSettingsOption(fixture, "rrDictionaryFontSize"));
+        QVERIFY(fixture.press("rrDictionaryFontSize"));
+        QTRY_VERIFY(fixture.visible("rrDictionaryFontSizePopup"));
+        auto *defaultPreview = fixture.widget("rrDictionaryFontPreview100");
+        QVERIFY(defaultPreview);
+        auto *defaultSample = defaultPreview->findChild<QLabel *>();
+        QVERIFY(defaultSample);
+        QCOMPARE(defaultSample->font().family(), bodyFace);
+        QVERIFY(fixture.press("rrDictionaryFontSize100"));
         QVERIFY(revealSettingsOption(fixture, "rrDictionaryFont"));
+        auto *fontOption = dynamic_cast<ui::CaptionButton *>(fixture.widget("rrDictionaryFont"));
+        QVERIFY(fontOption);
+        QCOMPARE(fontOption->typefacePreview(), bodyFace);
         QVERIFY(fixture.press("rrDictionaryFont"));
         QTRY_VERIFY(fixture.visible("rrSettingsFontPopup"));
         QAbstractButton *chosen = nullptr;
@@ -3157,7 +3180,7 @@ private slots:
         QTRY_VERIFY(!fixture.visible("rrControlsTop"));
         QVERIFY(fixture.selectWord(page, fixture.wordPoint()));
         QTRY_VERIFY(fixture.visible("rrDictionary"));
-        auto *definition = dynamic_cast<ui::PagedText *>(fixture.widget("rrDefinition"));
+        definition = dynamic_cast<ui::PagedText *>(fixture.widget("rrDefinition"));
         QVERIFY(definition);
         QCOMPARE(definition->textFont().family(), QString("Libron"));
         QCOMPARE(definition->textFont().pixelSize(), DictionaryPanel::definitionFont("Libron", 140).pixelSize());

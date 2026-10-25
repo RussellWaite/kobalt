@@ -17,7 +17,7 @@ public:
     std::function<void(QString)> chosen;
     void setChoices(QVector<DictionaryChoice> values);
     void setLanguage(const QString &language);
-    // The face the book is displayed in. The word in the header uses it.
+    // The resolved book face supplies the header and default definition text.
     void setBookFont(const QString &family);
     static QFont definitionFont(const QString &family, int percent);
     static int definitionLineHeight(int percent, bool customFont = false);
@@ -34,7 +34,8 @@ private:
     ui::PagerBar *pages, *choicesPaging;
     ui::CellButton *dictionary, *close;
     QLabel *headword;
-    QString word, bookFamily, language;
+    QString word, bookFamily, language, definitionFamily;
+    int definitionPercent = 100;
     QFont headwordFont;
     QFont bookFont(int pixels) const;
     ui::Panel *dropdown;

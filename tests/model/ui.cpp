@@ -2744,6 +2744,27 @@ int main(int argc, char **argv) {
         QApplication::sendEvent(&text, &fontChange);
         require(lineGap() == beforeFontChange, "A font refresh discarded dictionary line spacing");
     }
+    {
+        kobalt::DictionaryPanel panel(&reader);
+        auto *definition = dynamic_cast<kobalt::ui::PagedText *>(panel.findChild<QWidget *>("rrDefinition"));
+        require(definition, "Dictionary definition widget is missing");
+        const auto body = kobalt::ui::brandFont(30).family();
+        const auto otherBody = kobalt::ui::chromeFont(30).family();
+        const auto overrideFamily = kobalt::ui::interfaceFont(30).family();
+        panel.setBookFont(body);
+        panel.setDefinitionFont({}, 120);
+        require(definition->textFont().family() == body, "Default dictionary font did not follow the book body");
+        panel.setBookFont(otherBody);
+        require(definition->textFont().family() == otherBody, "Default dictionary font did not follow a changed book font");
+        panel.setDefinitionFont(overrideFamily, 140);
+        const auto overrideSize = definition->textFont().pixelSize();
+        panel.setBookFont(body);
+        require(definition->textFont().family() == overrideFamily && definition->textFont().pixelSize() == overrideSize,
+                "Changing the book font replaced the explicit dictionary override");
+        panel.setDefinitionFont({}, 140);
+        require(definition->textFont().family() == body && definition->textFont().pixelSize() == overrideSize,
+                "Resetting the dictionary face did not restore the book font at the selected dictionary size");
+    }
     kobalt::DictionaryPanel dictionary(&reader);
     QVector<kobalt::DictionaryChoice> dictionaries;
     for (int i = 0; i < 13; ++i)
