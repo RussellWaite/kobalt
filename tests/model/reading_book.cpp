@@ -175,6 +175,16 @@ int main(int argc, char **argv) {
         });
         return session;
     };
+    const auto historyValue = [&](const QString &statement) {
+        QVariant value;
+        require(AnnotationDatabase::transaction(paths.directory, [&](QSqlDatabase &db) {
+            QSqlQuery query(db);
+            if (!query.exec(statement) || !query.next()) return false;
+            value = query.value(0);
+            return true;
+        }), "Cannot inspect reading history");
+        return value;
+    };
     for (const auto &original : {qt::object({{"line_spacing", 122}}), QJsonObject(),
                                  qt::object({{"font_pixels", 31},
                                              {"font_face", "Libron"},
@@ -292,8 +302,50 @@ int main(int argc, char **argv) {
         local.observeReading();
         tick();
         local.stopReading();
-        const auto active = local.readingMilliseconds();
+        auto active = local.readingMilliseconds();
         require(active > 0, "Local reading time did not run without a bridge");
+        require(local.tracksReadingHistory() &&
+                historyValue("SELECT SUM(active_ms) FROM reading_sessions WHERE identity='local-id'").toLongLong() == active &&
+                historyValue("SELECT COUNT(*) FROM reading_sessions WHERE identity='local-id' AND status='completed'").toInt() == 1,
+                "Local stop did not persist reading history");
+        local.observeReading();
+        tick();
+        require(local.checkpointReadingHistory(), "Active interval checkpoint failed");
+        QJsonObject unchangedCheckpoint;
+        require(local.checkpoint(&unchangedCheckpoint), "Initial unchanged-checkpoint fixture");
+        require(AnnotationDatabase::transaction(paths.directory, [](QSqlDatabase &db) {
+            QSqlQuery query(db);
+            return query.exec("CREATE TABLE history_write_audit(value INTEGER)") &&
+                   query.exec("CREATE TRIGGER audit_history AFTER UPDATE ON reading_sessions BEGIN INSERT INTO history_write_audit VALUES(1); END");
+        }), "History write audit fixture");
+        tick();
+        require(local.checkpoint(&unchangedCheckpoint) &&
+                historyValue("SELECT COUNT(*) FROM history_write_audit").toInt() == 0,
+                "Unchanged checkpoint rewrote reading history");
+        require(local.checkpointReadingHistory() &&
+                historyValue("SELECT COUNT(*) FROM history_write_audit").toInt() == 1,
+                "Periodic checkpoint skipped time without a page turn");
+        require(AnnotationDatabase::transaction(paths.directory, [](QSqlDatabase &db) {
+            QSqlQuery query(db);
+            return query.exec("DROP TRIGGER audit_history") && query.exec("DROP TABLE history_write_audit");
+        }), "Remove history write audit");
+
+        require(AnnotationDatabase::transaction(paths.directory, [](QSqlDatabase &db) {
+            QSqlQuery query(db);
+            return query.exec("CREATE TRIGGER fail_history BEFORE UPDATE ON reading_sessions BEGIN SELECT RAISE(ABORT,'test'); END");
+        }), "History failure fixture");
+        require(!local.checkpointReadingHistory(), "Blocked history update succeeded");
+        QJsonObject independentCheckpoint;
+        require(local.checkpoint(&independentCheckpoint), "History failure blocked independent progress save");
+        require(AnnotationDatabase::transaction(paths.directory, [](QSqlDatabase &db) {
+            QSqlQuery query(db); return query.exec("DROP TRIGGER fail_history");
+        }) && local.checkpointReadingHistory(), "History update retry failed");
+
+        local.stopReading();
+        require(historyValue("SELECT COUNT(*) FROM reading_sessions WHERE identity='local-id'").toInt() == 2,
+                "Resume did not start a separate interval");
+        active = local.readingMilliseconds();
+
         tick();
         require(local.readingMilliseconds() == active, "Stopped local reading time kept running");
         require(local.session()->go(local.session()->pages() - 1), "Cannot reach the final page");
@@ -371,6 +423,20 @@ int main(int argc, char **argv) {
         require(storage::readRecord(paths.directory, "reading-speed", paths.readingSpeed()).object == saved, "Unsampled reading overwrote saved history");
     }
     {
+        qputenv("KOBALT_ANNOTATIONS_SQLITE", "0");
+        auto session = open();
+        const auto hash = session->sourceHash();
+        ReadingBook legacy(std::move(session), paths.bookState("legacy-history"), paths, "legacy-history", hash,
+                           nullptr, {}, {});
+        require(!legacy.tracksReadingHistory(), "Legacy diagnostic backend enabled SQLite history");
+        legacy.observeReading();
+        tick();
+        legacy.stopReading();
+        require(historyValue("SELECT COUNT(*) FROM reading_sessions WHERE identity='legacy-history'").toInt() == 0,
+                "Legacy diagnostic backend wrote session history");
+        qputenv("KOBALT_ANNOTATIONS_SQLITE", "1");
+    }
+    {
         Calls calls;
         auto session = open();
         const auto hash = session->sourceHash();
@@ -378,6 +444,10 @@ int main(int argc, char **argv) {
                          std::make_unique<Bridge>(calls), calls.current, calls.current);
         book.observeReading();
         require(calls.observed == 1, "Platform activity was not recorded");
+        require(!book.tracksReadingHistory() &&
+                historyValue("SELECT COUNT(*) FROM reading_sessions WHERE identity='store-id'").toInt() == 0,
+                "Native bridge also recorded standalone history");
+
         calls.providesEstimates = true;
         calls.estimate = ReadingEstimates{12000, 45000, false};
         require(book.estimates().chapterMilliseconds == 12000 && book.estimates().bookMilliseconds == 45000 &&

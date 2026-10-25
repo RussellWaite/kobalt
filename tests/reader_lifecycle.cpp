@@ -1,3 +1,6 @@
+#include <QVariant>
+#include <QSqlQuery>
+#include "storage/annotation_database.h"
 #include "storage/highlight_store.h"
 #include "storage/sleep_snapshot.h"
 #include "platforms/kobo/common/last_read_book.h"
@@ -488,6 +491,146 @@ private slots:
         QVERIFY(host.book()->readingActive());
         QVERIFY(clock->interval() > 0);
         QVERIFY(clock->interval() <= 60050);
+    }
+    void backgroundCheckpointStopsBeforeOtherCallbacks() {
+        qputenv("KOBALT_ANNOTATIONS_SQLITE", "1");
+        bool suspended = false;
+        ReaderFixture host(testPaths(), testFonts, testPlaceholder);
+        CloseHost cleanup{host};
+        host.configureServices = [&](ReaderHostServices &services) {
+            services.suspended = [&] { return suspended; };
+        };
+        // Android registers its checkpoint callback before constructing the
+        // reader. It can be the last callback to finish before process death.
+        bool checkpointSawPausedSession = false;
+        connect(qApp, &QGuiApplication::applicationStateChanged, &host, [&](Qt::ApplicationState state) {
+            if (state != Qt::ApplicationInactive || !host.window()) return;
+            host.window()->checkpoint();
+            AnnotationDatabase::transaction(profile, [&](QSqlDatabase &db) {
+                QSqlQuery query(db);
+                if (!query.exec("SELECT COUNT(*) FROM reading_sessions WHERE status='active'") || !query.next()) return false;
+                checkpointSawPausedSession = query.value(0).toInt() == 0;
+                return true;
+            });
+        });
+        QSignalSpy opened(&host, &ReaderFixture::opened);
+        host.open(fixture(), nativeSize);
+        QTRY_COMPARE_WITH_TIMEOUT(opened.count(), 1, 30000);
+        Canvas canvas(host.window(), nativeSize);
+        canvas.resize(900, 900);
+        canvas.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&canvas));
+        QTRY_VERIFY(host.window()->readyForPresentation());
+        bool active = false;
+        QVERIFY(AnnotationDatabase::transaction(profile, [&](QSqlDatabase &db) {
+            QSqlQuery query(db);
+            if (!query.exec("SELECT COUNT(*) FROM reading_sessions WHERE status='active'") || !query.next()) return false;
+            active = query.value(0).toInt() == 1;
+            return true;
+        }));
+        QVERIFY(active);
+        suspended = true;
+        qApp->applicationStateChanged(Qt::ApplicationInactive);
+        QVERIFY2(checkpointSawPausedSession, "Host checkpoint left the session running until a later callback");
+    }
+    void backgroundWriteFailureRetriesWithoutCountingPause() {
+        qputenv("KOBALT_ANNOTATIONS_SQLITE", "1");
+        bool suspended = false;
+        ReaderFixture host(testPaths(), testFonts, testPlaceholder);
+        CloseHost cleanup{host};
+        host.configureServices = [&](ReaderHostServices &services) { services.suspended = [&] { return suspended; }; };
+        const auto value = [&](const QString &statement) {
+            QVariant result;
+            const bool ok = AnnotationDatabase::transaction(profile, [&](QSqlDatabase &db) {
+                QSqlQuery query(db);
+                if (!query.exec(statement)) return false;
+                if (query.next()) result = query.value(0);
+                return true;
+            });
+            if (!ok) QTest::qFail("Background retry fixture SQL", __FILE__, __LINE__);
+            return result;
+        };
+        connect(qApp, &QGuiApplication::applicationStateChanged, &host, [&](Qt::ApplicationState state) {
+            if (state == Qt::ApplicationInactive && host.window()) host.window()->checkpoint();
+        });
+        QSignalSpy opened(&host, &ReaderFixture::opened);
+        host.open(fixture(), nativeSize);
+        QTRY_COMPARE_WITH_TIMEOUT(opened.count(), 1, 30000);
+        Canvas canvas(host.window(), nativeSize);
+        canvas.resize(900, 900); canvas.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&canvas));
+        QTRY_VERIFY(host.window()->readyForPresentation());
+        QTRY_COMPARE(value("SELECT COUNT(*) FROM reading_sessions WHERE status='active'").toInt(), 1);
+        value("CREATE TRIGGER fail_background BEFORE UPDATE ON reading_sessions BEGIN SELECT RAISE(ABORT,'test'); END");
+        suspended = true;
+        qApp->applicationStateChanged(Qt::ApplicationInactive);
+        const auto paused = inspectReader(host).value("session_reading_ms").toVariant().toLongLong();
+        QVERIFY(paused > 0);
+        QCOMPARE(value("SELECT COUNT(*) FROM reading_sessions WHERE status='active'").toInt(), 1);
+        QTest::qWait(40);
+        qApp->applicationStateChanged(Qt::ApplicationInactive);
+        QCOMPARE(inspectReader(host).value("session_reading_ms").toVariant().toLongLong(), paused);
+        value("DROP TRIGGER fail_background");
+        suspended = false;
+        qApp->applicationStateChanged(Qt::ApplicationActive);
+        QCOMPARE(value("SELECT SUM(active_ms) FROM reading_sessions WHERE status='completed'").toLongLong(), paused);
+        QCOMPARE(value("SELECT COUNT(*) FROM reading_sessions").toInt(), 2);
+        qApp->applicationStateChanged(Qt::ApplicationActive);
+        QCOMPARE(value("SELECT COUNT(*) FROM reading_sessions").toInt(), 2);
+    }
+    void standaloneReadingHistory() {
+
+
+        qputenv("KOBALT_ANNOTATIONS_SQLITE", "1");
+        bool suspended = false;
+        ReaderFixture host(testPaths(), testFonts, testPlaceholder);
+        CloseHost cleanup{host};
+        host.configureServices = [&](ReaderHostServices &services) {
+            services.suspended = [&] { return suspended; };
+        };
+        const auto value = [&](const QString &statement) {
+            QVariant result;
+            const bool ok = AnnotationDatabase::transaction(profile, [&](QSqlDatabase &db) {
+                QSqlQuery query(db);
+                if (!query.exec(statement) || !query.next()) return false;
+                result = query.value(0);
+                return true;
+            });
+            if (!ok) QTest::qFail("Cannot inspect history", __FILE__, __LINE__);
+            return result;
+        };
+        QSignalSpy opened(&host, &ReaderFixture::opened);
+        host.open(fixture(), nativeSize);
+        QTRY_COMPARE_WITH_TIMEOUT(opened.count(), 1, 30000);
+        Canvas canvas(host.window(), nativeSize);
+        canvas.resize(900, 900);
+        canvas.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&canvas));
+        QTRY_VERIFY(host.window()->readyForPresentation());
+        QTRY_COMPARE(value("SELECT COUNT(*) FROM reading_sessions WHERE status='active'").toInt(), 1);
+        auto *timer = host.window()->findChild<QTimer *>("rrReadingHistoryTimer");
+        QVERIFY(timer);
+        QCOMPARE(timer->interval(), 60000);
+        timer->setInterval(10);
+        QTRY_VERIFY(value("SELECT SUM(active_ms) FROM reading_sessions").toLongLong() > 0);
+        suspended = true;
+        qApp->applicationStateChanged(Qt::ApplicationInactive);
+        QCOMPARE(value("SELECT COUNT(*) FROM reading_sessions WHERE status='active'").toInt(), 0);
+        const auto paused = value("SELECT SUM(active_ms) FROM reading_sessions").toLongLong();
+        QTest::qWait(40);
+        QCOMPARE(value("SELECT SUM(active_ms) FROM reading_sessions").toLongLong(), paused);
+        suspended = false;
+        qApp->applicationStateChanged(Qt::ApplicationActive);
+        QTRY_COMPARE(value("SELECT COUNT(*) FROM reading_sessions WHERE status='active'").toInt(), 1);
+        QTRY_VERIFY(value("SELECT SUM(active_ms) FROM reading_sessions").toLongLong() > paused);
+        host.window()->hide();
+        QCOMPARE(value("SELECT COUNT(*) FROM reading_sessions WHERE status='completed'").toInt(), 2);
+        host.window()->show();
+        QTRY_COMPARE(value("SELECT COUNT(*) FROM reading_sessions WHERE status='active'").toInt(), 1);
+        host.shutdown();
+        QTRY_VERIFY(host.idle());
+        QCOMPARE(value("SELECT COUNT(*) FROM reading_sessions WHERE status='active'").toInt(), 0);
+        QCOMPARE(value("SELECT COUNT(*) FROM reading_sessions WHERE status='completed'").toInt(), 3);
     }
     void uneditedPanelTransitions_data() {
         QTest::addColumn<QString>("start");

@@ -874,7 +874,7 @@ void defaultBackend() {
         QTemporaryDir root; legacyCurrent(root.path());
         qunsetenv("KOBALT_ANNOTATIONS_SQLITE");
         HighlightStore store(root.path(), identity, fingerprint, "Book");
-        require(store.load() && sql(root.path(), "PRAGMA user_version").toInt() == 2,
+        require(store.load() && sql(root.path(), "PRAGMA user_version").toInt() == 3,
                 "Default backend did not migrate JSON to current schema");
     }
     qputenv("KOBALT_ANNOTATIONS_SQLITE", "0");

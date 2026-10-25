@@ -4,6 +4,7 @@
 #include "reading/reader_session.h"
 #include "interfaces/reader_window.h"
 #include "storage/reader_storage.h"
+#include "storage/reading_history.h"
 #include "publication/publication_endpoint.h"
 #include <QPointer>
 
@@ -17,7 +18,7 @@ public:
                      std::function<ReaderHostServices()> services, std::function<void(Qt::ScreenOrientation)> rotate,
                      QObject *parent = nullptr);
     ~ReaderController() override;
-    void open(const QString &path, QSize pixels);
+    void open(const QString &path, QSize pixels, QString sourceKey = {});
     void close();
     QJsonObject lastBook() const;
     bool forgetLastBook();
@@ -50,7 +51,8 @@ private:
     Phase phase = Phase::Idle;
     storage::Paths paths;
     EngineFontInputs fonts;
-    QString placeholder, current, pending;
+    QString placeholder, current, pending, currentSourceKey, pendingSourceKey;
+    std::shared_ptr<ReadingHistory::Profile> historyProfile;
     QSize pendingSize;
     std::function<ReaderHostServices()> services;
     ReaderOrientation orientation;

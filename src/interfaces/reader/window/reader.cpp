@@ -77,6 +77,10 @@ Reader::~Reader() {
 }
 
 void Reader::checkpoint() {
+    // Hosts can checkpoint before our application-state callback. Freeze the
+    // clock before any save can block, so background I/O is not reading time.
+    if (services.suspended())
+        book->stopReading();
     save(true);
 }
 

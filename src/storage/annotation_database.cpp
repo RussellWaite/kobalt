@@ -34,7 +34,7 @@
 namespace kobalt {
 namespace {
 constexpr int applicationId = 1262571057; // KAN1, owned annotation database.
-constexpr int schemaVersion = 2;
+constexpr int schemaVersion = 3;
 constexpr qint64 maxDatabaseBytes = (qint64(1) << 32) - 1;
 constexpr int bookmarkKind = 0, highlightKind = 1;
 struct Failure { QString code; };
@@ -65,11 +65,11 @@ QVariant scalar(QSqlDatabase &db, const QString &statement) {
     check(q.exec(statement) && q.next(), "invalid-database");
     return q.value(0);
 }
-void validateSchema(QSqlDatabase &db) {
+void validateSchema(QSqlDatabase &db, bool sessions = false) {
     // Names alone accept partial tables and CREATE TABLE AS copies whose
     // primary keys are gone. Reject both before changing the journal mode.
     struct Table { const char *name, *columns, *types, *primary; };
-    for (const auto &table : {
+    QVector<Table> tables{
              Table{"books", "book,identity,fingerprint,title", "TEXT,TEXT,TEXT,TEXT", "book"},
              Table{"lists", "book,kind,revision,updated,source_key,row_count,bytes", "TEXT,INTEGER,INTEGER,INTEGER,TEXT,INTEGER,INTEGER", "book,kind"},
              Table{"entries", "book,kind,id,ordinal,start,end,text,chapter,created,color,style,note,chosen_start,chosen_end,start_policy,end_policy,bytes",
@@ -79,7 +79,11 @@ void validateSchema(QSqlDatabase &db) {
              Table{"profile_state", "name,format,revision,payload", "TEXT,INTEGER,INTEGER,TEXT", "name"},
              Table{"library_books", "key,folder,name,title,author,cover,series,series_index,size,modified,added,opened,metadata,percent,finished,mark,hidden",
                    "TEXT,TEXT,TEXT,TEXT,TEXT,TEXT,TEXT,REAL,INTEGER,INTEGER,INTEGER,INTEGER,INTEGER,INTEGER,INTEGER,TEXT,INTEGER", "key"},
-             Table{"library_folders", "key,label,ordinal", "TEXT,TEXT,INTEGER", "key"}}) {
+             Table{"library_folders", "key,label,ordinal", "TEXT,TEXT,INTEGER", "key"}};
+    if (sessions)
+        tables.append({"reading_sessions", "id,book,identity,fingerprint,source_key,title,author,started,observed,active_ms,start_position,end_position,status",
+                       "TEXT,TEXT,TEXT,TEXT,TEXT,TEXT,TEXT,INTEGER,INTEGER,INTEGER,TEXT,TEXT,TEXT", "id"});
+    for (const auto &table : tables) {
         QSqlQuery query(db);
         const auto name = QString::fromLatin1(table.name);
         check(query.exec("PRAGMA table_info(" + name + ')'), "invalid-database");
@@ -102,6 +106,16 @@ void validateSchema(QSqlDatabase &db) {
     check(references.exec("PRAGMA foreign_key_check"), "invalid-database");
     check(!references.next() && !references.lastError().isValid(), "invalid-database");
 }
+void sessionSchema(QSqlDatabase &db) {
+        run(db, "CREATE TABLE reading_sessions(id TEXT PRIMARY KEY NOT NULL,book TEXT NOT NULL,"
+                "identity TEXT NOT NULL,fingerprint TEXT NOT NULL,source_key TEXT NOT NULL,title TEXT NOT NULL,"
+                "author TEXT NOT NULL,started INTEGER NOT NULL CHECK(started>=0),"
+                "observed INTEGER NOT NULL CHECK(observed>=started),"
+                "active_ms INTEGER NOT NULL CHECK(active_ms>=0),start_position TEXT NOT NULL,end_position TEXT NOT NULL,"
+                "status TEXT NOT NULL CHECK(status IN ('active','completed','interrupted')))");
+        run(db, "CREATE INDEX reading_sessions_book ON reading_sessions(book,started)");
+        run(db, "CREATE INDEX reading_sessions_started ON reading_sessions(started)");
+    }
 void profileSchema(QSqlDatabase &db) {
     run(db, "CREATE TABLE book_state(identity TEXT PRIMARY KEY NOT NULL,format INTEGER NOT NULL CHECK(format>0),"
             "revision INTEGER NOT NULL DEFAULT 0 CHECK(revision>=0),payload TEXT NOT NULL "
@@ -149,6 +163,7 @@ void createDatabase(const QString &path, const QString &directory) {
                     "PRIMARY KEY(book,kind,id),FOREIGN KEY(book,kind) REFERENCES lists(book,kind))");
             run(db, "CREATE INDEX entry_order ON entries(book,kind,ordinal)");
             profileSchema(db);
+            sessionSchema(db);
             run(db, QString("PRAGMA application_id=%1").arg(applicationId));
             run(db, QString("PRAGMA user_version=%1").arg(schemaVersion));
             check(db.commit(), "database-commit");
@@ -314,7 +329,7 @@ private:
             // empty, foreign, future or damaged existing file is never initialized.
             check(scalar(db, "PRAGMA application_id").toInt() == applicationId, "unsupported-database-format");
             const int version = scalar(db, "PRAGMA user_version").toInt();
-            check(version == schemaVersion, "unsupported-database-format");
+            check(version == 2 || version == schemaVersion, "unsupported-database-format");
             check(scalar(db, "PRAGMA encoding").toString() == QStringLiteral("UTF-8"), "unsupported-database-encoding");
             const qint64 pageSize = scalar(db, "PRAGMA page_size").toLongLong();
             check(pageSize >= 512 && pageSize <= 65536 && (pageSize & (pageSize - 1)) == 0, "invalid-database");
@@ -326,7 +341,23 @@ private:
             const int tables = scalar(db, "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND "
                 "name IN ('books','lists','entries','imports','library_books','library_folders','book_state','profile_state')").toInt();
             check(tables == 8, "invalid-database");
-            validateSchema(db);
+            validateSchema(db, version == schemaVersion);
+            if (version == 2) {
+                // Upgrade before changing the journal mode. A rejected or failed
+                // migration leaves the old schema and data intact.
+                run(db, "PRAGMA synchronous=EXTRA");
+                run(db, "PRAGMA fullfsync=ON");
+                run(db, "BEGIN IMMEDIATE");
+                const int lockedVersion = scalar(db, "PRAGMA user_version").toInt();
+                check(lockedVersion == 2 || lockedVersion == schemaVersion, "unsupported-database-format");
+                validateSchema(db, lockedVersion == schemaVersion);
+                if (lockedVersion == 2) {
+                    sessionSchema(db);
+                    run(db, QString("PRAGMA user_version=%1").arg(schemaVersion));
+                }
+                check(db.commit(), "database-commit");
+                validateSchema(db, true);
+            }
             // The journal mode is the first change to the file. Every check
             // above only reads. A rejected file keeps its content; only a log
             // left by a crash is folded into it when the connection closes.
@@ -348,6 +379,7 @@ private:
             run(db, "PRAGMA cache_size=-2048");
             run(db, "PRAGMA mmap_size=0");
         } catch (...) {
+            db.rollback();
             db.close();
             release();
             throw;

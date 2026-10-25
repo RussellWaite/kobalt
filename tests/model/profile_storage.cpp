@@ -167,8 +167,8 @@ int main(int argc, char **argv) {
     require(storage::prepareProfile(oldPaths) && !QFile::exists(oldMarks.folder()), "Beta 3 profile cleanup");
     require(AnnotationDatabase::transaction(beta3.path(), [&](QSqlDatabase &db) {
         QSqlQuery query(db);
-        return query.exec("PRAGMA user_version") && query.next() && query.value(0).toInt() == 2;
-    }), "Beta 3 migration did not create SQLite schema version 2");
+        return query.exec("PRAGMA user_version") && query.next() && query.value(0).toInt() == 3;
+    }), "Beta 3 migration did not create SQLite schema version 3");
     BookmarkStore newMarks(oldPaths.annotations(), "native-beta3", {}, "Invented book", oldPaths.database());
     require(newMarks.load() && newMarks.bookmarks().size() == 1 &&
             newMarks.bookmarks().first().position == mark.position &&
@@ -206,7 +206,7 @@ int main(int argc, char **argv) {
             bytes(partialDatabase.path() + "/kobalt.sqlite") == partialBytes,
             "Partial schema was repaired or replaced");
     QTemporaryDir futureDatabase;
-    execute(futureDatabase.path(), "PRAGMA user_version=3");
+    execute(futureDatabase.path(), "PRAGMA user_version=4");
     const auto futureDatabaseBytes = bytes(futureDatabase.path() + "/kobalt.sqlite");
     require(storage::readBookState(storage::Paths{futureDatabase.path()}, "new").status == ReadStatus::DatabaseError &&
             bytes(futureDatabase.path() + "/kobalt.sqlite") == futureDatabaseBytes,

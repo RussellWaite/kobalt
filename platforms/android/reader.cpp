@@ -4,6 +4,7 @@
 #include "interfaces/reader_interface.h"
 #include "interfaces/opening_message.h"
 #include "reading/reading_book.h"
+#include "storage/annotation_database.h"
 #include "publication/native_resources.h"
 #include "publication/local_resources.h"
 #include <QDir>
@@ -62,20 +63,32 @@ bool ReaderController::resetBook(const QString &path) {
     // old settings or progress on the next opening.
     return storage::writeBookState(paths, identity, {{"book", identity}});
 }
-void ReaderController::open(const QString &path, QSize pixels) {
+void ReaderController::open(const QString &path, QSize pixels, QString sourceKey) {
     if (phase == Phase::Reading && path == current)
         return;
     if (!idle()) {
         pending = path;
+        pendingSourceKey = std::move(sourceKey);
         pendingSize = pixels;
         retire();
         return;
     }
+    currentSourceKey = std::move(sourceKey);
     begin(path, pixels);
 }
 void ReaderController::begin(const QString &path, QSize pixels) {
     phase = Phase::Opening;
     retirementNotified = false;
+    if (!historyProfile && annotationDatabaseEnabled()) {
+        QString error;
+        historyProfile = ReadingHistory::openProfile(paths.directory, &error);
+        if (!historyProfile) {
+            emit failed(error == "profile-in-use" ? strings::get("error.profile_already_in_use")
+                                                 : strings::get("error.saved_data_unavailable"));
+            retire();
+            return;
+        }
+    }
     current = path;
     lease = std::make_shared<SourceLease>();
     source = native::openLocalPublication(path);
@@ -145,7 +158,7 @@ void ReaderController::begin(const QString &path, QSize pixels) {
                                  256 * 1024);
             const auto hash = guard->opening->sourceHash();
             auto book = std::make_unique<ReadingBook>(std::move(guard->opening), statePath, guard->paths, identity,
-                                                      hash, nullptr, ReadingProgress{}, ReadingProgress{});
+                                                      hash, nullptr, ReadingProgress{}, ReadingProgress{}, guard->currentSourceKey);
             auto *window = createReaderWindow(std::move(book), &guard->orientation, guard->services());
             window->setAttribute(Qt::WA_DeleteOnClose, false);
             window->setWindowFlags(Qt::Widget);
@@ -239,9 +252,10 @@ void ReaderController::release() {
             guard->lease.reset();
             guard->current.clear();
             guard->phase = Phase::Idle;
-            if (!guard->pending.isEmpty())
+            if (!guard->pending.isEmpty()) {
+                guard->currentSourceKey = std::exchange(guard->pendingSourceKey, {});
                 guard->begin(std::exchange(guard->pending, {}), guard->pendingSize);
-            else
+            } else
                 emit guard->closed();
         });
     });

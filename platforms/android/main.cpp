@@ -355,7 +355,7 @@ private:
         layout->setStackingMode(QStackedLayout::StackAll);
         android::activity("showReading");
         layout->activate();
-        controller.open(path, pixels());
+        controller.open(path, pixels(), openedKey);
     }
     bool eventFilter(QObject *object, QEvent *event) override {
         auto *reader = controller.window();

@@ -4,6 +4,7 @@
 #include "reader_session.h"
 #include "storage/profile_database.h"
 #include "storage/reader_storage.h"
+#include "storage/annotation_database.h"
 #include "support/diagnostics.h"
 #include "support/qt_compat.h"
 #include <QCoreApplication>
@@ -11,7 +12,7 @@
 namespace kobalt {
 ReadingBook::ReadingBook(std::unique_ptr<ReaderSession> session, QString statePath, storage::Paths paths,
                          QString identity, QByteArray digest, std::unique_ptr<ReadingBridge> bridge,
-                         ReadingProgress baseline, ReadingProgress diskBaseline)
+                         ReadingProgress baseline, ReadingProgress diskBaseline, QString sourceKey)
     : model(std::move(session)), statePath(std::move(statePath)), identity_(std::move(identity)),
       paths_(std::move(paths)), digest(std::move(digest)), bridge(std::move(bridge)), baseline(std::move(baseline)),
       reconciliation(std::move(diskBaseline)) {
@@ -29,13 +30,18 @@ ReadingBook::ReadingBook(std::unique_ptr<ReaderSession> session, QString statePa
     activeReading.invalidate();
     speedSaved.invalidate();
     if (!this->bridge) {
+        if (annotationDatabaseEnabled())
+            history = std::make_unique<ReadingHistory>(paths_.directory, identity_, this->digest, std::move(sourceKey),
+                                                       model->title(), model->author());
         speed = std::make_unique<ReadingSpeed>();
         speed->restore(storage::readRecord(paths_.directory, "reading-speed", paths_.readingSpeed()).object);
     }
 }
 ReadingBook::~ReadingBook() {
-    saveSpeed(true);
-    // Finish the last queued position before the profile can be released.
+    if (history)
+        stopReading();
+    else
+        saveSpeed(true);
     writer.reset();
     speedWriter.reset();
 }
@@ -67,8 +73,13 @@ void ReadingBook::observeReading(bool learnPace) {
         stopReading();
         return;
     }
-    if (!activeReading.isValid())
+    if (!activeReading.isValid()) {
         activeReading.start();
+        if (history) {
+            history->start(completedReadingMilliseconds, model->state().value("position").toString());
+            checkpointReadingHistory();
+        }
+    }
     if (speed) {
         if (learnPace) {
             speed->observe(readingActivity(), readingMilliseconds());
@@ -105,15 +116,29 @@ ReadingEstimates ReadingBook::estimates() const {
 }
 void ReadingBook::stopReading() {
     if (activeReading.isValid()) {
-        completedReadingMilliseconds += activeReading.elapsed();
+        const auto elapsed = activeReading.elapsed();
+        if (history)
+            history->stop(completedReadingMilliseconds + elapsed, model->state().value("position").toString());
+        completedReadingMilliseconds += elapsed;
         activeReading.invalidate();
     }
+    checkpointReadingHistory();
     if (bridge)
         bridge->stopReading();
     if (speed) {
         speed->pause();
         saveSpeed(true);
     }
+}
+bool ReadingBook::checkpointReadingHistory() {
+    if (!history)
+        return true;
+    if (activeReading.isValid())
+        history->update(readingMilliseconds(), model->state().value("position").toString());
+    const bool saved = history->save();
+    if (!saved)
+        diagnostic("reading-history-unsaved", {}, false);
+    return saved;
 }
 void ReadingBook::saveSpeed(bool force) {
     if (!speed || !speed->dirty() || (!force && speedSaved.isValid() && speedSaved.elapsed() < 60000)) {
@@ -256,6 +281,10 @@ bool ReadingBook::checkpoint(QJsonObject *snapshot, bool background) {
         appearance::copy(checkpoint, model->persistentState());
     if (checkpoint == savedCheckpoint || (background && checkpoint == pendingCheckpoint))
         return true;
+    // Unchanged checkpoints need no disk write. The interval timer and pause
+    // boundaries save time even when the position has not changed. A history
+    // failure must not block an independently saved position or dictionary.
+    checkpointReadingHistory();
     auto persisted = checkpoint;
     for (const auto *key : appearance::layoutKeys)
         persisted.remove(key);

@@ -246,6 +246,7 @@
 "error.opening_interrupted" = "Opening interrupted";
 "error.position_has_no_source_chapter" = "Position has no source chapter";
 "error.position_has_no_source_path" = "Position has no source path";
+"error.profile_already_in_use" = "This profile is open in another Kobalt app. Close it there and try again.";
 "error.publication_declares_vertical_writing" = "This book uses an unsupported writing mode.";
 "error.publication_exceeds_the_memory_limit" = "Publication exceeds the memory limit";
 "error.publication_layout_inspection_is_incomplete" = "Publication layout inspection is incomplete";

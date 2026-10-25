@@ -6,6 +6,7 @@
 #include "storage/record_writer.h"
 #include "reading_bridge.h"
 #include "reading_timer.h"
+#include "storage/reading_history.h"
 #include <QElapsedTimer>
 #include <QJsonObject>
 #include <memory>
@@ -22,7 +23,7 @@ class ReadingBook {
 public:
     ReadingBook(std::unique_ptr<ReaderSession> session, QString statePath, storage::Paths paths, QString identity,
                 QByteArray digest, std::unique_ptr<ReadingBridge> bridge, ReadingProgress baseline,
-                ReadingProgress diskBaseline);
+                ReadingProgress diskBaseline, QString sourceKey = {});
     ~ReadingBook();
     ReaderSession *session() const {
         return model.get();
@@ -46,6 +47,8 @@ public:
     void releaseNative();
     void observeReading(bool learnPace = true);
     void stopReading();
+    bool checkpointReadingHistory();
+    bool tracksReadingHistory() const { return bool(history); }
     bool usesLocalPace() const {
         return bool(speed);
     }
@@ -119,6 +122,7 @@ private:
     qint64 completedReadingMilliseconds = 0;
     ReadingPace pace_;
     std::unique_ptr<ReadingSpeed> speed;
+    std::unique_ptr<ReadingHistory> history;
     QElapsedTimer speedSaved;
     QString nativeWriteback = "not-attempted", nativeWritebackError, acceptedFinishedAnchor;
     // The last checkpoint that reached storage. An identical one is not written again.

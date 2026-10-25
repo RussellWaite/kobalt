@@ -19,6 +19,10 @@
 #include "reading/appearance_settings.h"
 #include "storage/profile_database.h"
 #include "storage/reader_storage.h"
+#include "storage/reading_history.h"
+#include "storage/annotation_database.h"
+#include <QSqlQuery>
+#include <QSqlDatabase>
 #include "storage/bookmark_store.h"
 #include "storage/highlight_store.h"
 #include "publication/zip_resource.h"
@@ -4133,7 +4137,96 @@ private slots:
         QTest::mouseClick(previous, Qt::LeftButton);
         QTRY_VERIFY(!fixture.state().value("busy").toBool() && fixture.state().value("page").toInt() == page);
     }
+    void sameProcessReadersDoNotRecoverEachOther() {
+        QTemporaryDir directory;
+        storage::Paths paths{directory.path()};
+        const auto services = [] {
+            auto result = desktop::readerServices();
+            result.suspended = [] { return false; };
+            return result;
+        };
+        android::ReaderController first(paths, engineFontInputs(*assets, {}, {}, {}),
+            placeholderFontFamily(*assets, *copies), services, [](Qt::ScreenOrientation) {});
+        android::ReaderController second(paths, engineFontInputs(*assets, {}, {}, {}),
+            placeholderFontFamily(*assets, *copies), services, [](Qt::ScreenOrientation) {});
+        const auto drain = qScopeGuard([&] {
+            second.close(); first.close();
+            if (!QTest::qWaitFor([&] { return first.idle() && second.idle(); }, 10000))
+                QTest::qFail("Readers did not drain", __FILE__, __LINE__);
+        });
+        connect(&first, &android::ReaderController::opened, &first, [&] { first.window()->show(); });
+        connect(&second, &android::ReaderController::opened, &second, [&] { second.window()->show(); });
+        QSignalSpy firstOpened(&first, &android::ReaderController::opened);
+        QSignalSpy secondOpened(&second, &android::ReaderController::opened);
+        first.open(book, QSize(600, 800), "first-window");
+        QTRY_COMPARE_WITH_TIMEOUT(firstOpened.count(), 1, 10000);
+        QTRY_VERIFY(first.window()->readyForPresentation());
+        second.open(book, QSize(600, 800), "second-window");
+        QTRY_COMPARE_WITH_TIMEOUT(secondOpened.count(), 1, 10000);
+        QTRY_VERIFY(second.window()->readyForPresentation());
+        int live = 0;
+        QVERIFY(AnnotationDatabase::transaction(paths.directory, [&](QSqlDatabase &db) {
+            QSqlQuery query(db);
+            if (!query.exec("SELECT COUNT(*) FROM reading_sessions WHERE source_key='first-window' AND status='active'") || !query.next()) return false;
+            live = query.value(0).toInt();
+            return true;
+        }));
+        QCOMPARE(live, 1);
+    }
+    void standaloneHistorySourceKeys() {
+
+        QTemporaryDir directory;
+        storage::Paths paths{directory.path()};
+        {
+            ReadingHistory interrupted(paths.directory, "old-book", {}, {}, "Old", "Author");
+            interrupted.start(0, "/body");
+            interrupted.update(100, "/body/p[2]");
+            QVERIFY(interrupted.save());
+        }
+        const auto value = [&](const QString &statement) {
+            QVariant result;
+            const bool ok = AnnotationDatabase::transaction(paths.directory, [&](QSqlDatabase &db) {
+                QSqlQuery query(db);
+                if (!query.exec(statement) || !query.next()) return false;
+                result = query.value(0);
+                return true;
+            });
+            if (!ok) QTest::qFail("Cannot inspect controller history", __FILE__, __LINE__);
+            return result;
+        };
+        android::ReaderController controller(paths, engineFontInputs(*assets, {}, {}, {}),
+            placeholderFontFamily(*assets, *copies), [] {
+                auto services = desktop::readerServices();
+                services.suspended = [] { return false; };
+                return services;
+            }, [](Qt::ScreenOrientation) {});
+        const auto drain = qScopeGuard([&] {
+            controller.close();
+            if (!QTest::qWaitFor([&] { return controller.idle(); }, 10000))
+                QTest::qFail("History controller did not drain", __FILE__, __LINE__);
+        });
+        connect(&controller, &android::ReaderController::opened, &controller, [&] {
+            controller.window()->show();
+        });
+        QSignalSpy opened(&controller, &android::ReaderController::opened);
+        controller.open(book, QSize(600, 800), "content://library/first");
+        QTRY_COMPARE_WITH_TIMEOUT(opened.count(), 1, 10000);
+        QTRY_VERIFY(controller.window()->readyForPresentation());
+        QCOMPARE(value("SELECT COUNT(*) FROM reading_sessions WHERE status='interrupted'").toInt(), 1);
+        QCOMPARE(value("SELECT active_ms FROM reading_sessions WHERE identity='old-book'").toLongLong(), qint64(100));
+        const QString second = directory.path() + "/second.epub";
+        QVERIFY(QFile::copy(book, second));
+        controller.open(second, QSize(600, 800), "content://library/second");
+        QTRY_COMPARE_WITH_TIMEOUT(opened.count(), 2, 10000);
+        QTRY_VERIFY(controller.window()->readyForPresentation());
+        controller.close();
+        QTRY_VERIFY(controller.idle());
+        QCOMPARE(value("SELECT COUNT(*) FROM reading_sessions WHERE source_key='content://library/first' AND status='completed'").toInt(), 1);
+        QCOMPARE(value("SELECT COUNT(*) FROM reading_sessions WHERE source_key='content://library/second' AND status='completed'").toInt(), 1);
+        QCOMPARE(value("SELECT COUNT(*) FROM reading_sessions WHERE status='active'").toInt(), 0);
+    }
     void booxRetirementFrame() {
+
         QTemporaryDir directory;
         storage::Paths paths{directory.path()};
         QVERIFY(storage::writeJson(paths.preferences(), {{"default_menu_view", "none"}, {"highlight_help_seen", true}}));
