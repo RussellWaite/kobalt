@@ -135,11 +135,18 @@ struct PrivateRichText::Data {
         }
         QString marker;
         if (auto *list = block.textList()) {
-            marker = list->itemText(block);
+            switch (list->format().style()) {
+            case QTextListFormat::ListDisc: marker = QChar(0x2022); break;
+            case QTextListFormat::ListCircle: marker = QChar(0x25e6); break;
+            case QTextListFormat::ListSquare: marker = QChar(0x25aa); break;
+            default: marker = list->itemText(block); break;
+            }
             const auto markerFont = styles.isEmpty() ? base : styles.first().font;
             const int level = qMax(1, list->format().indent());
-            const int inset = qMax(markerFont.pixelSize(), measurePrivateText(marker + " ", markerFont)) * level;
-            x += inset;
+            const int inset = qMax(markerFont.pixelSize(),
+                                   qCeil(measurePrivateText(marker, markerFont) + markerFont.pixelSize() / 3.0)) * level;
+            if (direction != Qt::RightToLeft)
+                x += inset;
             available = qMax(1, available - inset);
         }
         if (format.hasProperty(QTextFormat::BlockTrailingHorizontalRulerWidth)) {
@@ -214,8 +221,10 @@ struct PrivateRichText::Data {
             if (first && !marker.isEmpty()) {
                 const auto markerFont = styles.isEmpty() ? base : styles.first().font;
                 const auto measured = measure(marker, markerFont, {}, direction);
-                lines.append({marker, {}, markerFont, {x - measured.advance - base.pixelSize() / 3.0, baseline},
-                              {x - measured.advance - base.pixelSize() / 3.0, y, qreal(measured.advance), height}, direction});
+                const qreal gap = markerFont.pixelSize() / 3.0;
+                const qreal markerX = direction == Qt::RightToLeft ? x + available + gap : x - measured.advance - gap;
+                lines.append({marker, {}, markerFont, {markerX, baseline},
+                              {markerX, y, qreal(measured.advance), height}, direction});
             }
             y += height;
             start = end;

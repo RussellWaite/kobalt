@@ -18,6 +18,43 @@
 inline void checkPrivateRichText() {
     using namespace kobalt::ui;
     const auto font = chromeFont(28);
+    QVector<QImage> bullets;
+    for (const auto &style : {QStringLiteral("disc"), QStringLiteral("circle"), QStringLiteral("square")}) {
+        PrivateRichText document;
+        document.setFont(font);
+        document.setHtml("<ul type='" + style + "' style='margin:0'><li>MMMM</li></ul>");
+        document.layout(400);
+        const auto lines = document.lineRectangles();
+        require(lines.size() == 2, "Unordered list lost its marker");
+        QImage image(400, document.height(), QImage::Format_RGB32);
+        image.fill(Qt::white);
+        QPalette palette;
+        palette.setColor(QPalette::WindowText, Qt::black);
+        {
+            QPainter painter(&image);
+            document.draw(painter, image.rect(), palette);
+        }
+        QRect ink;
+        const auto marker = lines.last().toAlignedRect().intersected(image.rect());
+        for (int y = marker.top(); y <= marker.bottom(); ++y)
+            for (int x = marker.left(); x <= marker.right(); ++x)
+                if (qGray(image.pixel(x, y)) < 128)
+                    ink |= QRect(x, y, 1, 1);
+        require(ink.height() >= 5, "Unordered bullet rendered as a tiny period");
+        bullets.append(image.copy(ink));
+    }
+    require(bullets[0] != bullets[1] && bullets[1] != bullets[2] && bullets[0] != bullets[2],
+            "Unordered list styles did not retain distinct bullet shapes");
+    for (const auto &tag : {QStringLiteral("ul"), QStringLiteral("ol")}) {
+        PrivateRichText document;
+        document.setFont(interfaceFont(32));
+        document.setHtml("<" + tag + " dir='rtl' style='margin:0'><li>العربية</li></" + tag + ">");
+        document.layout(400);
+        const auto lines = document.lineRectangles();
+        require(lines.size() == 2 && lines.last().left() >= lines.first().right() &&
+                    lines.last().right() <= 400,
+                "RTL list marker is on the wrong margin or outside the viewport");
+    }
     {
         PrivateRichText document;
         document.setFont(font);
