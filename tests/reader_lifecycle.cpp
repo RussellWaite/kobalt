@@ -1452,6 +1452,89 @@ private slots:
         QVERIFY(!row || !row->isVisible());
     }
 
+    void searchHighlightClearsOnReflow_data() {
+        QTest::addColumn<bool>("dark");
+        QTest::addColumn<bool>("layout");
+        QTest::newRow("text-light") << false << false;
+        QTest::newRow("text-dark") << true << false;
+        QTest::newRow("layout-light") << false << true;
+        QTest::newRow("layout-dark") << true << true;
+    }
+    void searchHighlightClearsOnReflow() {
+        QFETCH(bool, dark);
+        QFETCH(bool, layout);
+        ReaderFixture host(testPaths(), testFonts, testPlaceholder);
+        CloseHost cleanup{host};
+        QSignalSpy opened(&host, &ReaderFixture::opened);
+        host.open(fixture(), nativeSize);
+        QTRY_COMPARE_WITH_TIMEOUT(opened.count(), 1, 30000);
+        Canvas canvas(host.window(), nativeSize);
+        canvas.resize(900, 900);
+        canvas.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&canvas));
+        QTRY_VERIFY(!host.session()->busy());
+        host.session()->setDarkMode(dark);
+        QTRY_VERIFY(!host.session()->busy());
+        QVector<SearchHit> hits;
+        bool searched = false;
+        host.session()->search("reader", [&](SearchBatch batch) {
+            hits += batch.hits;
+            searched = batch.done;
+        });
+        QTRY_VERIFY(searched);
+        QVERIFY(!hits.isEmpty());
+        QVERIFY(clickAt(canvas, QPoint(nativeSize.width() / 2, nativeSize.height() / 2)));
+        QVERIFY(click(canvas, host.window()->findChild<QPushButton *>("rrSearchOpen")));
+        auto *query = host.window()->findChild<QLineEdit *>("rrSearchQuery");
+        auto *status = host.window()->findChild<QLabel *>("rrSearchStatus");
+        QVERIFY(query && status);
+        query->setText("reader");
+        emit query->returnPressed();
+        QTRY_COMPARE(status->text(), strings::get("search_panel.matches").arg(hits.size()));
+        auto *result = host.window()->findChild<QPushButton *>("rrSearchResult0");
+        QTRY_VERIFY(result && result->isVisible());
+        QVERIFY(click(canvas, result));
+        QTRY_VERIFY(!host.session()->busy());
+        bool drained = false;
+        host.session()->pageSummary(host.session()->page(), [&](QString, QString) { drained = true; });
+        QTRY_VERIFY(drained);
+        auto *page = static_cast<ReadingPage *>(host.window()->findChild<QWidget *>("rrPage"));
+        QVERIFY(page);
+        QVector<QRect> rectangles;
+        drained = false;
+        host.session()->rangeRects(hits.first().start, hits.first().end, [&](QVector<QRect> result) {
+            rectangles = result;
+            drained = true;
+        });
+        QTRY_VERIFY(drained);
+        QVERIFY(!rectangles.isEmpty());
+        // Compare page pixels against the same frame with its temporary mark
+        // removed. Opening an unedited panel must keep the original highlight.
+        const auto marked = page->snapshot();
+        page->mark({});
+        QVERIFY(page->snapshot() != marked);
+        page->mark(rectangles);
+        QCOMPARE(page->snapshot(), marked);
+        QVERIFY(clickAt(canvas, QPoint(nativeSize.width() / 2, nativeSize.height() / 2)));
+        auto *tab = host.window()->findChild<QPushButton *>(layout ? "rrNavLayout" : "rrNavText");
+        QVERIFY(click(canvas, tab));
+        QCOMPARE(page->snapshot(), marked);
+        auto *step = layout ? host.window()->findChild<QPushButton *>("rrWider") : sizeStep(host);
+        QTRY_VERIFY(step && step->isVisible() && step->isEnabled());
+        QVERIFY(click(canvas, step));
+        QTRY_VERIFY(inspectReader(host)["preview_ready"].toBool() &&
+                    !inspectReader(host)["preview_busy"].toBool());
+        QVERIFY(page->image.cacheKey() != host.session()->image().cacheKey());
+        const auto preview = page->snapshot();
+        page->mark({});
+        QCOMPARE(page->snapshot(), preview);
+        QVERIFY(click(canvas, tab));
+        QTRY_VERIFY(!host.session()->busy() && !inspectReader(host)["preview_ready"].toBool());
+        const auto applied = page->snapshot();
+        page->mark({});
+        QCOMPARE(page->snapshot(), applied);
+    }
+
     void searchSurvivesReflow_data() {
         QTest::addColumn<QString>("interruption");
         QTest::newRow("queued-reply") << QString("queued-reply");

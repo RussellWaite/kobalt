@@ -142,9 +142,11 @@ void Reader::syncFrameState() {
     if (!model->busy() && !pendingSearchHit.start.isEmpty()) {
         const auto hit = std::exchange(pendingSearchHit, {});
         const auto epoch = searchEpoch;
+        const auto imageKey = model->image().cacheKey();
         QPointer<Reader> guard(this);
-        model->rangeRects(hit.start, hit.end, [guard, epoch](QVector<QRect> rects) {
-            if (guard && guard->searchEpoch == epoch && !guard->lifecycleHidden)
+        model->rangeRects(hit.start, hit.end, [guard, epoch, imageKey](QVector<QRect> rects) {
+            if (guard && guard->searchEpoch == epoch && !guard->lifecycleHidden &&
+                guard->page->image.cacheKey() == imageKey)
                 guard->page->mark(rects);
         });
     }
@@ -216,7 +218,19 @@ void Reader::showChapterText() {
 }
 
 void Reader::showPageImage(const QImage &nextImage) {
-    if (nextImage.cacheKey() != page->image.cacheKey()) {
+    auto displayedImage = nextImage;
+    if (appearanceEdit.edited() && appearanceEdit.ready() && appearanceEdit.preview()) {
+        const auto *preview = appearanceEdit.preview();
+        // Opening a panel keeps the current book frame. Use the isolated
+        // preview only after appearance or viewport dimensions change.
+        if (model->busy() || !appearance::same(preview->state(), model->state()) ||
+            preview->image().size() != nextImage.size())
+            displayedImage = preview->image();
+    }
+    if (displayedImage.cacheKey() != page->image.cacheKey()) {
+        // Temporary search and link marks belong to the old page geometry.
+        // Clear them without cancelling the gesture that edits the preview.
+        page->mark({});
         page->animationDirection =
             isVisible() && !appearanceEdit.panelOpen() && !topControls->isVisible() && !general->isVisible() &&
                     !linkReturn->isVisible() && !syncDialog && !finishDialog && !services.suspended() &&
@@ -224,15 +238,7 @@ void Reader::showPageImage(const QImage &nextImage) {
                 ? model->turnDirection()
                 : 0;
     }
-    page->image = nextImage;
-    if (appearanceEdit.edited() && appearanceEdit.ready() && appearanceEdit.preview()) {
-        const auto *preview = appearanceEdit.preview();
-        // Opening a panel keeps the current book frame. Use the isolated
-        // preview only after appearance or viewport dimensions change.
-        if (model->busy() || !appearance::same(preview->state(), model->state()) ||
-            preview->image().size() != nextImage.size())
-            page->image = preview->image();
-    }
+    page->image = std::move(displayedImage);
     // Only a turn forward counts towards the session's pace; jumps and reflows do not.
     if (!model->busy())
         book->pace().observe(model->page(), model->turnDirection() > 0);
