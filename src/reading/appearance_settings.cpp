@@ -75,6 +75,7 @@ QJsonObject cleanPreferences(QJsonObject preferences) {
     const auto choice = [&](const char *key, const QStringList &values) {
         if (preferences.contains(key) && !values.contains(preferences.value(key).toString())) preferences.remove(key);
     };
+    choice("tappable_links", {"off", "footnotes", "all"});
     choice("bold_reading", {"off", "bold"});
     choice("widows_orphans", {"publisher", "avoid", "allow"});
     choice("marks_sort", {"position", "newest", "oldest"});

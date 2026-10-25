@@ -368,6 +368,7 @@ QVector<QWidget *> Reader::popups() const {
             tapZonesPopup.data(),
             navigationBarPopup.data(),
             menuViewPopup.data(),
+            tappableLinksPopup.data(),
             removeDialog.data(),
             customReplaceDialog.data(),
             bookmarkErrorDialog.data(),
@@ -512,6 +513,10 @@ bool Reader::eventFilter(QObject *watched, QEvent *event) {
     }
     if (navigationBarPopup && watched == navigationBarPopup && type == QEvent::MouseButtonRelease) {
         closeNavigationBarButtons();
+        return true;
+    }
+    if (tappableLinksPopup && watched == tappableLinksPopup && type == QEvent::MouseButtonRelease) {
+        closeTappableLinks();
         return true;
     }
     if (menuViewPopup && watched == menuViewPopup && type == QEvent::MouseButtonRelease) {
@@ -855,14 +860,17 @@ void Reader::updateLinkReturn() {
     syncNavigation();
 }
 
-bool Reader::openLink(QPoint point) {
+bool Reader::openLink(QPoint point, bool direct) {
     if (model->busy() || closing || lifecycleHidden || services.suspended() || syncDialog || finishDialog)
         return false;
     for (const auto &link : model->pageLinks()) {
+        if (direct && !link.tappable(preferences.value("tappable_links").toString("off")))
+            continue;
+        // Ordinary reading keeps nearby text available to the page tap zones.
+        const int pad = direct ? 0 : kobalt::ui::px(6);
         QRect bounds;
         for (const auto &rect : link.rectangles) {
-            if (rect.adjusted(-kobalt::ui::px(6), -kobalt::ui::px(6), kobalt::ui::px(6), kobalt::ui::px(6))
-                    .contains(point)) {
+            if (rect.adjusted(-pad, -pad, pad, pad).contains(point)) {
                 bounds = rect;
                 break;
             }

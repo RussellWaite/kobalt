@@ -119,6 +119,11 @@ kobalt::LinkDetails inspectNote(const NoteCase &test, bool dark) {
     const auto links = model.pageLinks();
     require(links.size() == 1, qPrintable(QString(test.name) + ": expected one reference"));
     const auto details = model.linkDetails(links.first().source);
+    require(links.first().kind == details.kind, "Frame link classification differs from popup routing");
+    require(!links.first().tappable("off") && !links.first().tappable("invalid"), "Disabled links became tappable");
+    require(links.first().tappable("all"), "All-links mode omitted a visible link");
+    require(links.first().tappable("footnotes") == (test.kind == kobalt::LinkKind::Footnote),
+            "Footnote-only mode disagrees with the existing semantic detection");
     require(model.position() == origin, "Note matching changed the reading position");
     require(
         details.kind == test.kind,

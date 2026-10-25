@@ -1050,6 +1050,7 @@ void Reader::buildSettings() {
     sleepTileButton = settings->sleepTileButton;
     pageNavigationButton = settings->pageNavigationButton;
     tapZonesButton = settings->tapZonesButton;
+    tappableLinksButton = settings->tappableLinksButton;
     navigationBarButton = settings->navigationBarButton;
     menuViewButton = settings->menuViewButton;
     connect(menuViewButton, &QPushButton::clicked, this, [this] {
@@ -1134,6 +1135,9 @@ void Reader::buildSettings() {
     });
     connect(sleepTileButton, &QPushButton::clicked, this, [this] {
         openSleepTile();
+    });
+    connect(tappableLinksButton, &QPushButton::clicked, this, [this] {
+        openTappableLinks();
     });
     connect(tapZonesButton, &QPushButton::clicked, this, [this] {
         openTapZones();
@@ -1371,6 +1375,10 @@ void Reader::connectPageInput() {
             }
             return;
         }
+        // Enabled links win when their text overlaps the bookmark shortcut.
+        if (!annotationMode && point.y() >= page->topHeight() &&
+            point.y() < page->height() - page->bottomHeight() && openLink(bodyPoint, true))
+            return;
         if (bookmarks->available() && page->bookmarkCorner().contains(point)) {
             toggleBookmark();
             return;

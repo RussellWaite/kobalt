@@ -356,7 +356,7 @@ private:
     void dismissLinkConfirmation();
     void dismissLinks();
     void updateLinkReturn();
-    bool openLink(QPoint point);
+    bool openLink(QPoint point, bool direct = false);
     void goToPassage(const QString &target);
     kobalt::DictionaryPanel *dictionaryPanel = nullptr;
     std::unique_ptr<kobalt::DictionaryService> dictionary;
@@ -410,6 +410,9 @@ private:
     void showPageNavigation();
     void openPageNavigation();
     void closePageNavigation();
+    void showTappableLinks();
+    void openTappableLinks();
+    void closeTappableLinks();
     void showMenuView();
     void openMenuView();
     void closeMenuView();
@@ -457,8 +460,9 @@ private:
     QPointer<kobalt::ui::ModalOverlay> sleepPopup;
     kobalt::ui::CaptionButton *pageNavigationButton = nullptr, *tapZonesButton = nullptr,
                               *navigationBarButton = nullptr;
-    QPointer<kobalt::ui::ModalOverlay> pageNavigationPopup, tapZonesPopup, navigationBarPopup, menuViewPopup;
-    kobalt::ui::CaptionButton *menuViewButton = nullptr;
+    QPointer<kobalt::ui::ModalOverlay> pageNavigationPopup, tapZonesPopup, navigationBarPopup, menuViewPopup,
+                                     tappableLinksPopup;
+    kobalt::ui::CaptionButton *menuViewButton = nullptr, *tappableLinksButton = nullptr;
     int settingsColumnSpacing = defaultColumnSpacingPercent;
     int settingsWordSpacing = 100;
     int settingsTracking = 0;

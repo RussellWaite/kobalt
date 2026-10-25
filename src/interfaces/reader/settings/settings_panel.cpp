@@ -350,6 +350,9 @@ SettingsPanel::SettingsPanel(QWidget *parent, const SettingsPanelInputs &inputs)
     tapZonesButton =
         ui::makeCaptionButton(controlsPage, nullptr, "rrTapZones", strings::get("settings.tap_zones"), [] {});
     controlsRows->addWidget(tapZonesButton);
+    tappableLinksButton = ui::makeCaptionButton(controlsPage, nullptr, "rrTappableLinks",
+                                                strings::get("settings.tappable_links"), [] {});
+    controlsRows->addWidget(tappableLinksButton);
     linkIndicatorOption = check(controlsPage, "rrShowLinkIndicator", strings::get("reader.show_link_indicator"),
                                 strings::get("reader.link_indicator_description"));
     controlsRows->addWidget(linkIndicatorOption);
@@ -661,7 +664,7 @@ SettingsPanel::SettingsPanel(QWidget *parent, const SettingsPanelInputs &inputs)
     resetRow->setStretch(2, 0);
     for (auto *button :
          {resetDefaults, refreshButton, columnSpacingButton, sleepScreenButton, sleepTileButton, pageNavigationButton,
-          tapZonesButton, navigationBarButton,
+          tapZonesButton, tappableLinksButton, navigationBarButton,
           menuViewButton, uiFontButton, uiMonoFontButton, headerFooterFontButton, headerFooterWeightButton,
           defaultFontButton, serifFontButton, sansFontButton, monoFontButton, wordSpacingButton, trackingButton, widowsOrphansButton}) {
         button->setRule(Qt::BottomEdge);

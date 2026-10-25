@@ -283,6 +283,7 @@ void Reader::openSettings() {
     showSleepScreen();
     showPageNavigation();
     showTapZones();
+    showTappableLinks();
     minimalAnnotationOption->setChecked(minimalAnnotationMode());
     showNavigationBarButtons();
     showMenuView();

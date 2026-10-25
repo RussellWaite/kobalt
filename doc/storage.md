@@ -6,6 +6,8 @@ Kobalt separates saved reading data from disposable rendering caches. Storage fo
 
 `reader-settings.json` holds global preferences with `schema: 1`. Unversioned settings are upgraded atomically. Recognized retired settings are converted or removed, invalid known values fall back to their defaults, and unknown keys are preserved. Unsupported future versions block writes. `config.json` remains the small Kobo enable/disable configuration.
 
+`tappable_links` is an optional global setting with values `off`, `footnotes` and `all`. Missing or invalid values use Off. It does not change the settings schema or parsed-book cache format.
+
 Book state now lives in `kobalt.sqlite`. Legacy book state uses a host-selected prefix followed by the SHA-256 of the UTF-8 book identity and `.json`. Its `schema` is `1`. The `book` and `fingerprint` fields identify the publication. It stores the canonical reading position, book-specific text preferences and native progress reconciliation fields. Globally owned layout preferences remain in global settings. Marking a book unread resets its position and book-specific preferences, but keeps annotations.
 
 Legacy JSON bookmarks and annotations share `annotations/<book-key>/`. `book.json` has `version: 1`, `identity`, `title` and `fingerprint`. Book keys come from `BookmarkStore::bookKey`: native book identities remain stable across downloads; sideloaded books use their content fingerprint. A changed file can adopt annotations from the previous record of the same path.

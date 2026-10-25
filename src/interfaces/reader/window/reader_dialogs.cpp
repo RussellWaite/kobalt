@@ -1167,6 +1167,97 @@ QString menuViewLabel(pageNavigation::MenuView mode) {
 }
 }
 
+namespace {
+QString tappableLinksLabel(const QString &mode) {
+    return strings::get(mode == "footnotes" ? "settings.tappable_links_footnotes"
+                        : mode == "all"   ? "settings.tappable_links_all"
+                                          : "settings.tappable_links_off");
+}
+QString tappableLinksDescription(const QString &mode) {
+    return strings::get(mode == "footnotes" ? "settings.tappable_links_footnotes_description"
+                        : mode == "all"   ? "settings.tappable_links_all_description"
+                                          : "settings.tappable_links_off_description");
+}
+}
+
+void Reader::showTappableLinks() {
+    const auto mode = preferences.value("tappable_links").toString("off");
+    tappableLinksButton->setCaption(tappableLinksLabel(mode).toUpper());
+}
+
+void Reader::closeTappableLinks() {
+    if (!tappableLinksPopup) {
+        return;
+    }
+    tappableLinksPopup->hide();
+    tappableLinksPopup->deleteLater();
+    tappableLinksPopup.clear();
+}
+
+void Reader::openTappableLinks() {
+    if (tappableLinksPopup) {
+        return;
+    }
+    namespace c = m::chrome;
+    tappableLinksPopup = new ui::ModalOverlay(this);
+    tappableLinksPopup->setObjectName("rrTappableLinksPopup");
+    tappableLinksPopup->setDimmed(true);
+    tappableLinksPopup->setGeometry(rect());
+    tappableLinksPopup->installEventFilter(this);
+    tappableLinksPopup->dismissed = [this] {
+        closeTappableLinks();
+    };
+    auto *card = tappableLinksPopup->card();
+    card->rows()->setContentsMargins(2, 2, 2, 2);
+    card->rows()->setSpacing(0);
+    card->rows()->addSpacing(m::notice::cardMargins.top());
+    auto *title = card->title(strings::get("settings.tappable_links"), "rrTappableLinksTitle");
+    title->setContentsMargins(c::inset, 0, c::inset, 0);
+    card->rows()->addSpacing(m::spacing::row);
+    auto *hint = card->message(strings::get("settings.tappable_links_description"), "rrTappableLinksHint");
+    readerStyle(hint, styles::font(c::descriptionText));
+    hint->setContentsMargins(c::inset, 0, c::inset, 0);
+    card->rows()->addSpacing(m::notice::cardMargins.bottom());
+    const int cardWidth = qMin<int>(m::notice::cardWidth, width() - 2 * m::notice::sideClearance);
+    auto *choices = new ui::RadioList(card);
+    choices->setObjectName("rrTappableLinksChoices");
+    choices->setMinimumRowHeight(c::listActionHeight);
+    choices->setTopDivider(true);
+    const QStringList modes{"off", "footnotes", "all"};
+    const auto current = preferences.value("tappable_links").toString("off");
+    for (const auto &mode : modes) {
+        choices->add("rrTappableLinks_" + mode, tappableLinksLabel(mode), tappableLinksDescription(mode));
+        if (mode == current)
+            choices->setCurrent(choices->options().size() - 1);
+    }
+    choices->chosen = [this, modes](int index) {
+        auto next = preferences;
+        next["tappable_links"] = modes[index];
+        if (writePreferences(next)) {
+            preferences = next;
+            showTappableLinks();
+            syncLinkDiscovery();
+            settingsError->clear();
+            settingsError->hide();
+        } else {
+            settingsError->setText(strings::get("reader.could_not_save_reader_settings"));
+            settingsError->show();
+        }
+        closeTappableLinks();
+    };
+    card->rows()->addWidget(choices);
+    choices->setFixedHeight(choices->heightForWidth(cardWidth - 4));
+    card->fitToWidth(cardWidth);
+    tappableLinksPopup->centerCard();
+    for (auto *widget : tappableLinksPopup->findChildren<QWidget *>()) {
+        textRefresh(widget);
+    }
+    textRefresh(tappableLinksPopup);
+    tappableLinksPopup->show();
+    tappableLinksPopup->raise();
+    tappableLinksPopup->setFocus();
+}
+
 void Reader::showMenuView() {
     const auto mode = pageNavigation::menuView(preferences);
     menuViewButton->setCaption(menuViewLabel(mode).toUpper());

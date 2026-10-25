@@ -2417,6 +2417,199 @@ private slots:
         QTRY_VERIFY(!fixture.visible("rrBrowserConfirmation"));
         QCOMPARE(fixture.state().value("position"), origin);
     }
+    void tappableLinks_data() { bookmarks_data(); }
+    void tappableLinks() {
+        QFETCH(bool, dark);
+        Fixture fixture(dark);
+        QVERIFY(fixture.prepared);
+        QVERIFY(writeBook(fixture.directory.path(), "direct.epub", test::linkBook()));
+        const auto path = fixture.directory.path() + "/direct.epub";
+        QSignalSpy opened(&fixture.window, &desktop::Window::bookOpened);
+        fixture.window.openBook(path);
+        QTRY_COMPARE_WITH_TIMEOUT(opened.count(), 1, 10000);
+        QTRY_VERIFY(!fixture.state().value("busy").toBool());
+        auto *page = fixture.widget("rrPage");
+        const auto origin = fixture.state().value("position");
+        QVERIFY(!storage::readJson(fixture.paths.preferences()).contains("tappable_links"));
+        for (const auto *mode : {"off", "footnotes", "all"}) {
+            if (!fixture.visible("rrControlsTop"))
+                QVERIFY(fixture.press("rrPage"));
+            QTRY_VERIFY(fixture.visible("rrSettings"));
+            QVERIFY(fixture.press("rrSettings"));
+            QVERIFY(fixture.press("rrSettingsControls"));
+            auto *linkRow = fixture.widget("rrTappableLinks");
+            QVERIFY(linkRow);
+            for (const auto *name : {"rrPageNavigation", "rrTapZones"}) {
+                auto *neighbor = fixture.widget(name);
+                QVERIFY(neighbor);
+                QCOMPARE(linkRow->height(), neighbor->height());
+                QCOMPARE(linkRow->font(), neighbor->font());
+                QCOMPARE(linkRow->styleSheet(), neighbor->styleSheet());
+            }
+            QVERIFY(fixture.press("rrTappableLinks"));
+            QTRY_VERIFY(fixture.visible("rrTappableLinks_off"));
+            if (QString(mode) == "off") {
+                QVERIFY(qobject_cast<QCheckBox *>(fixture.widget("rrTappableLinks_off"))->isChecked());
+            }
+            QVERIFY(fixture.press(qPrintable(QString("rrTappableLinks_") + mode)));
+            QTRY_VERIFY(!fixture.visible("rrTappableLinksPopup"));
+            // Disable page-turn taps so non-link taps can be tested without leaving this page.
+            QVERIFY(fixture.press("rrPageNavigation"));
+            QTRY_VERIFY(fixture.visible("rrNavigation_swipes_only"));
+            QVERIFY(fixture.press("rrNavigation_swipes_only"));
+            QVERIFY(fixture.press("rrSettingsClose"));
+            QTRY_VERIFY(!fixture.visible("rrGeneralSettings"));
+            QTRY_COMPARE(storage::readJson(fixture.paths.preferences()).value("tappable_links").toString(), QString(mode));
+            if (fixture.visible("rrControlsTop"))
+                QVERIFY(fixture.press("rrPage"));
+            for (const auto *label : {"short note", "website"}) {
+                const auto point = fixture.linkPoint(path, label);
+                QVERIFY(point.x() >= 0);
+                QVERIFY(fixture.click(page, point));
+                const bool follows = QString(mode) == "all" || (QString(mode) == "footnotes" && QString(label) == "short note");
+                if (follows) {
+                    const bool note = QString(label) == "short note";
+                    QTRY_VERIFY(fixture.visible(note ? "rrLinkPanel" : "rrBrowserConfirmation"));
+                    QVERIFY(!fixture.visible("rrControlsTop"));
+                    QVERIFY(fixture.press(note ? "rrLinkClose" : "rrLinkNo"));
+                } else {
+                    QVERIFY(!fixture.visible("rrLinkPanel"));
+                    QVERIFY(!fixture.visible("rrBrowserConfirmation"));
+                    if (fixture.visible("rrControlsTop"))
+                        QVERIFY(fixture.press("rrPage"));
+                }
+                QCOMPARE(fixture.state().value("position"), origin);
+            }
+            const auto outside = fixture.coordinateQuery(path, QPoint(-1, -1), [top = static_cast<ReadingPage *>(page)->topHeight()](ReaderModel &coordinates) {
+                for (const auto &link : coordinates.pageLinks())
+                    if (coordinates.linkDetails(link.source).label == "short note") {
+                        const auto r = link.rectangles.first();
+                        return QPoint(r.left() - 2, r.center().y() + top);
+                    }
+                return QPoint(-1, -1);
+            });
+            QVERIFY(outside.x() >= 0);
+            QVERIFY(fixture.click(page, outside));
+            QVERIFY(!fixture.visible("rrLinkPanel"));
+            QCOMPARE(fixture.state().value("position"), origin);
+            if (fixture.visible("rrControlsTop"))
+                QVERIFY(fixture.press("rrPage"));
+            // A long press keeps the connected selection menu in every mode.
+            const auto note = fixture.linkPoint(path, "short note");
+            QVERIFY(fixture.selectWord(page, note));
+            QTRY_VERIFY(fixture.visible("rrSelectionLink"));
+            QVERIFY(fixture.press("rrAnnotationCancel"));
+            // Manual reveal still includes ordinary links with the persistent option off or footnotes-only.
+            QVERIFY(fixture.press("rrPage"));
+            QTRY_VERIFY(fixture.visible("rrScrubberLinks"));
+            QVERIFY(fixture.press("rrScrubberLinks"));
+            QVERIFY(fixture.click(page, fixture.linkPoint(path, "website")));
+            QTRY_VERIFY(fixture.visible("rrBrowserConfirmation"));
+            QVERIFY(fixture.press("rrLinkNo"));
+            QCOMPARE(fixture.state().value("position"), origin);
+        }
+        // Direct links also win over normal tap zones, but annotation mode keeps its input.
+        QVERIFY(fixture.press("rrPage"));
+        QVERIFY(fixture.press("rrSettings"));
+        QVERIFY(fixture.press("rrSettingsControls"));
+        QVERIFY(fixture.press("rrPageNavigation"));
+        QTRY_VERIFY(fixture.visible("rrNavigation_taps_and_swipes"));
+        QVERIFY(fixture.press("rrNavigation_taps_and_swipes"));
+        QVERIFY(fixture.press("rrSettingsClose"));
+        QTRY_VERIFY(!fixture.visible("rrGeneralSettings"));
+        if (fixture.visible("rrControlsTop"))
+            QVERIFY(fixture.press("rrPage"));
+        QVERIFY(fixture.click(page, fixture.linkPoint(path, "short note")));
+        QTRY_VERIFY(fixture.visible("rrLinkPanel"));
+        QCOMPARE(fixture.state().value("position"), origin);
+        QVERIFY(fixture.press("rrLinkClose"));
+        QVERIFY(fixture.press("rrPage"));
+        QVERIFY(fixture.press("rrAnnotate"));
+        QVERIFY(fixture.click(page, fixture.linkPoint(path, "short note")));
+        QVERIFY(!fixture.visible("rrLinkPanel"));
+        if (!fixture.visible("rrControlsTop"))
+            QVERIFY(fixture.press("rrPage"));
+        QVERIFY(fixture.press("rrAnnotate"));
+        // A fresh reader restores the global choice.
+        QVERIFY(writeBook(fixture.directory.path(), "second.epub", test::linkBook()));
+        fixture.window.openBook(fixture.directory.path() + "/second.epub");
+        QTRY_COMPARE(opened.count(), 2);
+        QTRY_VERIFY(!fixture.state().value("busy").toBool());
+        QVERIFY(fixture.click(fixture.widget("rrPage"), fixture.linkPoint(fixture.directory.path() + "/second.epub", "short note")));
+        QTRY_VERIFY(fixture.visible("rrLinkPanel"));
+    }
+    void bookmarkCornerLinks_data() {
+        QTest::addColumn<bool>("dark");
+        QTest::addColumn<QString>("mode");
+        QTest::addColumn<bool>("footnote");
+        for (bool dark : {false, true})
+            for (const auto *mode : {"off", "footnotes", "all"})
+                for (bool footnote : {false, true})
+                    QTest::newRow(qPrintable(QString("%1-%2-%3").arg(dark ? "dark" : "light", mode,
+                                                                     footnote ? "note" : "website")))
+                        << dark << QString(mode) << footnote;
+    }
+    void bookmarkCornerLinks() {
+        QFETCH(bool, dark);
+        QFETCH(QString, mode);
+        QFETCH(bool, footnote);
+        Fixture fixture(dark);
+        QVERIFY(fixture.prepared);
+        auto preferences = storage::readJson(fixture.paths.preferences());
+        preferences["tappable_links"] = mode;
+        preferences["page_margins"] = QJsonObject{{"margin_pixels", 24}, {"top_margin_pixels", 0},
+                                                 {"bottom_margin_pixels", 24}};
+        preferences["last_text_layout"] = QJsonObject{{"font_pixels", 36}, {"text_alignment", "publisher"}};
+        QVERIFY(storage::writeJson(fixture.paths.preferences(), preferences));
+        auto files = test::linkBook();
+        files["OEBPS/first.xhtml"] =
+            QByteArray("<html xmlns='http://www.w3.org/1999/xhtml' xmlns:epub='http://www.idpf.org/2007/ops'>"
+                       "<head><title>Corner link</title></head><body><p style='text-align:right!important;margin:0'>") +
+            (footnote ? "<a epub:type='noteref' href='Notes/foot%20notes.xhtml#short'>Corner link</a>"
+                      : "<a href='https://example.org/book'>Corner link</a>") + "</p></body></html>";
+        QVERIFY(writeBook(fixture.directory.path(), "corner.epub", files));
+        const auto path = fixture.directory.path() + "/corner.epub";
+        QSignalSpy opened(&fixture.window, &desktop::Window::bookOpened);
+        fixture.window.openBook(path);
+        QTRY_COMPARE_WITH_TIMEOUT(opened.count(), 1, 10000);
+        QTRY_VERIFY(!fixture.state().value("busy").toBool());
+        auto *page = static_cast<ReadingPage *>(fixture.widget("rrPage"));
+        QVERIFY(page);
+        const auto point = fixture.linkPoint(path, "Corner link");
+        QVERIFY2(page->bookmarkCorner().contains(point), qPrintable(QString("Link at %1,%2 missed bookmark corner")
+                                                                     .arg(point.x()).arg(point.y())));
+        const auto origin = fixture.state().value("position");
+        const bool follows = mode == "all" || (mode == "footnotes" && footnote);
+        const auto *panel = footnote ? "rrLinkPanel" : "rrBrowserConfirmation";
+        const auto *close = footnote ? "rrLinkClose" : "rrLinkNo";
+        QVERIFY(fixture.click(page, point));
+        if (follows) {
+            QTRY_VERIFY(fixture.visible(panel));
+            QCOMPARE(fixture.state().value("bookmark_count").toInt(), 0);
+            QVERIFY(fixture.press(close));
+            QTRY_VERIFY(!fixture.visible(panel));
+        } else {
+            QTRY_COMPARE(fixture.state().value("bookmark_count").toInt(), 1);
+            QVERIFY(!fixture.visible(panel));
+            QVERIFY(fixture.click(page, point));
+            QTRY_COMPARE(fixture.state().value("bookmark_count").toInt(), 0);
+        }
+        // The empty part of the corner still toggles a bookmark in every mode.
+        const auto emptyCorner = page->bookmarkCorner().topRight() + QPoint(-ui::px(4), ui::px(4));
+        QVERIFY(fixture.click(page, emptyCorner));
+        QTRY_COMPARE(fixture.state().value("bookmark_count").toInt(), 1);
+        if (follows) {
+            // Link priority must also preserve an existing bookmark.
+            QVERIFY(fixture.click(page, point));
+            QTRY_VERIFY(fixture.visible(panel));
+            QCOMPARE(fixture.state().value("bookmark_count").toInt(), 1);
+            QVERIFY(fixture.press(close));
+            QTRY_VERIFY(!fixture.visible(panel));
+        }
+        QVERIFY(fixture.click(page, emptyCorner));
+        QTRY_COMPARE(fixture.state().value("bookmark_count").toInt(), 0);
+        QCOMPARE(fixture.state().value("position"), origin);
+    }
     void settings_data() { bookmarks_data(); }
     void dictionaryRedraw_data() { bookmarks_data(); }
     void dictionaryRedraw() {
@@ -3622,6 +3815,39 @@ private slots:
 class ScreenshotTests final : public QObject {
     Q_OBJECT
 private slots:
+    void directLinks_data() { variants(); }
+    void directLinks() {
+        QFETCH(int, preset);
+        QFETCH(bool, dark);
+        Fixture fixture(dark);
+        QVERIFY(fixture.prepared);
+        fixture.window.findChild<QComboBox *>("desktopScreenPicker")->setCurrentIndex(preset);
+        const auto name = QStringList{"fill", "six-inch", "seven-inch"}.at(preset) + (dark ? "-dark" : "-light");
+        QVERIFY(writeBook(fixture.directory.path(), "links.epub", test::linkBook()));
+        QSignalSpy opened(&fixture.window, &desktop::Window::bookOpened);
+        fixture.window.openBook(fixture.directory.path() + "/links.epub");
+        QTRY_COMPARE_WITH_TIMEOUT(opened.count(), 1, 10000);
+        QTRY_VERIFY(!fixture.state().value("busy").toBool());
+        QVERIFY(capture(fixture, name + "-tappable-links-off"));
+        for (const auto *mode : {"footnotes", "all"}) {
+            QVERIFY(fixture.press("rrPage"));
+            QTRY_VERIFY(fixture.visible("rrSettings"));
+            QVERIFY(fixture.press("rrSettings"));
+            QVERIFY(fixture.press("rrSettingsControls"));
+            if (QString(mode) == "footnotes")
+                QVERIFY(capture(fixture, name + "-tappable-links-settings"));
+            QVERIFY(fixture.press("rrTappableLinks"));
+            QTRY_VERIFY(fixture.visible("rrTappableLinks_off"));
+            if (QString(mode) == "footnotes")
+                QVERIFY(capture(fixture, name + "-tappable-links-choices"));
+            QVERIFY(fixture.press(qPrintable(QString("rrTappableLinks_") + mode)));
+            QVERIFY(fixture.press("rrSettingsClose"));
+            QTRY_VERIFY(!fixture.visible("rrGeneralSettings"));
+            if (fixture.visible("rrControlsTop"))
+                QVERIFY(fixture.press("rrPage"));
+            QVERIFY(capture(fixture, name + "-tappable-links-" + mode));
+        }
+    }
     void screens_data() { variants(); }
     void screens() {
         QFETCH(int, preset);
@@ -3898,7 +4124,7 @@ int main(int argc, char **argv) {
         return result;
     }
     QFile fixture(book);
-    constexpr int expectedScreenshots = 280;
+    constexpr int expectedScreenshots = 310;
     if (captures.size() != expectedScreenshots)
         qCritical() << "Expected" << expectedScreenshots << "screenshots, captured" << captures.size();
     if (!fixture.open(QIODevice::ReadOnly) || captures.size() != expectedScreenshots) {

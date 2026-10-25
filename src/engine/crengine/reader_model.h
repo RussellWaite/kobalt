@@ -185,7 +185,7 @@ public:
                               const QString &endTokenStart, const QString &endTokenEnd, bool endTokenPolicy = false,
                               bool startTokenPolicy = false, std::function<bool()> current = {});
     QVector<PageLink> pageLinks();
-    LinkDetails linkDetails(const QString &source);
+    LinkDetails linkDetails(const QString &source, bool preview = true);
     SearchBatch searchPage(const QString &query, int page);
     // Source-only current-page intersection. Does not resolve remote geometry.
     // Returns input indices in order; at most 2000 saved ranges plus one draft.

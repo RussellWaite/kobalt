@@ -8,6 +8,14 @@
 using namespace kobalt;
 
 int main() {
+    require(!appearance::cleanPreferences({}).contains("tappable_links"), "Older settings enabled direct taps");
+    for (const auto *mode : {"off", "footnotes", "all"})
+        require(appearance::cleanPreferences({{"tappable_links", mode}}).value("tappable_links").toString() == mode,
+                "Cleaning settings lost a supported direct-tap choice");
+    for (const auto &invalid : {QJsonValue("unknown"), QJsonValue(true), QJsonValue(1)})
+        require(!appearance::cleanPreferences({{"tappable_links", invalid}}).contains("tappable_links"),
+                "Invalid direct-tap preference did not fall back to Off");
+
     // Appearance settings decide the layout. The list must stay complete, because a
     // missing key would let a retained layout survive a changed setting.
     require(appearance::keys.size() == 27, "The appearance keys changed without this check");

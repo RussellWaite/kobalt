@@ -456,11 +456,11 @@ QVector<PageLink> ReaderModel::pageLinks() {
             continue;
         const auto rectangles = rangeRects(text(range->getStart().toString()), text(range->getEnd().toString()), true);
         if (!rectangles.isEmpty())
-            result.append({text(source.toString()), rectangles});
+            result.append({text(source.toString()), rectangles, linkDetails(text(source.toString()), false).kind});
     }
     return result;
 }
-LinkDetails ReaderModel::linkDetails(const QString &source) {
+LinkDetails ReaderModel::linkDetails(const QString &source, bool preview) {
     LinkDetails result;
     if (!engine_)
         return result;
@@ -471,7 +471,8 @@ LinkDetails ReaderModel::linkDetails(const QString &source) {
     if (href.empty() || link.isNull())
         return result;
     auto *node = link.getNode();
-    result.label = text(node->getText(' ', 256)).trimmed();
+    if (preview)
+        result.label = text(node->getText(' ', 256)).trimmed();
     result.kind = LinkKind::Unavailable;
     result.error = strings::get("error.this_passage_is_unavailable");
     if (href[0] != '#') {
@@ -515,7 +516,8 @@ LinkDetails ReaderModel::linkDetails(const QString &source) {
     ldomXPointer destination(target, 0);
     if (destination.toPoint().y >= 0) {
         result.target = text(destination.toString());
-        result.chapter = chapterTitle(result.target);
+        if (preview)
+            result.chapter = chapterTitle(result.target);
     }
     if (!result.target.isEmpty()) {
         result.kind = LinkKind::Passage;
@@ -523,6 +525,13 @@ LinkDetails ReaderModel::linkDetails(const QString &source) {
     }
     const bool inferred = match == NoteMatch::Unmarked && inferredNote(node, target, engine_->getToc());
     if (match != NoteMatch::Explicit && !inferred) {
+        return result;
+    }
+    // Explicit notes need no preview serialization when a frame only needs their kind.
+    // Inferred notes still use the same bounded-content check as the popup.
+    if (!preview && match == NoteMatch::Explicit) {
+        result.kind = LinkKind::Footnote;
+        result.error.clear();
         return result;
     }
     const auto parts = noteParts(note, contained);
