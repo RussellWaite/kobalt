@@ -99,7 +99,7 @@ private:
     bool zoomAvailable() const;
     void zoom(int direction);
     void centerRange(int page);
-    void syncRange();
+    void syncRange(bool chaptersChanged = false);
     void pan(int first);
     void requestPreview();
     void publishPreviews();

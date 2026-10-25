@@ -316,7 +316,7 @@ void PageScrubber::setBook(int page, int pages, const QVector<QPair<int, QString
     if (changed || current < rangeFirst || current > rangeLast) {
         centerRange(current);
     }
-    syncRange();
+    syncRange(changed);
     arrange();
 }
 int PageScrubber::maximumZoomLevel() const {
@@ -346,14 +346,16 @@ void PageScrubber::centerRange(int page) {
     rangeFirst = qBound(0, page - (span - 1) / 2, totalPages - span);
     rangeLast = rangeFirst + span - 1;
 }
-void PageScrubber::syncRange() {
+void PageScrubber::syncRange(bool chaptersChanged) {
+    const bool rangeChanged = position->minimum() != rangeFirst || position->maximum() != rangeLast;
     position->setRange(rangeFirst, rangeLast);
     position->setValue(selecting() ? candidate : current);
-    QVector<int> markers;
-    for (const auto &chapter : chapters) {
-        markers.append(chapter.first);
+    if (chaptersChanged || rangeChanged) {
+        QVector<int> markers;
+        for (const auto &chapter : chapters)
+            markers.append(chapter.first);
+        position->setMarkers(markers);
     }
-    position->setMarkers(markers);
     overview->setRange(totalPages, rangeFirst, rangeLast, current);
     position->setAccessibleDescription(
         strings::get("reader.zoom_range").arg(rangeFirst + 1).arg(rangeLast + 1).arg(totalPages));

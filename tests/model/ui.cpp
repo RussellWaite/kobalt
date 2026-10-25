@@ -4,6 +4,7 @@
 #include "interfaces/reader/ui/controls/rows.h"
 #include "interfaces/reader/ui/controls/options.h"
 #include "interfaces/reader/ui/controls/sliders.h"
+#include "interfaces/reader/ui/controls/page_scrubber.h"
 #include "interfaces/reader/ui/controls/paging.h"
 #include "interfaces/reader/ui/controls/panels.h"
 #include "interfaces/reader/ui/dialogs/modals.h"
@@ -3480,6 +3481,44 @@ int main(int argc, char **argv) {
             row->setTypefacePreview({});
             require(row->grab().toImage() == plain, "Clearing a typeface preview left sample pixels behind");
         }
+    }
+    {
+        using namespace kobalt::ui;
+        PageScrubber scrubber(nullptr);
+        scrubber.resize(1000, 700);
+        QVector<QPair<int, QString>> chapters{{0, "Start"}, {200, "Middle"}, {900, "Later"}, {1500, "End"}};
+        const auto checkMarkers = [&] {
+            auto *actual = scrubber.slider();
+            SettingSlider expected(nullptr, actual->minimum(), actual->maximum());
+            expected.setPalette(actual->palette());
+            expected.resize(actual->size());
+            expected.setDotMarkers(true);
+            expected.setValue(actual->value());
+            QVector<int> markers;
+            for (const auto &chapter : chapters) markers.append(chapter.first);
+            expected.setMarkers(markers);
+            require(actual->grab().toImage() == expected.grab().toImage(),
+                    "Scrubber chapter markers changed after a page, chapter or range update");
+        };
+        scrubber.setBook(0, 2000, chapters, {1072, 1448});
+        checkMarkers();
+        scrubber.setBook(20, 2000, chapters, {1072, 1448});
+        checkMarkers();
+        scrubber.setBook(1600, 2000, chapters, {1072, 1448});
+        checkMarkers();
+        scrubber.findChild<QPushButton *>("rrScrubberZoomIn")->click();
+        checkMarkers();
+        scrubber.findChild<QPushButton *>("rrScrubberZoomOut")->click();
+        checkMarkers();
+        chapters = {{1300, "Replacement"}, {1700, "Last"}};
+        scrubber.setBook(1600, 2000, chapters, {1072, 1448});
+        checkMarkers();
+        chapters.clear();
+        scrubber.setBook(1600, 2000, chapters, {1072, 1448});
+        checkMarkers();
+        chapters = {{0, "Only"}};
+        scrubber.setBook(0, 1, chapters, {1072, 1448});
+        checkMarkers();
     }
     kobalt::ui::SettingSlider slider(&panel, 0, 100);
     slider.resize(300, 72);
