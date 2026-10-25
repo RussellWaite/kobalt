@@ -51,6 +51,7 @@ namespace {
 ui::Button *actionButton(QWidget *parent, const QString &text, const char *name, bool primary) {
     auto *button = new ui::Button(text, parent);
     button->setObjectName(name);
+    button->setProperty("reader_primary_action", primary);
     ui::readerStyle(button, (primary ? ui::styles::primary() : ui::styles::outlined()) +
                                "QPushButton{" + ui::styles::font(c::labelText) + "}");
     button->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);

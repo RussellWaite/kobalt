@@ -99,7 +99,12 @@ void Button::paintEvent(QPaintEvent *) {
             option.text.clear();
             style()->drawControl(QStyle::CE_PushButton, &option, &painter, this);
             painter.setFont(font());
-            painter.setPen(palette().color(isEnabled() ? QPalette::WindowText : QPalette::Mid));
+            // Stylesheets paint primary actions with inverted backgrounds.
+            // Their text uses theme colors even if Qt changed the widget palette.
+            const bool primary = property("reader_primary_action").toBool();
+            const auto colors = primary ? readerPalette(palette(), darkTheme(this)) : palette();
+            painter.setPen(colors.color(!isEnabled() ? QPalette::Mid
+                                        : primary && !isDown() ? QPalette::Window : QPalette::WindowText));
             drawInterfaceText(painter, rect(), text(), Qt::AlignCenter);
         } else {
             style()->drawControl(QStyle::CE_PushButton, &option, &painter, this);

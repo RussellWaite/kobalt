@@ -454,6 +454,23 @@ private slots:
             QCOMPARE(image.pixelColor(image.width() / 2, image.height() - 1), border);
             QCOMPARE(image.pixelColor(image.width() / 2, ui::px(8)), primary ? ink : paper);
             QVERIFY(button->height() >= QFontMetrics(button->font()).height() + ui::px(16));
+            const auto checkLabel = [&](const char *state) {
+                const auto labeled = button->grab().toImage();
+                const auto labelArea = labeled.rect().adjusted(ui::px(12), ui::px(4), -ui::px(12), -ui::px(4));
+                const auto label = button->text();
+                button->setText({});
+                const auto blank = button->grab().toImage();
+                button->setText(label);
+                QVERIFY2(labeled.copy(labelArea) != blank.copy(labelArea),
+                         qPrintable(QString("Button label is invisible: %1 (%2)").arg(name, state)));
+            };
+            checkLabel("normal");
+            button->setDown(true);
+            checkLabel("pressed");
+            button->setDown(false);
+            button->setEnabled(false);
+            checkLabel("disabled");
+            button->setEnabled(true);
             button->click();
         };
         const auto capture = [&](const QString &scene) {
