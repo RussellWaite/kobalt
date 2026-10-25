@@ -38,4 +38,8 @@ Keep Markdown in `doc/`, except the root `README.md` and `AGENTS.md`. The user o
 
 Do not stage, commit, push or publish without explicit authorization. Signed operations require an advance warning for 1Password prompts. Never add an agent coauthor. Preserve unrelated changes and the original checkout.
 
+Parallel workers implementing features must each use a separate Git worktree and a dedicated feature branch named `feature/name-of-feature`. The `feature/` prefix is required. Do not implement parallel features in the shared `develop` checkout. When authorized to integrate a feature into `develop`, prefer a fast-forward when possible. Otherwise, cherry-pick the feature commits. Create a merge commit only when the user explicitly requests one instead of cherry-picking.
+
+After successful integration, normally remove the worker's worktree and feature branch unless the user asks to keep them. Before removal, verify that the worktree has no uncommitted changes and that all intended changes are integrated. Preserve any needed test evidence or other artifacts before removing the worktree.
+
 Use lowercase release-stage words in commit messages, including `alpha` and `beta`, even when part of a release name. The abbreviation `RC` may remain uppercase.
