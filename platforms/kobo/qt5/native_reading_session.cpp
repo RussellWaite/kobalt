@@ -221,6 +221,8 @@ void NativeReadingSession::start(const ReadingActivity &activity) {
     QElapsedTimer timer;
     timer.start();
     api().sessions.start(engine, volume, state, {{"ViewType", "ReadingView"}});
+    // Nickel records detailed session timestamps separately from reading time.
+    api().fire(engine, "readerShown", volume, {});
     running = true;
 #ifndef KOBALT_READER_HARDWARE
     testActive = this;
@@ -293,6 +295,7 @@ void NativeReadingSession::stop() {
     SessionPosition state;
     state.percent = percent;
     const int seconds = api().sessions.end(api().engine(), volume, state, {});
+    api().fire(api().engine(), "readerHidden", volume, {});
     const bool events = flush();
     const bool time = addTime(book, seconds);
     diagnostic("reading-session-end", kobalt::qt::object({{"seconds", seconds},
