@@ -197,20 +197,33 @@ bool initializeInterfaceFonts(const AssetBundle &assets, bool *changed) {
     }
     if (!initializePrivateInterfaceText(assets))
         return false;
+    QStringList files;
+    for (const auto &family : families())
+        for (const auto &face : family.faces)
+            files.append(QLatin1String(face.file));
+    for (const auto *file : scriptFallbackFontFiles)
+        files.append(QLatin1String(file));
+    const auto readers = assets.deferredFontData(files);
+    if (readers.isEmpty())
+        return false;
     QMap<QString, QByteArray> sources, fallbackSources;
     for (const auto &family : families())
         for (const auto &face : family.faces) {
-            const auto bytes = assets.fontData(face.file);
+            const auto bytes = readers.value(QLatin1String(face.file))();
             if (bytes.isEmpty())
                 return false;
             sources.insert(face.file, bytes);
         }
     for (const auto *file : scriptFallbackFontFiles) {
-        const auto bytes = assets.fontData(file);
+        const auto bytes = readers.value(QLatin1String(file))();
         if (bytes.isEmpty())
             return false;
         fallbackSources.insert(file, bytes);
     }
+    // A different bundle member can disappear while these fonts are read.
+    // Check the whole bundle again before replacing the registered faces.
+    if (!assets.available())
+        return false;
     auto &current = registration();
     if (current.fallbackSources != fallbackSources) {
         auto scriptFallbackIds = addScriptFallbacks(fallbackSources);

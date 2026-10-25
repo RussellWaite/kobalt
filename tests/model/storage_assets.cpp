@@ -110,6 +110,49 @@ int main(int argc, char **argv) {
         deferred = temporaryBundle.deferredFontData("test.ttf");
     }
     expect(deferred && deferred() == "first synthetic font", "deferred font reader owns its verified metadata");
+    {
+        const auto root = temporary.path() + "/batch";
+        bundle(root, "first batch font");
+        auto manifest = storage::readJson(root + "/manifest.json");
+        auto entries = manifest["files"].toArray();
+        const QByteArray other("second batch font");
+        entries.append(qt::object({{"path", "fonts/other.ttf"}, {"size", other.size()},
+            {"sha256", QString::fromLatin1(QCryptographicHash::hash(other, QCryptographicHash::Sha256).toHex())}}));
+        manifest["files"] = entries;
+        write(root + "/fonts/other.ttf", other);
+        expect(storage::writeJson(root + "/manifest.json", manifest), "write batch manifest");
+        QMap<QString, std::function<QByteArray()>> readers;
+        {
+            AssetBundle batch(root, "asset-test");
+            readers = batch.deferredFontData(QStringList{"test.ttf", "other.ttf", "test.ttf"});
+            expect(readers.size() == 2 && readers["test.ttf"]() == "first batch font" && readers["other.ttf"]() == other,
+                   "batch returns the requested verified members without duplicate readers");
+            expect(batch.deferredFontData(QStringList{"test.ttf", "absent.ttf"}).isEmpty(),
+                   "one missing requested member rejects the whole batch");
+            write(root + "/fonts/test.ttf", "other batch font");
+            expect(readers["test.ttf"]().isEmpty(), "batch reader rejects same-size changed bytes");
+            write(root + "/fonts/test.ttf", "first batch font");
+            expect(QFile::remove(root + "/fonts/other.ttf"), "remove unrelated batch member");
+            expect(readers["test.ttf"]() == "first batch font" && readers["other.ttf"]().isEmpty(),
+                   "deferred readers validate their own members without retaining source bytes");
+            expect(!batch.available() && batch.deferredFontData(QStringList{"test.ttf"}).isEmpty(),
+                   "whole-bundle boundary rejects an unrelated missing member");
+            write(root + "/fonts/other.ttf", other);
+            batch.invalidate();
+            expect(batch.available() && readers["test.ttf"]() == "first batch font",
+                   "invalidation does not revoke unchanged verified metadata");
+            bundle(root, "replacement batch font");
+            batch.invalidate();
+            const auto replacement = batch.deferredFontData(QStringList{"test.ttf"});
+            expect(replacement.size() == 1 && replacement["test.ttf"]() == "replacement batch font" &&
+                       readers["test.ttf"]().isEmpty(),
+                   "a replacement manifest cannot make an old reader accept new bytes");
+            readers = replacement;
+        }
+        expect(readers["test.ttf"]() == "replacement batch font", "batch metadata outlives its bundle owner");
+        expect(QDir(root).removeRecursively(), "remove batch storage for USB handoff");
+        expect(readers["test.ttf"]().isEmpty(), "batch reader rejects removed storage after owner destruction");
+    }
     write(first + "/fonts/test.ttf", "other synthetic font");
     expect(deferred().isEmpty(), "deferred font reader rejects bytes changed after verification");
     write(first + "/fonts/test.ttf", "first synthetic font");

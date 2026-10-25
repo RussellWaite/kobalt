@@ -12,6 +12,7 @@
 #include <QMutex>
 #include <QMutexLocker>
 #include <QTemporaryDir>
+#include <algorithm>
 
 namespace kobalt {
 namespace {
@@ -198,14 +199,21 @@ std::function<QByteArray()> AssetBundle::deferredManifestFontData(const QString 
     return [opening, name] { return opening->manifestFontData(name); };
 }
 std::function<QByteArray()> AssetBundle::deferredFontData(const QString &name) const {
+    return deferredFontData(QStringList{name}).value(name);
+}
+QMap<QString, std::function<QByteArray()>> AssetBundle::deferredFontData(const QStringList &names) const {
     if (!available())
         return {};
     QMutexLocker lock(&data->mutex);
-    const auto path = file("fonts/" + name);
-    for (const auto &entry : data->checked) {
-        if (entry.path != path || entry.digest.isEmpty())
-            continue;
-        return [root = data->root, entry] {
+    QMap<QString, std::function<QByteArray()>> readers;
+    for (const auto &name : names) {
+        const auto path = file("fonts/" + name);
+        const auto found = std::find_if(data->checked.cbegin(), data->checked.cend(), [&](const Entry &entry) {
+            return entry.path == path && !entry.digest.isEmpty();
+        });
+        if (found == data->checked.cend())
+            return {};
+        readers.insert(name, [root = data->root, entry = *found] {
             if (!regularMember(root, entry.path))
                 return QByteArray();
             QFile original(entry.path);
@@ -216,9 +224,9 @@ std::function<QByteArray()> AssetBundle::deferredFontData(const QString &name) c
                            QCryptographicHash::hash(bytes, QCryptographicHash::Sha256).toHex() == entry.digest
                        ? bytes
                        : QByteArray();
-        };
+        });
     }
-    return {};
+    return readers;
 }
 struct FontCopies::Data {
     QTemporaryDir directory{QDir::tempPath() + "/kobalt-assets-XXXXXX"};

@@ -236,14 +236,17 @@ bool initializePrivateInterfaceText(const AssetBundle &assets, bool opening) {
     for (const auto *file : scriptFallbackFontFiles) {
         files.append(QLatin1String(file));
     }
-    for (const auto &file : files) {
-        const std::function<QByteArray()> read = opening
-            ? assets.deferredManifestFontData(file)
-            : assets.deferredFontData(file);
-        if (!read) {
-            return false;
+    if (opening) {
+        for (const auto &file : files) {
+            const auto read = assets.deferredManifestFontData(file);
+            if (!read)
+                return false;
+            pending.insert(file, read);
         }
-        pending.insert(file, read);
+    } else {
+        pending = assets.deferredFontData(files);
+        if (pending.isEmpty())
+            return false;
     }
     auto &state = fonts();
     if (!state.library && FT_Init_FreeType(&state.library)) {
