@@ -99,12 +99,14 @@ void Button::paintEvent(QPaintEvent *) {
             option.text.clear();
             style()->drawControl(QStyle::CE_PushButton, &option, &painter, this);
             painter.setFont(font());
-            // Stylesheets paint primary actions with inverted backgrounds.
-            // Their text uses theme colors even if Qt changed the widget palette.
+            // Qt5's stylesheet palette can keep the normal text color after
+            // a segment is selected or pressed. Match its painted background.
             const bool primary = property("reader_primary_action").toBool();
-            const auto colors = primary ? readerPalette(palette(), darkTheme(this)) : palette();
+            const bool segment = property("segment_first").isValid();
+            const bool inverted = segment ? isChecked() || isDown() : primary && !isDown();
+            const auto colors = primary || segment ? readerPalette(palette(), darkTheme(this)) : palette();
             painter.setPen(colors.color(!isEnabled() ? QPalette::Mid
-                                        : primary && !isDown() ? QPalette::Window : QPalette::WindowText));
+                                        : inverted ? QPalette::Window : QPalette::WindowText));
             drawInterfaceText(painter, rect(), text(), Qt::AlignCenter);
         } else {
             style()->drawControl(QStyle::CE_PushButton, &option, &painter, this);
@@ -332,12 +334,17 @@ void DropdownButton::paintEvent(QPaintEvent *) {
                palette().color(isEnabled() ? QPalette::WindowText : QPalette::Midlight));
     painter.setPen(ink);
     painter.setFont(labelFont());
-    const QRect label(m::choices::fontButtonLeft, 0, qMax(0, width() - m::choices::fontButtonWidthReserve), height());
+    // Forward choices center their label in the whole button. Reserve the
+    // chevron's space on both sides so it cannot shift that center.
+    const int inset = forward ? qMax(int(m::choices::fontButtonLeft),
+                                     int(m::choices::fontButtonWidthReserve) - int(m::choices::fontButtonLeft))
+                              : int(m::choices::fontButtonLeft);
+    const QRect label(inset, 0, qMax(0, width() - (forward ? 2 * inset : int(m::choices::fontButtonWidthReserve))), height());
     if (opticalLabel())
-        drawOpticalText(painter, label, text(), false, sampleAppearance());
+        drawOpticalText(painter, label, text(), forward, sampleAppearance());
     else
         drawInterfaceText(painter, label, elideInterfaceText(text(), painter.font(), label.width()),
-                          Qt::AlignLeft | Qt::AlignVCenter);
+                          (forward ? Qt::AlignHCenter : Qt::AlignLeft) | Qt::AlignVCenter);
     const int size = m::choices::fontArrowSize;
     const auto arrow = forward                             ? ControlIcon::Next
                        : property("opens_upward").toBool() ? ControlIcon::Up

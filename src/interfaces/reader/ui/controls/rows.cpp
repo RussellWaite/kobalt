@@ -226,9 +226,12 @@ bool ListRow::eventFilter(QObject *object, QEvent *event) {
         (event->type() == QEvent::PaletteChange || event->type() == QEvent::DynamicPropertyChange))
         syncLabelStyles();
     if (!synchronizing &&
-        (object == title || object == detail || object == caption || object == leading || object == trailing) &&
-        (event->type() == QEvent::FontChange || event->type() == QEvent::StyleChange))
-        arrange();
+        (object == title || object == detail || object == caption || object == leading || object == trailing)) {
+        if (event->type() == QEvent::PaletteChange)
+            syncLabelStyles();
+        else if (event->type() == QEvent::FontChange || event->type() == QEvent::StyleChange)
+            arrange();
+    }
     return Button::eventFilter(object, event);
 }
 void ListRow::syncLabelStyles() {
@@ -245,6 +248,15 @@ void ListRow::syncLabelStyles() {
         const QString style = labelStyles[index++] + "color:" + color.name() + ';';
         if (label->property("reader_style").toString() != style) {
             readerStyle(label, style);
+            changed = true;
+        }
+        // Theme propagation can reset the palette without changing the
+        // stylesheet. Private text reads this role directly.
+        const QColor textColor(color.name());
+        if (label->palette().color(QPalette::WindowText) != textColor) {
+            auto colors = label->palette();
+            colors.setColor(QPalette::WindowText, textColor);
+            label->setPalette(colors);
             changed = true;
         }
     }

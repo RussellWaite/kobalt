@@ -245,6 +245,55 @@ int main(int argc, char **argv) {
                 };
                 setTheme(first, dark);
                 setTheme(second, !dark);
+                {
+                    QWidget controls;
+                    setTheme(controls, dark);
+                    applyReaderPalette(&controls, readerPalette(controls.palette(), dark));
+                    controls.resize(px(700), px(180));
+                    controls.show();
+                    {
+                        DropdownButton profile(&controls);
+                        profile.resize(px(600), px(90));
+                        profile.setText("Kobalt");
+                        profile.setForward(true);
+                        readerStyle(&profile, styles::font(metrics::text::secondary));
+                        applyReaderPalette(&profile, controls.palette());
+                        profile.show();
+                        app.processEvents();
+                        const auto image = profile.grab().toImage();
+                        const auto area = image.rect().adjusted(px(8), px(8), -px(100), -px(8));
+                        QRect ink;
+                        for (int y = area.top(); y <= area.bottom(); ++y)
+                            for (int x = area.left(); x <= area.right(); ++x)
+                                if (dark ? qGray(image.pixel(x, y)) > 192 : qGray(image.pixel(x, y)) < 64)
+                                    ink |= QRect(x, y, 1, 1);
+                        require(!ink.isEmpty() && qAbs(ink.center().x() - image.rect().center().x()) <= px(4),
+                                "Forward profile label is not horizontally centered");
+                    }
+                    QVBoxLayout rows(&controls);
+                    SegmentedRow segments(&controls, &rows, "contrastSegments", "Header");
+                    auto *small = segments.add("contrastSmall", "Small");
+                    auto *large = segments.add("contrastLarge", "Large");
+                    app.processEvents();
+                    for (const bool enabled : {true, false})
+                        for (const bool checked : {false, true})
+                            for (const bool pressed : {false, true}) {
+                                small->setEnabled(enabled);
+                                (checked ? small : large)->setChecked(true);
+                                small->setDown(pressed);
+                                applyReaderPalette(small, readerPalette(controls.palette(), dark));
+                                const auto image = small->grab().toImage();
+                                const auto color = !enabled ? QColor("#999999")
+                                    : controls.palette().color(checked || pressed ? QPalette::Window
+                                                                                 : QPalette::WindowText);
+                                const auto area = image.rect().adjusted(px(8), px(8), -px(8), -px(8));
+                                int pixels = 0;
+                                for (int y = area.top(); y <= area.bottom(); ++y)
+                                    for (int x = area.left(); x <= area.right(); ++x)
+                                        pixels += image.pixelColor(x, y) == color;
+                                require(pixels > 10, "Segment label disappeared after palette propagation");
+                            }
+                }
                 PaintCountingListRow row(&first);
                 row.setCheckable(true);
                 row.resize(px(480), metrics::list::twoLines);
@@ -297,6 +346,14 @@ int main(int argc, char **argv) {
                 row.blockSignals(false);
                 row.setChecked(true);
                 labelInk(row.titleLabel(), first.palette().color(QPalette::Window));
+                // Applying the window theme to existing children must keep
+                // the selected row's contrasting text, including in Qt5.
+                for (auto *label : {row.titleLabel(), row.detailLabel(), row.captionLabel(),
+                                     row.leadingLabel(), row.trailingLabel()})
+                    applyReaderPalette(label, first.palette());
+                require(row.titleLabel()->palette().color(QPalette::WindowText) ==
+                            first.palette().color(QPalette::Window),
+                        "Applying the theme erased the selected row label color");
                 row.setEnabled(false);
                 labelInk(row.titleLabel(), QColor("#999999"));
                 row.setEnabled(true);
