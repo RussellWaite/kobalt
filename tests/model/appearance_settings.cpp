@@ -16,6 +16,18 @@ int main() {
         require(!appearance::cleanPreferences({{"tappable_links", invalid}}).contains("tappable_links"),
                 "Invalid direct-tap preference did not fall back to Off");
 
+
+    const auto dictionary = appearance::cleanPreferences(qt::object({{"dictionary_font_face", "Libron"},
+        {"dictionary_font_size", 120}, {"private_optional", "keep"}}));
+    require(dictionary.value("dictionary_font_face").toString() == "Libron" &&
+            dictionary.value("dictionary_font_size").toInt() == 120 &&
+            dictionary.value("private_optional").toString() == "keep", "Dictionary preferences lost saved values");
+    for (const auto &size : {QJsonValue(0), QJsonValue(110), QJsonValue(120.5), QJsonValue(QStringLiteral("120")), QJsonValue(true)})
+        require(!appearance::cleanPreferences(qt::object({{"dictionary_font_size", size}})).contains("dictionary_font_size"),
+                "Invalid dictionary size survived preference cleanup");
+    require(!appearance::cleanPreferences(qt::object({{"dictionary_font_face", 12}})).contains("dictionary_font_face"),
+            "Invalid dictionary font survived preference cleanup");
+    require(appearance::same({}, dictionary), "Dictionary UI preferences invalidated the book layout");
     // Appearance settings decide the layout. The list must stay complete, because a
     // missing key would let a retained layout survive a changed setting.
     require(appearance::keys.size() == 27, "The appearance keys changed without this check");

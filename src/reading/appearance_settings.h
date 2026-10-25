@@ -11,6 +11,13 @@ inline constexpr int defaultVariableFontWeight = 450;
 inline constexpr int defaultColumnSpacingPercent = 150;
 
 namespace appearance {
+inline constexpr std::array<int, 4> dictionaryFontSizes{80, 100, 120, 140};
+inline bool validDictionaryFontSize(int percent) {
+    for (int size : dictionaryFontSizes)
+        if (size == percent)
+            return true;
+    return false;
+}
 // Global generic-family fallbacks. An empty value keeps the bundled default.
 inline constexpr std::array<const char *, 3> fallbackFontKeys{"serif_font_face", "sans_font_face",
                                                               "monospace_font_face"};

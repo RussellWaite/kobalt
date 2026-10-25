@@ -326,6 +326,8 @@ private:
     QJsonObject settingsFontFaces;
     QString settingsDefaultFontFace;
     QString settingsUiFontFace, settingsUiMonoFontFace, settingsHeaderFooterFontFace;
+    QString settingsDictionaryFontFace;
+    int settingsDictionaryFontSize = 100;
     int settingsHeaderFooterWeight = 2;
     void applyInterfaceFonts();
     void showSettingsFonts();

@@ -161,7 +161,9 @@ Reader::Reader(std::unique_ptr<kobalt::ReadingBook> openedBook, kobalt::ReaderOr
     settingsUiFontFace = preferences.value("ui_font_face").toString();
     settingsUiMonoFontFace = preferences.value("ui_mono_font_face").toString();
     settingsHeaderFooterFontFace = preferences.value("header_footer_font_face").toString();
-    for (auto *face : {&settingsUiFontFace, &settingsUiMonoFontFace, &settingsHeaderFooterFontFace}) {
+    settingsDictionaryFontFace = preferences.value("dictionary_font_face").toString();
+    settingsDictionaryFontSize = preferences.value("dictionary_font_size").toInt(100);
+    for (auto *face : {&settingsUiFontFace, &settingsUiMonoFontFace, &settingsHeaderFooterFontFace, &settingsDictionaryFontFace}) {
         if (!model->fontFaces().contains(*face))
             face->clear();
         if (!face->isEmpty())
@@ -249,6 +251,7 @@ void Reader::buildReadingPage() {
     page->setFont(kobalt::ui::headerFooterFont());
     readerStyle(page, "font-family:@header-footer-font@;");
     dictionaryPanel = new kobalt::DictionaryPanel(this);
+    dictionaryPanel->setDefinitionFont(settingsDictionaryFontFace, settingsDictionaryFontSize);
     dictionaryPanel->setLanguage(model->state().value("language").toString());
     dictionaryPanel->dismissed = [this] {
         dismissDictionary();
@@ -1099,6 +1102,21 @@ void Reader::buildSettings() {
     connect(settings->uiFontButton, &QPushButton::clicked, this, [this] {
         openSettingsFont("ui_font_face");
     });
+    connect(settings->dictionaryFontButton, &QPushButton::clicked, this, [this] {
+        openSettingsFont("dictionary_font_face");
+    });
+    connect(settings->dictionaryFontSizeButton, &QPushButton::clicked, this, [this, settings] {
+        const auto family = !settingsDictionaryFontFace.isEmpty() ? settingsDictionaryFontFace
+                            : !settingsUiFontFace.isEmpty() ? settingsUiFontFace : QStringLiteral("IBM Plex Sans");
+        registerPickerFonts(family);
+        settings->showDictionaryFontSizes(settingsDictionaryFontSize, family, !settingsDictionaryFontFace.isEmpty(), [this](int percent) {
+            settingsDictionaryFontSize = percent;
+            showSettingsFonts();
+        });
+        settingsFontPopup = settings->fontDialog;
+        if (settingsFontPopup)
+            settingsFontPopup->installEventFilter(this);
+    });
     connect(settings->uiMonoFontButton, &QPushButton::clicked, this, [this] {
         openSettingsFont("ui_mono_font_face");
     });
@@ -1165,6 +1183,8 @@ void Reader::buildSettings() {
         settingsUiFontFace.clear();
         settingsUiMonoFontFace.clear();
         settingsHeaderFooterFontFace.clear();
+        settingsDictionaryFontFace.clear();
+        settingsDictionaryFontSize = 100;
         settingsHeaderFooterWeight = 2;
         hideTabLabelsOption->setChecked(false);
         for (const auto *key : appearance::fallbackFontKeys)

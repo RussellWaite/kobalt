@@ -16,6 +16,7 @@
 #include "interfaces/library/library_view.h"
 #include "library/library_store.h"
 #include "reading/reading_density.h"
+#include "reading/appearance_settings.h"
 #include "storage/reader_storage.h"
 #include "storage/bookmark_store.h"
 #include "storage/highlight_store.h"
@@ -28,6 +29,8 @@
 #include "interfaces/reader/ui/controls/page_scrubber.h"
 #include "interfaces/reader/ui/controls/loading.h"
 #include "interfaces/reader/settings/dictionaries_page.h"
+#include "interfaces/reader/panels/dictionary_panel.h"
+#include "interfaces/reader/ui/controls/paged_text.h"
 #include <lvtinydom.h>
 
 #include <QApplication>
@@ -574,6 +577,21 @@ void openPrologueBody(Fixture &fixture) {
     advanceIntoBody(fixture);
 }
 
+bool revealSettingsOption(Fixture &fixture, const char *name) {
+    auto *reader = fixture.window.readerWindow();
+    auto *option = fixture.widget(name);
+    if (!reader || !option)
+        return false;
+    for (int attempt = 0; attempt < 12; ++attempt) {
+        auto *hit = reader->childAt(option->mapTo(reader, option->rect().center()));
+        if (hit && (hit == option || option->isAncestorOf(hit)))
+            return true;
+        if (!fixture.press("rrSettingsOptionsNext"))
+            return false;
+    }
+    return false;
+}
+
 // The same real-widget tour supplies integration checks and screenshot scenes.
 void tour(Fixture &fixture, const QString &name, bool screenshots) {
     const auto scene = [&](const QString &suffix) { return !screenshots || capture(fixture, name + '-' + suffix); };
@@ -738,6 +756,14 @@ void tour(Fixture &fixture, const QString &name, bool screenshots) {
         QVERIFY(scene("dictionaries"));
         QVERIFY(fixture.press("rrSettingsUI"));
         QVERIFY(scene("ui"));
+        QVERIFY(fixture.press("rrSettingsSystem"));
+        QVERIFY(revealSettingsOption(fixture, "rrDictionaryFontSize"));
+        QVERIFY(scene("dictionary-ui"));
+        QVERIFY(fixture.press("rrDictionaryFontSize"));
+        QTRY_VERIFY(fixture.visible("rrDictionaryFontSizePopup"));
+        QVERIFY(scene("dictionary-font-sizes"));
+        QVERIFY(fixture.press("rrDictionaryFontSize100"));
+        QTRY_VERIFY(!fixture.visible("rrDictionaryFontSizePopup"));
     }
     QVERIFY(fixture.press("rrSettingsAbout"));
     QTRY_VERIFY(fixture.visible("rrAboutVersion"));
@@ -2824,6 +2850,85 @@ private slots:
         QCOMPARE(fixture.state().value("position"), origin);
     }
     void settings_data() { bookmarks_data(); }
+    void dictionaryAppearance_data() { bookmarks_data(); }
+    void dictionaryAppearance() {
+        QFETCH(bool, dark);
+        Fixture fixture(dark);
+        QVERIFY(fixture.prepared);
+        QSignalSpy opened(&fixture.window, &desktop::Window::bookOpened);
+        fixture.window.openBook(book);
+        QTRY_COMPARE_WITH_TIMEOUT(opened.count(), 1, 10000);
+        QTRY_VERIFY(!fixture.state().value("busy").toBool());
+        openPrologueBody(fixture);
+        auto *reader = fixture.window.readerWindow();
+        auto *page = static_cast<ReadingPage *>(fixture.widget("rrPage"));
+        const auto position = fixture.state().value("position");
+        QVERIFY(fixture.press("rrPage"));
+        QVERIFY(fixture.press("rrSettings"));
+        QVERIFY(fixture.press("rrSettingsSystem"));
+        QVERIFY(revealSettingsOption(fixture, "rrDictionaryFont"));
+        QVERIFY(fixture.press("rrDictionaryFont"));
+        QTRY_VERIFY(fixture.visible("rrSettingsFontPopup"));
+        QAbstractButton *chosen = nullptr;
+        for (int attempt = 0; attempt < 12 && !chosen; ++attempt) {
+            for (auto *option : reader->findChildren<QAbstractButton *>())
+                if (option->isVisible() && option->objectName().startsWith("rrSettingsFontChoice") &&
+                    option->property("reader_font_family").toString() == "Libron")
+                    chosen = option;
+            if (!chosen)
+                QVERIFY(fixture.press("rrSettingsFontNext"));
+        }
+        QVERIFY(chosen);
+        QVERIFY(fixture.press(qPrintable(chosen->objectName())));
+        QTRY_VERIFY(!fixture.visible("rrSettingsFontPopup"));
+        QVERIFY(revealSettingsOption(fixture, "rrDictionaryFontSize"));
+        QVERIFY(fixture.press("rrDictionaryFontSize"));
+        QTRY_VERIFY(fixture.visible("rrDictionaryFontSizePopup"));
+        auto *popup = fixture.widget("rrDictionaryFontSizePopup");
+        for (int percent : appearance::dictionaryFontSizes) {
+            auto *option = fixture.widget(qPrintable(QString("rrDictionaryFontSize%1").arg(percent)));
+            QVERIFY(option && option->isVisible());
+            QVERIFY(popup->rect().contains(QRect(option->mapTo(popup, QPoint()), option->size())));
+        }
+        QVERIFY(fixture.press("rrDictionaryFontSize140"));
+        QVERIFY(!storage::readJson(fixture.paths.preferences()).contains("dictionary_font_face"));
+        QVERIFY(fixture.press("rrSettingsClose"));
+        QTRY_VERIFY(!fixture.visible("rrGeneralSettings"));
+        QTRY_VERIFY(!fixture.state().value("busy").toBool());
+        QCOMPARE(storage::readJson(fixture.paths.preferences()).value("dictionary_font_face").toString(), QString("Libron"));
+        QCOMPARE(storage::readJson(fixture.paths.preferences()).value("dictionary_font_size").toInt(), 140);
+        QCOMPARE(fixture.state().value("position"), position);
+        QVERIFY(fixture.press("rrPage"));
+        QTRY_VERIFY(!fixture.visible("rrControlsTop"));
+        QVERIFY(fixture.selectWord(page, fixture.wordPoint()));
+        QTRY_VERIFY(fixture.visible("rrDictionary"));
+        auto *definition = dynamic_cast<ui::PagedText *>(fixture.widget("rrDefinition"));
+        QVERIFY(definition);
+        QCOMPARE(definition->textFont().family(), QString("Libron"));
+        QCOMPARE(definition->textFont().pixelSize(), DictionaryPanel::definitionFont("Libron", 140).pixelSize());
+        QVERIFY(fixture.press("rrDictionaryClose"));
+        reader->close();
+        QTRY_VERIFY(fixture.window.idle());
+        fixture.window.openBook(book);
+        QTRY_COMPARE_WITH_TIMEOUT(opened.count(), 2, 10000);
+        QTRY_VERIFY(!fixture.state().value("busy").toBool());
+        definition = dynamic_cast<ui::PagedText *>(fixture.widget("rrDefinition"));
+        QVERIFY(definition);
+        QCOMPARE(definition->textFont().family(), QString("Libron"));
+        QCOMPARE(definition->textFont().pixelSize(), DictionaryPanel::definitionFont("Libron", 140).pixelSize());
+        QVERIFY(fixture.press("rrPage"));
+        QVERIFY(fixture.press("rrSettings"));
+        QVERIFY(fixture.press("rrSettingsDefaults"));
+        QVERIFY(fixture.press("rrRestoreDefaults"));
+        QTRY_VERIFY(fixture.visible("rrRestoreConfirmation"));
+        QVERIFY(fixture.press("rrConfirmDefaults"));
+        QVERIFY(fixture.press("rrSettingsClose"));
+        QTRY_VERIFY(!fixture.visible("rrGeneralSettings"));
+        QTRY_VERIFY(!fixture.state().value("busy").toBool());
+        const auto defaults = storage::readJson(fixture.paths.preferences());
+        QVERIFY(defaults.value("dictionary_font_face").toString().isEmpty());
+        QCOMPARE(defaults.value("dictionary_font_size").toInt(), 100);
+    }
     void dictionaryRedraw_data() { bookmarks_data(); }
     void dictionaryRedraw() {
         QFETCH(bool, dark);

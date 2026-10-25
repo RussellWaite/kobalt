@@ -7,8 +7,10 @@
 #include "interfaces/reader/ui/dialogs/modals.h"
 #include "interfaces/reader/ui/style/theme.h"
 #include "settings_panel.h"
+#include "interfaces/reader/panels/dictionary_panel.h"
 #include "reading/appearance_settings.h"
 #include "support/strings.h"
+#include "support/qt_font.h"
 #include "assets/font_catalog.h"
 #include "interfaces/reader/ui/style/metrics.h"
 #include "interfaces/reader/ui/style/private_text.h"
@@ -486,6 +488,13 @@ SettingsPanel::SettingsPanel(QWidget *parent, const SettingsPanelInputs &inputs)
     hideTabLabelsOption = check(systemPage, "rrHideTabLabels", strings::get("settings.hide_tab_labels"),
                                 strings::get("settings.hide_tab_labels_description"));
     systemRows->addWidget(hideTabLabelsOption);
+    section(systemPage, systemRows, "rrSystemDictionarySection", strings::get("settings.section_dictionary_ui"));
+    dictionaryFontButton = ui::makeCaptionButton(systemPage, nullptr, "rrDictionaryFont",
+                                                strings::get("settings.dictionary_font"), [] {});
+    dictionaryFontSizeButton = ui::makeCaptionButton(systemPage, nullptr, "rrDictionaryFontSize",
+                                                    strings::get("settings.dictionary_font_size"), [] {});
+    systemRows->addWidget(dictionaryFontButton);
+    systemRows->addWidget(dictionaryFontSizeButton);
     systemRows->addStretch(1);
     auto *aboutPage = new QWidget(settingsPages);
     aboutPage->setObjectName("rrAbout");
@@ -663,6 +672,7 @@ SettingsPanel::SettingsPanel(QWidget *parent, const SettingsPanelInputs &inputs)
          {resetDefaults, refreshButton, columnSpacingButton, sleepScreenButton, sleepTileButton, pageNavigationButton,
           tapZonesButton, tappableLinksButton, navigationBarButton,
           menuViewButton, uiFontButton, uiMonoFontButton, headerFooterFontButton, headerFooterWeightButton,
+          dictionaryFontButton, dictionaryFontSizeButton,
           defaultFontButton, serifFontButton, sansFontButton, monoFontButton, wordSpacingButton, trackingButton, widowsOrphansButton}) {
         button->setRule(Qt::BottomEdge);
         // The refresh row's caption shows its current choice, set when Settings opens.
@@ -918,6 +928,74 @@ void SettingsPanel::showFontChoices(const QString &title, const QVector<ReadingF
         if (selected >= pages[page].first && selected < pages[page].first + pages[page].second)
             initialPage = page;
     showPage(initialPage);
+    fontDialog->show();
+    fontDialog->raise();
+    fontDialog->setFocus();
+}
+QString SettingsPanel::dictionaryFontSizeLabel(int percent) {
+    switch (percent) {
+    case 80: return strings::get("settings.dictionary_font_small");
+    case 120: return strings::get("settings.dictionary_font_large");
+    case 140: return strings::get("settings.dictionary_font_extra_large");
+    default: return strings::get("settings.dictionary_font_standard");
+    }
+}
+void SettingsPanel::showDictionaryFontSizes(int current, const QString &family, bool customFont,
+                                           std::function<void(int)> chosen) {
+    if (fontDialog)
+        return;
+    fontDialog = new ui::ModalOverlay(parentWidget());
+    fontDialog->setObjectName("rrDictionaryFontSizePopup");
+    fontDialog->setDimmed(true);
+    fontDialog->setGeometry(parentWidget()->rect());
+    fontDialog->dismissed = [this] { dismissFontChoices(); };
+    auto *card = fontDialog->card();
+    auto *rows = card->rows();
+    rows->setContentsMargins(m::control::border, m::notice::cardMargins.top(), m::control::border, m::control::border);
+    rows->setSpacing(0);
+    auto *heading = card->title(strings::get("settings.dictionary_font_size"));
+    heading->setContentsMargins(c::inset, 0, c::inset, m::notice::cardMargins.bottom());
+    auto *choices = new ui::RadioList(card);
+    choices->setMinimumRowHeight(m::list::oneLine);
+    choices->setTopDivider(true);
+    for (int percent : appearance::dictionaryFontSizes) {
+        auto *option = choices->add(QString("rrDictionaryFontSize%1").arg(percent), dictionaryFontSizeLabel(percent));
+        const auto font = DictionaryPanel::definitionFont(family, percent);
+        const int lineHeight = DictionaryPanel::definitionLineHeight(percent, customFont);
+        const auto sample = strings::get("settings.dictionary_font_sample");
+        auto *preview = new QWidget(option);
+        preview->setObjectName(QString("rrDictionaryFontPreview%1").arg(percent));
+        const int padding = ui::px(12);
+        auto *layout = new QHBoxLayout(preview);
+        layout->setContentsMargins(padding, padding, padding, padding);
+        auto *label = new ui::SampleLabel(preview);
+        label->optical = true;
+        label->setTextFormat(Qt::PlainText);
+        label->setFont(font);
+        label->setText(sample);
+        auto face = font.family();
+        face.replace('\\', "\\\\");
+        face.replace('"', "\\\"");
+        readerStyle(label, QString("font-family:\"%1\";font-size:%2px;font-weight:400;background:transparent;border:none;")
+                               .arg(face).arg(font.pixelSize()));
+        label->ensurePolished();
+        layout->addWidget(label);
+        const auto sampleFont = label->font();
+        const int height = qCeil(ui::interfaceLineHeight(sampleFont) * qMax(100, lineHeight) / 100.0) + 2 * padding;
+        const int textWidth = ui::interfaceTextWidth(sample, sampleFont);
+        option->setPreview(preview, {textWidth + 2 * padding, height});
+        if (percent == current)
+            choices->setCurrent(choices->options().size() - 1);
+    }
+    choices->chosen = [this, chosen](int index) {
+        dismissFontChoices();
+        chosen(appearance::dictionaryFontSizes[index]);
+    };
+    rows->addWidget(choices);
+    const int cardWidth = qMin<int>(m::notice::cardWidth, parentWidget()->width() - 2 * m::notice::sideClearance);
+    choices->setFixedHeight(choices->heightForWidth(cardWidth - 2 * m::control::border));
+    card->fitToWidth(cardWidth);
+    fontDialog->centerCard();
     fontDialog->show();
     fontDialog->raise();
     fontDialog->setFocus();

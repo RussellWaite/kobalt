@@ -19,6 +19,9 @@ public:
     void setLanguage(const QString &language);
     // The face the book is displayed in. The word in the header uses it.
     void setBookFont(const QString &family);
+    static QFont definitionFont(const QString &family, int percent);
+    static int definitionLineHeight(int percent, bool customFont = false);
+    void setDefinitionFont(const QString &family, int percent);
     void open(const QString &word, const DictionaryResult &result, const QRect &selection);
     void place(const QRect &selection);
     static QString formatDefinition(const QString &html);

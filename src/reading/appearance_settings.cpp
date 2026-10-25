@@ -87,7 +87,7 @@ QJsonObject cleanPreferences(QJsonObject preferences) {
     choice("page_navigation", {"taps_and_swipes", "taps_only", "swipes_only", "buttons_only"});
     choice("tap_zones", {"left_right", "reversed", "top_bottom", "one_handed"});
     choice("screen_refresh", {"smart", "1", "chapter", "6", "10", "20", "manual"});
-    for (const auto *key : {"default_font_face", "ui_font_face", "ui_mono_font_face", "header_footer_font_face",
+    for (const auto *key : {"default_font_face", "ui_font_face", "ui_mono_font_face", "header_footer_font_face", "dictionary_font_face",
                             "serif_font_face", "sans_font_face", "monospace_font_face"})
         if (preferences.contains(key) && (!preferences.value(key).isString() || preferences.value(key).toString().size() > 512))
             preferences.remove(key);
@@ -101,6 +101,10 @@ QJsonObject cleanPreferences(QJsonObject preferences) {
             value.toDouble() > maximum || value.toDouble() != value.toInt())) preferences.remove(key);
     };
     number("column_spacing_percent", 100, 300);
+    number("dictionary_font_size", 80, 140);
+    if (preferences.contains("dictionary_font_size") &&
+        !validDictionaryFontSize(preferences.value("dictionary_font_size").toInt()))
+        preferences.remove("dictionary_font_size");
     number("header_footer_added_weight", 0, 8);
     if (preferences.value("header_footer_added_weight").toInt() % 2 != 0) preferences.remove("header_footer_added_weight");
     if (preferences.contains("word_spacing") && (!preferences.value("word_spacing").isDouble() ||

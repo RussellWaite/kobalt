@@ -243,9 +243,11 @@ void Reader::openSettings() {
     settingsUiFontFace = preferences.value("ui_font_face").toString();
     settingsUiMonoFontFace = preferences.value("ui_mono_font_face").toString();
     settingsHeaderFooterFontFace = preferences.value("header_footer_font_face").toString();
+    settingsDictionaryFontFace = preferences.value("dictionary_font_face").toString();
+    settingsDictionaryFontSize = preferences.value("dictionary_font_size").toInt(100);
     settingsHeaderFooterWeight = ui::headerFooterAddedWeight();
     hideTabLabelsOption->setChecked(preferences.value("hide_tab_labels").toBool(false));
-    for (auto *face : {&settingsUiFontFace, &settingsUiMonoFontFace, &settingsHeaderFooterFontFace})
+    for (auto *face : {&settingsUiFontFace, &settingsUiMonoFontFace, &settingsHeaderFooterFontFace, &settingsDictionaryFontFace})
         if (!model->fontFaces().contains(*face))
             face->clear();
     showSettingsFonts();
@@ -346,6 +348,8 @@ void Reader::applySettings() {
     next["ui_font_face"] = settingsUiFontFace;
     next["ui_mono_font_face"] = settingsUiMonoFontFace;
     next["header_footer_font_face"] = settingsHeaderFooterFontFace;
+    next["dictionary_font_face"] = settingsDictionaryFontFace;
+    next["dictionary_font_size"] = settingsDictionaryFontSize;
     next["header_footer_added_weight"] = settingsHeaderFooterWeight;
     next["hide_tab_labels"] = hideTabLabelsOption->isChecked();
     for (const auto *key : appearance::fallbackFontKeys)
@@ -389,6 +393,7 @@ void Reader::applySettings() {
     preferences = next;
     ui::setHeaderFooterAddedWeight(settingsHeaderFooterWeight);
     applyInterfaceFonts();
+    dictionaryPanel->setDefinitionFont(settingsDictionaryFontFace, settingsDictionaryFontSize);
     navigation->setStatusVisible(!hideNativeStatus());
     const auto chrome = kobalt::headerfooter::select(preferences);
     chromePreset = chrome.preset;
@@ -846,6 +851,13 @@ void Reader::showSettingsFonts() {
            settingsUiMonoFontFace.isEmpty() ? QStringLiteral("IBM Plex Mono") : settingsUiMonoFontFace);
     sample(panel->headerFooterFontButton,
            settingsHeaderFooterFontFace.isEmpty() ? QStringLiteral("IBM Plex Mono") : settingsHeaderFooterFontFace);
+    const auto dictionaryDefault = settingsUiFontFace.isEmpty() ? QStringLiteral("IBM Plex Sans") : settingsUiFontFace;
+    const auto dictionaryFace = settingsDictionaryFontFace.isEmpty() ? dictionaryDefault : settingsDictionaryFontFace;
+    panel->dictionaryFontButton->setCaption((settingsDictionaryFontFace.isEmpty()
+        ? strings::get("settings.font_default_value").arg(fontDisplayName(dictionaryDefault))
+        : fontDisplayName(settingsDictionaryFontFace)).toUpper());
+    sample(panel->dictionaryFontButton, dictionaryFace);
+    panel->dictionaryFontSizeButton->setCaption(SettingsPanel::dictionaryFontSizeLabel(settingsDictionaryFontSize).toUpper());
     sample(panel->defaultFontButton, settingsDefaultFontFace);
     panel->defaultFontButton->setCaption(fontDisplayName(settingsDefaultFontFace).toUpper());
     const auto defaults = fallbackFontDefaults(model->fontFaces());
@@ -863,12 +875,12 @@ void Reader::showSettingsFonts() {
 void Reader::openSettingsFont(const QString &key) {
     const bool isDefault = key == "default_font_face";
     const bool isUi = key == "ui_font_face", isMono = key == "ui_mono_font_face",
-               isHeaderFooter = key == "header_footer_font_face";
+               isHeaderFooter = key == "header_footer_font_face", isDictionary = key == "dictionary_font_face";
     int index = -1;
     for (int family = 0; family < int(appearance::fallbackFontKeys.size()); ++family)
         if (key == appearance::fallbackFontKeys[family])
             index = family;
-    if ((!isDefault && !isUi && !isMono && !isHeaderFooter && index < 0) || !general->isVisible())
+    if ((!isDefault && !isUi && !isMono && !isHeaderFooter && !isDictionary && index < 0) || !general->isVisible())
         return;
     auto *panel = static_cast<SettingsPanel *>(general);
     const QStringList titles{strings::get("settings.serif_font"), strings::get("settings.sans_font"),
@@ -886,18 +898,21 @@ void Reader::openSettingsFont(const QString &key) {
         : isUi           ? strings::get("settings.ui_font")
         : isMono         ? strings::get("settings.ui_mono_font")
         : isHeaderFooter ? strings::get("settings.header_footer_font")
+        : isDictionary   ? strings::get("settings.dictionary_font")
                          : titles[index],
         fonts,
         isDefault        ? settingsDefaultFontFace
         : isUi           ? settingsUiFontFace
         : isMono         ? settingsUiMonoFontFace
         : isHeaderFooter ? settingsHeaderFooterFontFace
+        : isDictionary   ? settingsDictionaryFontFace
                          : settingsFontFaces.value(key).toString(),
         isDefault                    ? QString(defaultFontFace)
         : isUi                       ? QString("IBM Plex Sans")
         : (isMono || isHeaderFooter) ? QString("IBM Plex Mono")
+        : isDictionary               ? (settingsUiFontFace.isEmpty() ? QString("IBM Plex Sans") : settingsUiFontFace)
                                      : fallbackFontDefaults(model->fontFaces())[index],
-        [this, key, isDefault, isUi, isMono, isHeaderFooter](const QString &family) {
+        [this, key, isDefault, isUi, isMono, isHeaderFooter, isDictionary](const QString &family) {
             if (isDefault)
                 settingsDefaultFontFace = family;
             else if (isUi)
@@ -906,6 +921,8 @@ void Reader::openSettingsFont(const QString &key) {
                 settingsUiMonoFontFace = family;
             else if (isHeaderFooter)
                 settingsHeaderFooterFontFace = family;
+            else if (isDictionary)
+                settingsDictionaryFontFace = family;
             else
                 settingsFontFaces[key] = family;
             showSettingsFonts();

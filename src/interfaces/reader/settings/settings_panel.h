@@ -42,6 +42,8 @@ public:
                          std::function<void(const QStringList &)> prepareFonts = {});
     void dismissFontChoices();
     void showHeaderFooterWeights(int current, const QFont &sampleFont, std::function<void(int)> chosen);
+    void showDictionaryFontSizes(int current, const QString &family, bool customFont, std::function<void(int)> chosen);
+    static QString dictionaryFontSizeLabel(int percent);
     void showColumnSpacingChoices(int current, std::function<void(int)> chosen);
     static QString columnSpacingLabel(int percent);
     enum class AdvancedText { WordSpacing, Tracking, Pagination };
@@ -63,6 +65,7 @@ public:
     ui::CaptionButton *defaultFontButton = nullptr, *uiFontButton = nullptr, *uiMonoFontButton = nullptr,
                       *headerFooterFontButton = nullptr, *headerFooterWeightButton = nullptr;
     ui::CaptionButton *serifFontButton = nullptr, *sansFontButton = nullptr, *monoFontButton = nullptr;
+    ui::CaptionButton *dictionaryFontButton = nullptr, *dictionaryFontSizeButton = nullptr;
     ui::DescribedOption *landscapeColumnsOption = nullptr;
     ui::CaptionButton *columnSpacingButton = nullptr;
     ui::CaptionButton *wordSpacingButton = nullptr, *trackingButton = nullptr, *widowsOrphansButton = nullptr;

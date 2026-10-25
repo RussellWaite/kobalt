@@ -13,6 +13,7 @@
 #include "assets/font_catalog.h"
 #include "reader_inputs.h"
 #include "interfaces/reader/views/opening.h"
+#include "interfaces/reader/settings/settings_panel.h"
 #include "host_presentation.h"
 #include "support/qt_font.h"
 #include "support/strings.h"
@@ -2548,9 +2549,113 @@ int main(int argc, char **argv) {
         require(kobalt::DictionaryPanel::formatDefinition(ordinary) == ordinary,
                 "Kobo normalization changed ordinary dictionary HTML");
     }
+    {
+        using kobalt::DictionaryPanel;
+        require(DictionaryPanel::definitionLineHeight(100) == 0 &&
+                    DictionaryPanel::definitionLineHeight(120) == 110 &&
+                    DictionaryPanel::definitionLineHeight(140) == 120,
+                "Default dictionary font changed its automatic leading");
+        require(DictionaryPanel::definitionLineHeight(80, true) == 120 &&
+                    DictionaryPanel::definitionLineHeight(100, true) == 120 &&
+                    DictionaryPanel::definitionLineHeight(120, true) == 132 &&
+                    DictionaryPanel::definitionLineHeight(140, true) == 144,
+                "Custom dictionary font did not add twenty percent to its automatic leading");
+    }
     QWidget reader;
     reader.resize(1072, 1448);
     reader.show();
+    {
+        kobalt::reader::SettingsPanel settings(&reader, {});
+        settings.setGeometry(reader.rect());
+        settings.show();
+        app.processEvents();
+        const auto sampleHeight = [&settings](const char *name) {
+            auto *option = settings.fontDialog->findChild<QWidget *>(name);
+            require(option && option->isVisible(), "Dictionary size preview is missing");
+            const auto image = option->grab().toImage().convertToFormat(QImage::Format_RGB32);
+            int first = image.height(), last = -1;
+            for (int y = 4; y < image.height() - 4; ++y)
+                for (int x = image.width() / 2; x < image.width() - 4; ++x)
+                    if (qGray(image.pixel(x, y)) < 80) {
+                        first = qMin(first, y);
+                        last = qMax(last, y);
+                    }
+            return last >= first ? last - first + 1 : 0;
+        };
+        for (const auto &family : {kobalt::ui::interfaceFont().family(), kobalt::ui::brandFont(30).family()}) {
+            settings.showDictionaryFontSizes(100, family, true, [](int) {});
+            app.processEvents();
+            const int small = sampleHeight("rrDictionaryFontSize80");
+            require(small > 0 && sampleHeight("rrDictionaryFontSize140") > small,
+                    "Dictionary size previews do not draw the selected text sizes");
+            auto *option = settings.fontDialog->findChild<QWidget *>("rrDictionaryFontSize140");
+            auto *preview = option->findChild<QWidget *>("rrDictionaryFontPreview140");
+            require(preview && option->rect().contains(preview->geometry()),
+                    "Extra large dictionary preview escapes its row");
+            for (int percent : {80, 100, 120, 140}) {
+                auto *sample = settings.fontDialog->findChild<QWidget *>(QString("rrDictionaryFontPreview%1").arg(percent));
+                auto *label = sample->findChild<QLabel *>();
+                require(label, "Dictionary preview has no sample label");
+                const int textWidth = qCeil(QFontMetricsF(label->font()).horizontalAdvance(label->text()));
+                require(label->width() >= textWidth, "Dictionary preview elides its sample text");
+                const auto pixels = sample->grab().toImage().convertToFormat(QImage::Format_RGB32);
+                QRect ink;
+                for (int y = 0; y < pixels.height(); ++y)
+                    for (int x = 0; x < pixels.width(); ++x)
+                        if (qGray(pixels.pixel(x, y)) < 80)
+                            ink |= QRect(x, y, 1, 1);
+                require(!ink.isEmpty(), "Dictionary preview has no painted text");
+                const auto bounds = QRect(sample->mapTo(sample->parentWidget(), ink.topLeft()), ink.size());
+                require(qAbs(bounds.top() - (sample->parentWidget()->height() - bounds.bottom() - 1)) <= 2,
+                        "Dictionary preview ink is not centered vertically in its row");
+                require(ink.left() >= kobalt::ui::px(8) && ink.top() >= kobalt::ui::px(8) &&
+                            pixels.width() - ink.right() - 1 >= kobalt::ui::px(8) &&
+                            pixels.height() - ink.bottom() - 1 >= kobalt::ui::px(8),
+                        "Dictionary preview ink has insufficient padding");
+            }
+            settings.dismissFontChoices();
+        }
+    }
+    {
+        kobalt::ui::PagedText text(&reader);
+        text.resize(300, 260);
+        text.setMargins({});
+        text.setTextFont(kobalt::ui::interfaceFont(30));
+        text.show();
+        const auto lineGap = [&text] {
+            const auto image = text.grab().toImage().convertToFormat(QImage::Format_RGB32);
+            QVector<int> starts;
+            bool previousInk = false;
+            for (int y = 0; y < image.height(); ++y) {
+                bool ink = false;
+                for (int x = 0; x < image.width(); ++x)
+                    ink |= qGray(image.pixel(x, y)) < 80;
+                if (ink && !previousInk)
+                    starts.append(y);
+                previousInk = ink;
+            }
+            require(starts.size() == 3, "Dictionary line spacing clipped or overlapped a line");
+            return starts[1] - starts[0];
+        };
+        text.setMinimumLineHeight(100);
+        text.setHtml("<p style='line-height:8px'>Hg<br>Hg<br>Hg</p>");
+        const int standard = lineGap();
+        text.setMinimumLineHeight(120);
+        require(lineGap() > standard, "Dictionary leading did not increase with the larger size");
+        text.setHtml("<p style='line-height:150%'>Hg<br>Hg<br>Hg</p>");
+        const int roomy = lineGap();
+        text.setMinimumLineHeight(110);
+        require(lineGap() == roomy, "Automatic dictionary leading reduced existing wider spacing");
+        text.setHtml("<p style='line-height:100%'>Hg<br>Hg<br>Hg</p>");
+        text.setMinimumLineHeight(120);
+        text.setMinimumLineHeight(0);
+        require(lineGap() == standard, "Restoring the dictionary size kept added line spacing");
+        text.setMinimumLineHeight(120);
+        const int beforeFontChange = lineGap();
+        QEvent fontChange(QEvent::FontChange);
+        QApplication::sendEvent(&text, &fontChange);
+        require(lineGap() == beforeFontChange, "A font refresh discarded dictionary line spacing");
+    }
     kobalt::DictionaryPanel dictionary(&reader);
     QVector<kobalt::DictionaryChoice> dictionaries;
     for (int i = 0; i < 13; ++i)
@@ -2568,6 +2673,16 @@ int main(int argc, char **argv) {
         auto *definition = dynamic_cast<kobalt::ui::PagedText *>(dictionary.findChild<QWidget *>("rrDefinition"));
         auto *definitionPager = dictionary.findChild<QPushButton *>("rrDictionaryNext")->parentWidget();
         require(definitionPager && definitionPager->isVisible(), "Long definition lacks its pager");
+        const int standardPages = definition->pages();
+        dictionary.setDefinitionFont({}, 140);
+        app.processEvents();
+        require(definition->pages() > standardPages, "Larger dictionary text did not repaginate the definition");
+        dictionary.setDefinitionFont("IBM Plex Mono", 120);
+        require(definition->textFont().family() == "IBM Plex Mono" &&
+                    definition->textFont().pixelSize() == qRound(int(kobalt::ui::metrics::chrome::labelText) * 1.2),
+                "Dictionary font override was not applied to definition text");
+        dictionary.setDefinitionFont({}, 100);
+        app.processEvents();
         const QRect definitionGeometry = definition->geometry();
         const int definitionPages = definition->pages();
         dictionary.findChild<QPushButton *>("rrDictionarySelect")->click();
