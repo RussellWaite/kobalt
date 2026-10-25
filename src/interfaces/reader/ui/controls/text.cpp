@@ -22,6 +22,7 @@
 #include <QTextFragment>
 #include <QTextLayout>
 #include <QtMath>
+#include <algorithm>
 
 namespace kobalt::ui {
 namespace m = metrics;
@@ -88,7 +89,10 @@ QVector<QPair<int, int>> lineRanges(const QVector<QPair<int, int>> &ranges, int 
     }
     return result;
 }
-QVector<ExcerptLine> privateExcerptLines(const QTextDocument &document, const QFont &font, int width) {
+QVector<ExcerptLine> privateExcerptLines(const QTextDocument &document, const QFont &font, int width,
+                                       int maximumLines = 0, bool *overflow = nullptr) {
+    if (overflow)
+        *overflow = false;
     QVector<ExcerptLine> lines;
     qreal top = 0;
     for (auto block = document.begin(); block.isValid(); block = block.next()) {
@@ -118,20 +122,30 @@ QVector<ExcerptLine> privateExcerptLines(const QTextDocument &document, const QF
         do {
             const int separator = text.indexOf(QChar::LineSeparator, start);
             const int limit = separator < 0 ? text.size() : separator;
-            int low = 0, high = ends.size() - 1, end = start;
+            // Grow the probe from this line instead of shaping large prefixes of the remaining passage.
+            const int firstEnd = int(std::upper_bound(ends.begin(), ends.end(), start) - ends.begin());
+            int low = firstEnd, high = firstEnd, end = start, step = 1;
+            const auto fits = [&](int index) {
+                const int candidate = ends[index];
+                return candidate <= limit &&
+                       measurePrivateText(text.mid(start, candidate - start), font,
+                                          lineRanges(bold, start, candidate - start), PrivateTextEmphasis::FontFace,
+                                          direction) <= qMax(1, width);
+            };
+            while (high < ends.size() && fits(high)) {
+                end = ends[high];
+                low = high + 1;
+                high = qMin(int(ends.size()), firstEnd + step);
+                step *= 2;
+            }
+            high = qMin(high, int(ends.size()) - 1);
             while (low <= high) {
-                const int middle = low + (high - low) / 2, candidate = ends[middle];
-                if (candidate <= start) {
+                const int middle = low + (high - low) / 2;
+                if (fits(middle)) {
+                    end = ends[middle];
                     low = middle + 1;
-                } else if (candidate > limit ||
-                           measurePrivateText(text.mid(start, candidate - start), font,
-                                              lineRanges(bold, start, candidate - start), PrivateTextEmphasis::FontFace,
-                                              direction) > qMax(1, width)) {
+                } else
                     high = middle - 1;
-                } else {
-                    end = candidate;
-                    low = middle + 1;
-                }
             }
             if (end == start && start < limit) {
                 graphemes.setPosition(start);
@@ -165,6 +179,11 @@ QVector<ExcerptLine> privateExcerptLines(const QTextDocument &document, const QF
                     ++start;
                 }
             }
+            if (maximumLines > 0 && lines.size() >= maximumLines) {
+                if (overflow)
+                    *overflow = start < text.size() || block.next().isValid();
+                return lines;
+            }
         } while (start < text.size());
     }
     return lines;
@@ -181,7 +200,7 @@ int wrappedInterfaceTextHeight(const QString &text, const QFont &font, int width
     QTextDocument document;
     document.setDefaultFont(font);
     document.setHtml(interfaceHtml(text));
-    const auto lines = privateExcerptLines(document, font, qMax(1, width));
+    const auto lines = privateExcerptLines(document, font, qMax(1, width), maximumLines);
     const int count = maximumLines > 0 ? qMin(int(lines.size()), maximumLines) : int(lines.size());
     return count ? qCeil(lines[count - 1].top + lines[count - 1].height) : 0;
 }
@@ -239,12 +258,12 @@ void drawWrappedInterfaceText(QPainter &painter, const QRect &bounds, const QStr
     document.setDefaultFont(painter.font());
     document.setDocumentMargin(0);
     document.setHtml(interfaceHtml(text));
-    auto lines = privateExcerptLines(document, painter.font(), bounds.width());
-    if (maximumLines > 0 && lines.size() > maximumLines) {
-        auto &last = lines[maximumLines - 1];
+    bool overflow = false;
+    auto lines = privateExcerptLines(document, painter.font(), bounds.width(), maximumLines, &overflow);
+    if (overflow) {
+        auto &last = lines.last();
         last.text = elidePrivateText(last.text + QStringLiteral(" …"), painter.font(), bounds.width());
         last.advance = measurePrivateText(last.text, painter.font());
-        lines.resize(maximumLines);
     }
     if (lineSpacing > 0) {
         qreal top = 0;

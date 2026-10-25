@@ -482,6 +482,42 @@ inline void checkPrivateInterfaceText(const kobalt::AssetBundle &assets) {
     const auto mixedMetrics = measurePrivateTextLayout(QStringLiteral("中文 العربية"), excerpt.font());
     require(mixedMetrics.lineAscent == 37 && mixedMetrics.lineHeight == 58,
             "Mixed-script excerpt lost a fallback face's ascent or descent");
+    {
+        QFont face("Private Excerpt Serif");
+        face.setPixelSize(32);
+        const auto preview = [&](const QString &text, int maximumLines, int *count = nullptr) {
+            QImage image(320, 180, QImage::Format_RGB32);
+            image.fill(Qt::white);
+            QPainter painter(&image);
+            painter.setFont(face);
+            painter.setPen(Qt::black);
+            QVector<QRect> lines;
+            drawWrappedInterfaceText(painter, image.rect(), text, Qt::AlignLeft | Qt::AlignTop,
+                                     maximumLines, 0, &lines);
+            if (count)
+                *count = lines.size();
+            return image;
+        };
+        const QString two = QStringLiteral("First line\nSecond line");
+        const auto complete = preview(two, 0);
+        require(preview(two, 2) == complete, "Two complete preview lines gained an ellipsis");
+        int count = 0;
+        const auto clipped = preview(two + QStringLiteral("\nThird line"), 2, &count);
+        require(count == 2 && clipped != complete, "Overflowing preview lost its two-line ellipsis");
+        require(preview(two + QStringLiteral("\nThird line ").repeated(1000), 2) == clipped,
+                "Hidden passage changed the visible preview lines");
+        require(preview(two + QStringLiteral("\n"), 2) == complete,
+                "Terminal line break gained an ellipsis");
+        require(preview(two + QStringLiteral("\n\n"), 2) == clipped,
+                "Trailing blank line did not count as preview overflow");
+        const QString words = QStringLiteral("A long passage with e\u0301 and 中文 words repeated. ");
+        const auto shortPreview = preview(words.repeated(4), 2, &count);
+        require(count == 2 && preview(words.repeated(200), 2) == shortPreview,
+                "Long wrapped passage changed the visible Unicode preview");
+        require(wrappedInterfaceTextHeight(words.repeated(200), face, 320, 2) ==
+                    wrappedInterfaceTextHeight(words.repeated(4), face, 320, 2),
+                "Bounded preview height included hidden lines");
+    }
     for (const int ppi : {212, 300}) {
         setDensity(ppi);
         for (const bool dark : {false, true}) {
