@@ -1,6 +1,7 @@
 #include "storage/highlight_store.h"
 #include "storage/sleep_snapshot.h"
 #include "platforms/kobo/common/last_read_book.h"
+#include "platforms/kobo/common/browser_handoff.h"
 #include "support/paint_regions.h"
 #include <QElapsedTimer>
 #include "assets/assets.h"
@@ -58,6 +59,7 @@
 #include <QTest>
 #include <QThread>
 #include <QTimer>
+#include <QTime>
 #include <QUrl>
 #include <QtEndian>
 #include <atomic>
@@ -193,6 +195,9 @@ public:
     ReaderSession *session() const {
         return session_;
     }
+    ReadingBook *book() const {
+        return book_;
+    }
     bool idle() const {
         return !active;
     }
@@ -236,6 +241,7 @@ public:
             auto book = std::make_unique<ReadingBook>(std::move(opening), statePath, paths, identity, hash,
                                                       progress ? test::hostReadingBridge(progress) : nullptr,
                                                       baseline, baseline);
+            book_ = book.get();
             auto services = desktop::readerServices();
             services.desktopUi = false;
             services.suspended = [] { return false; };
@@ -274,6 +280,7 @@ private:
         if (window_) {
             window_->finished = {};
             delete window_.data();
+            book_ = nullptr;
         }
         opening.reset();
         ReaderSession::drain([this] {
@@ -293,6 +300,7 @@ private:
     std::shared_ptr<SourceLease> lease;
     std::unique_ptr<ReaderSession> opening;
     QPointer<ReaderSession> session_;
+    ReadingBook *book_ = nullptr;
     QPointer<ReaderWindow> window_;
     bool active = false, closing = false;
 };
@@ -405,6 +413,80 @@ private slots:
     void cleanup() {
         engineActivity().pause(false);
         directory.reset();
+    }
+    void clockStopsWhileReaderIsHidden_data() {
+        QTest::addColumn<bool>("browser");
+        QTest::newRow("ordinary-hide") << false;
+        QTest::newRow("browser-handoff") << true;
+    }
+    void clockStopsWhileReaderIsHidden() {
+        QFETCH(bool, browser);
+        ReaderFixture host(testPaths(), testFonts, testPlaceholder);
+        CloseHost cleanup{host};
+        QSignalSpy opened(&host, &ReaderFixture::opened);
+        host.open(fixture(), nativeSize);
+        QTRY_COMPARE_WITH_TIMEOUT(opened.count(), 1, 30000);
+        Canvas canvas(host.window(), nativeSize);
+        canvas.resize(900, 900);
+        canvas.show();
+        QTRY_VERIFY(host.window()->isVisible());
+        QTRY_VERIFY(!host.session()->busy() && host.session()->resourceStats().value("pending_images").toInt() == 0);
+        auto *clock = host.window()->findChild<QTimer *>("rrClockTimer");
+        QVERIFY(clock);
+        QSignalSpy ticks(clock, &QTimer::timeout);
+        const auto verifyStoppedClock = [&] {
+            host.book()->stopReading();
+            QVERIFY(!host.book()->readingActive());
+            const int before = QTime::currentTime().msecsSinceStartOfDay();
+            QVERIFY(QMetaObject::invokeMethod(clock, "timeout", Qt::DirectConnection));
+            const int after = QTime::currentTime().msecsSinceStartOfDay();
+            if (before / 60000 == after / 60000) {
+                QVERIFY(clock->interval() >= 60000 - after % 60000 + 50);
+                QVERIFY(clock->interval() <= 60000 - before % 60000 + 50);
+            }
+        };
+        const auto appearance = host.session()->state();
+        const auto position = appearance.value("position");
+        const auto imageKey = host.session()->image().cacheKey();
+        BrowserHandoff handoff;
+        QDialog browserDialog;
+        browserDialog.setObjectName("N3Dialog");
+        QWidget browserView(&browserDialog);
+        browserView.setObjectName("N3BrowserView");
+        for (int cycle = 0; cycle < 3; ++cycle) {
+            QVERIFY(clock->isActive());
+            // A hide immediately before the deadline must cancel the wakeup.
+            clock->start(1);
+            if (browser) {
+                handoff.begin(host.window(), [] { return true; });
+                browserDialog.show();
+            } else {
+                host.window()->hide();
+            }
+            QVERIFY(!host.window()->isVisible());
+            QTest::qWait(100);
+            QCOMPARE(ticks.count(), 0);
+            QVERIFY(!clock->isActive());
+            if (browser) {
+                browserDialog.hide();
+            } else {
+                host.window()->show();
+            }
+            QVERIFY(host.window()->isVisible());
+            QVERIFY(clock->isActive());
+            QVERIFY(clock->interval() > 0);
+            QVERIFY(clock->interval() <= 60050);
+            QVERIFY(kobalt::appearance::same(appearance, host.session()->state()));
+            QCOMPARE(host.session()->state().value("position"), position);
+            QCOMPARE(host.session()->image().cacheKey(), imageKey);
+        }
+        verifyStoppedClock();
+        clock->start(120000);
+        QVERIFY(host.session()->updated);
+        host.session()->updated();
+        QVERIFY(host.book()->readingActive());
+        QVERIFY(clock->interval() > 0);
+        QVERIFY(clock->interval() <= 60050);
     }
     void uneditedPanelTransitions_data() {
         QTest::addColumn<QString>("start");

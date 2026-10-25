@@ -79,9 +79,12 @@ void Reader::observeReading() {
         book->stopReading();
         return;
     }
+    const bool wasReading = book->readingActive();
     book->observeReading(!topControls->isVisible() && !general->isVisible() && !choices->isVisible() &&
                          !dictionaryPanel->isVisible() && !searchPanel->isVisible() && !linksActive() &&
                          !appearanceEdit.panelOpen() && !syncDialog && !finishDialog);
+    if (clockTimer && book->readingActive() != wasReading)
+        startClock();
 }
 
 void Reader::prepareShutdown(std::function<void()> finished) {
@@ -629,6 +632,8 @@ void Reader::showEvent(QShowEvent *event) {
     QWidget::showEvent(event);
     resizeText();
     observeReading();
+    if (clockTimer)
+        startClock();
     // The first refresh runs before the window is visible. Record the
     // opening once it is; a busy model retries from its next refresh.
     if (!recordedOpening)
@@ -639,6 +644,8 @@ void Reader::showEvent(QShowEvent *event) {
 }
 
 void Reader::hideEvent(QHideEvent *event) {
+    if (clockTimer)
+        clockTimer->stop();
     if (pageScrubber)
         pageScrubber->cancel();
     renderNoticeTimer.stop();
@@ -1031,7 +1038,8 @@ void Reader::lookupSelection() {
 // menu status, whichever comes first.
 void Reader::startClock() {
     const auto clock = 60000 - QTime::currentTime().msecsSinceStartOfDay() % 60000;
-    const auto reading = 60000 - book->readingMilliseconds() % 60000;
+    // A stopped reading clock never reaches its next minute.
+    const auto reading = book->readingActive() ? 60000 - book->readingMilliseconds() % 60000 : 60000;
     clockTimer->start(int(qMin<qint64>(clock, reading)) + 50);
 }
 

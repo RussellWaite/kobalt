@@ -350,11 +350,12 @@ void Reader::startClockTimer() {
     // The clock and menu status change once a minute. Wake just after each
     // change instead of every second.
     clockTimer = new QTimer(this);
+    clockTimer->setObjectName("rrClockTimer");
     clockTimer->setSingleShot(true);
     connect(clockTimer, &QTimer::timeout, this, [this] {
-        startClock();
         if (!isVisible() || services.suspended())
             return;
+        startClock();
         if (topControls->isVisible()) {
             updateMenuStatus();
             return;

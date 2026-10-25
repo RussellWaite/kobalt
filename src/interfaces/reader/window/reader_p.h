@@ -217,7 +217,7 @@ private:
     BatteryStatus sleepBattery;
     quint64 sleepCoverRequest = 0;
     Qt::ScreenOrientation sleepOrientation = Qt::PrimaryOrientation;
-    QTimer *clockTimer;
+    QTimer *clockTimer = nullptr;
 #ifdef KOBALT_READER_HARDWARE
     const bool liveState = QFile::exists(book->paths().directory + "/live-state");
 #endif

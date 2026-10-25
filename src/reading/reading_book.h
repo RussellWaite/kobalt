@@ -55,6 +55,9 @@ public:
     }
     // Active time for this opening, excluding sleep and hidden reader time.
     qint64 readingMilliseconds() const;
+    bool readingActive() const {
+        return activeReading.isValid();
+    }
     ReadingEstimates estimates() const;
     void onEstimatesChanged(std::function<void()> changed) {
         if (bridge) {
