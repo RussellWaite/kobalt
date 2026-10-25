@@ -336,7 +336,10 @@ int main(int argc, char **argv) {
         const int words = wordEstimates::pageWords(activity);
         require(words >= 2 && words < 1000, "Pace persistence fixture has no usable page sample");
         first.observeReading();
-        tick(qMax(2100, words * 60));
+        // The default single-shot timer can wake early. Pace samples need at
+        // least two seconds on the book's clock, not a requested timer delay.
+        const auto sampleMilliseconds = qMax(2100, words * 60);
+        waitUntil([&] { return first.readingMilliseconds() >= sampleMilliseconds; });
         require(model->turn(1), "Pace persistence fixture cannot turn");
         waitUntil([&] {
             return !model->busy();
