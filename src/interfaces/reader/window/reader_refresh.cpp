@@ -398,7 +398,8 @@ void Reader::syncReadingControls() {
     findChild<QPushButton *>("rrGraph")->setEnabled(!model->busy() && !appearanceEdit.applying());
     findChild<QPushButton *>("rrGraph")->setChecked(chapterGraph->isVisible() ||
                                                     appearanceEdit.destination() == AppearanceDestination::Stats);
-    updateGraph();
+    if (chapterGraph->isVisible())
+        updateGraph();
     updateOrientationBlock();
     for (auto *button : rotationButtons) {
         button->setChecked(!orientation->automatic() &&

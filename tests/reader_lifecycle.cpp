@@ -429,6 +429,18 @@ private slots:
         auto *toolbar = host.window()->findChild<QWidget *>("rrControlsTop");
         QVERIFY(page);
         QVERIFY(toolbar);
+        if (start == "rrNavStats") {
+            auto *position = host.window()->findChild<QLabel *>("rrGraphChapterPosition");
+            QVERIFY(position);
+            const auto hiddenText = position->text();
+            const int previousPage = host.session()->page();
+            const bool rtl = host.session()->state().value("page_progression_rtl").toBool();
+            QVERIFY(clickAt(canvas, page->mapTo(canvas.surface(),
+                QPoint(rtl ? page->width() / 6 : page->width() * 5 / 6, page->height() / 2))));
+            QTRY_VERIFY(!host.session()->busy() && host.session()->page() != previousPage);
+            QCoreApplication::processEvents();
+            QCOMPARE(position->text(), hiddenText);
+        }
         const auto image = page->image.cacheKey();
         auto state = host.session()->state();
         state.remove("cached_pages");
@@ -473,6 +485,11 @@ private slots:
             QVERIFY2(!host.session()->busy(), qPrintable(start));
             QTRY_VERIFY(startPanel->isVisible());
             QVERIFY(!host.session()->busy());
+            if (start == "rrNavStats") {
+                QCOMPARE(host.window()->findChild<QLabel *>("rrGraphChapterPosition")->text(),
+                         strings::get("stats.page_of").arg(host.session()->chapterPage())
+                             .arg(host.session()->chapterPages()));
+            }
             QCOMPARE(page->image.cacheKey(), image);
             QVERIFY(toolbar->isVisible());
         }
