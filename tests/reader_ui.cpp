@@ -701,15 +701,23 @@ private slots:
         QTemporaryDir directory;
         library::Store store(directory.path(), std::make_shared<library::LocalSource>());
         bool available = false;
+        bool targetAvailable = true;
+        int rejected = 0;
         QVector<android::RefreshFrame> frames;
         android::StartScreen start(test::makeHostPresentation, store);
         start.setDark(dark);
         start.resize(600, 800);
         auto attach = [&](android::WidgetCanvas *canvas) {
             new android::CanvasRefresh(canvas, [&] { return available; }, [&](const auto &frame) {
+                if (!targetAvailable) {
+                    ++rejected;
+                    return false;
+                }
                 frames.append(frame);
                 return available;
             });
+            // The windowless platform does not activate an Android activity.
+            qApp->applicationStateChanged(Qt::ApplicationActive);
         };
         attach(start.libraryCanvas());
         start.show();
@@ -762,6 +770,63 @@ private slots:
             QTest::qWait(80);
             QCOMPARE(std::count_if(frames.begin(), frames.end(), [](const auto &frame) { return frame.clean; }), 1);
         }
+        // The Surface can disappear while Android restores the system bars.
+        // Its return must retry the clean frame without requiring another tap.
+        for (bool backgrounded : {false, true}) {
+            start.hide();
+            QCoreApplication::processEvents();
+            frames.clear();
+            rejected = 0;
+            targetAvailable = false;
+            start.show();
+            QTRY_VERIFY(rejected > 0);
+            QTest::qWait(100);
+            QVERIFY(frames.isEmpty());
+            if (backgrounded) {
+                // Keep the canvas visible, as Android can do while suspended.
+                qApp->applicationStateChanged(Qt::ApplicationInactive);
+                const int beforePause = rejected;
+                QTest::qWait(250);
+                const bool stopped = rejected == beforePause;
+                targetAvailable = true;
+                QTest::qWait(250);
+                const bool held = frames.isEmpty();
+                qApp->applicationStateChanged(Qt::ApplicationActive);
+                QVERIFY(stopped);
+                QVERIFY(held);
+            } else {
+                targetAvailable = true;
+            }
+            QTRY_COMPARE_WITH_TIMEOUT(frames.size(), 1, 1000);
+            QVERIFY(frames.first().clean);
+            QTest::qWait(100);
+            QCOMPARE(frames.size(), 1);
+            start.libraryCanvas()->viewport()->repaint(QRect(20, 20, 30, 30));
+            QCOMPARE(frames.size(), 2);
+            QVERIFY(!frames.last().clean);
+        }
+        // A rejected text frame must keep its mode without assigning REGAL
+        // to unrelated UI damage that arrives before the Surface recovers.
+        frames.clear();
+        rejected = 0;
+        targetAvailable = false;
+        auto *canvas = start.libraryCanvas();
+        canvas->content->setProperty("boox_text_frame", true);
+        canvas->viewport()->repaint(QRect(20, 20, 30, 30));
+        QVERIFY(rejected > 0);
+        canvas->viewport()->repaint(QRect(100, 100, 30, 30));
+        QVERIFY(frames.isEmpty());
+        targetAvailable = true;
+        QTRY_COMPARE_WITH_TIMEOUT(frames.size(), 2, 1000);
+        QVERIFY(frames.first().text);
+        QVERIFY(!frames.first().clean);
+        QCOMPARE(frames.first().textPixels, frames.first().screenPixels);
+        QVERIFY(!frames.last().text);
+        QVERIFY(!frames.last().clean);
+        QVERIFY(frames.last().textPixels.isEmpty());
+        QVERIFY((frames.first().screenPixels & frames.last().screenPixels).isEmpty());
+        QTest::qWait(100);
+        QCOMPARE(frames.size(), 2);
     }
     void booxLibraryHandoff_data() { variants(); }
     void booxLibraryHandoff() {

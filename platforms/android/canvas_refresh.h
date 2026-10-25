@@ -14,17 +14,24 @@ public:
         : QObject(canvas), canvas(canvas), available(std::move(available)), submit(std::move(submit)),
           cleanOnReveal(cleanOnReveal), cleanPending(cleanOnReveal) {
         timer.setSingleShot(true);
-        // Leave room for Qt's queued backing-store flush before the next region.
-        timer.setInterval(34);
         connect(&timer, &QTimer::timeout, this, [this] {
-            if (!queue.pending() || !this->canvas->isVisible())
+            if (!queue.pending() || !this->canvas->isVisible() || !this->available() || paused)
                 return;
             const auto ratio = this->canvas->viewport()->devicePixelRatioF();
             const auto origin = QPointF(this->canvas->viewport()->mapToGlobal(QPoint())) * ratio;
             const auto pixels = QRectF(queue.nextArea()).translated(-origin);
             const auto logical = QRectF(pixels.topLeft() / ratio, pixels.size() / ratio).toAlignedRect();
-            QScopedValueRollback<bool> presenting(presentingRegion, true);
+            // Preserve the queued region modes. A new clean request must first
+            // enter the queue through the paint policy.
+            QScopedValueRollback<bool> presenting(presentingRegion, !cleanPending);
             this->canvas->viewport()->repaint(logical);
+        });
+        connect(qApp, &QGuiApplication::applicationStateChanged, this, [this](Qt::ApplicationState state) {
+            paused = state != Qt::ApplicationActive;
+            if (paused)
+                timer.stop();
+            else
+                schedule();
         });
         canvas->viewport()->installEventFilter(this);
         canvas->framePreparing = [this](const QRegion &region) {
@@ -37,17 +44,16 @@ public:
                 return;
             }
             auto *page = static_cast<ReadingPage *>(content->findChild<QWidget *>("rrPage"));
-            accepted = policy.prepare(content, this->canvas->viewport(), page, region, [this](RefreshFrame frame) {
+            policy.prepare(content, this->canvas->viewport(), page, region, [this](RefreshFrame frame) {
                 frame.clean = frame.clean || cleanPending;
-                if (!queue.prepare(frame, this->submit))
-                    return false;
+                accepted = queue.prepare(frame, this->submit);
+                // The queue owns the frame even when its first submission fails.
                 cleanPending = false;
                 return true;
             });
         };
         canvas->framePainted = [this](const QRegion &) {
-            if (accepted && queue.pending() && !timer.isActive())
-                timer.start();
+            schedule();
         };
     }
     void requestClean() { cleanPending = true; }
@@ -65,6 +71,14 @@ protected:
     }
 
 private:
+    void schedule() {
+        if (paused || !queue.pending() || !canvas->isVisible() || timer.isActive())
+            return;
+        // Rejected submissions can mean a Surface is being recreated.
+        // Keep retrying without requiring input, at a lower paint rate.
+        // Accepted regions leave time for Qt's queued backing-store flush.
+        timer.start(accepted ? 34 : 100);
+    }
     WidgetCanvas *canvas;
     std::function<bool()> available;
     std::function<bool(const RefreshFrame &)> submit;
@@ -72,6 +86,7 @@ private:
     BooxFrameQueue queue;
     QTimer timer;
     bool accepted = false, presentingRegion = false;
+    bool paused = QGuiApplication::applicationState() != Qt::ApplicationActive;
     bool cleanOnReveal, cleanPending;
 };
 }
