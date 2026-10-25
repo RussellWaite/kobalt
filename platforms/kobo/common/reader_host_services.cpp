@@ -8,9 +8,38 @@
 #include "platforms/kobo/display/page_animation.h"
 #include "window_presentation.h"
 #include <QPointer>
+#include <dlfcn.h>
 
 namespace kobalt::nickel {
 namespace {
+QString syncDeviceModel() {
+    const auto current = reinterpret_cast<const void *(*)()>(dlsym(RTLD_DEFAULT, "_ZN6Device16getCurrentDeviceEv"));
+    const auto *device = current ? current() : nullptr;
+    if (!device) return QStringLiteral("Kobo");
+    // Prefer the specific variants before their shared hardware families.
+    const struct { const char *predicate; const char *name; } models[] = {
+        {"_ZNK6Device11isSpaKoboBWEv", "Kobo Clara BW"},
+        {"_ZNK6Device13isSpaTolinoBWEv", "tolino shine"},
+        {"_ZNK6Device17isSpaTolinoColourEv", "tolino shine color"},
+        {"_ZNK6Device13isMonzaTolinoEv", "tolino vision color"},
+        {"_ZNK6Device9isSpaKoboEv", "Kobo Clara Colour"},
+        {"_ZNK6Device11isMonzaKoboEv", "Kobo Libra Colour"},
+        {"_ZNK6Device8isCondorEv", "Kobo Elipsa 2E"},
+        {"_ZNK6Device11isGoldfinchEv", "Kobo Clara 2E"},
+        {"_ZNK6Device4isIoEv", "Kobo Libra 2"},
+        {"_ZNK6Device8isCadmusEv", "Kobo Sage"},
+        {"_ZNK6Device6isNovaEv", "Kobo Clara HD"},
+        {"_ZNK6Device6isLunaEv", "Kobo Nia"},
+        {"_ZNK6Device6isSnowEv", "Kobo Aura H2O Edition 2"},
+        {"_ZNK6Device6isStarEv", "Kobo Aura Edition 2"},
+        {"_ZNK6Device6isPikaEv", "Kobo Touch 2.0"},
+    };
+    for (const auto &model : models) {
+        const auto matches = reinterpret_cast<bool (*)(const void *)>(dlsym(RTLD_DEFAULT, model.predicate));
+        if (matches && matches(device)) return QString::fromLatin1(model.name);
+    }
+    return QStringLiteral("Kobo");
+}
 class Light final : public LightControls {
 public:
     explicit Light(QWidget *anchor) : adapter(new NativeLight(anchor)) {}
@@ -118,6 +147,10 @@ public:
         if (adapter)
             adapter->place();
     }
+    void setSubmitText(const QString &text) override {
+        if (adapter)
+            adapter->setSubmitText(text);
+    }
 
 private:
     QPointer<NativeKeyboard> adapter;
@@ -127,6 +160,8 @@ private:
 ReaderHostServices readerHostServices() {
     ReaderHostServices result;
     result.annotationExportDirectory = [] { return QStringLiteral("/mnt/onboard/Kobalt/Annotations"); };
+
+    result.deviceName = syncDeviceModel();
     result.colorDisplay = [] {
         return pageAnimationPanel() == AnimationPanel::Colour;
     };

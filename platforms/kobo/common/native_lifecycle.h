@@ -44,6 +44,7 @@ public:
     }
     std::function<void(Shutdown)> preparePowerScreen;
     std::function<void()> sleep, sleepViewReady, wake, beforeWake, cancelWake, usbPrompt;
+    std::function<bool()> sleepWorkPending;
     static void finishSleepView();
     std::function<void(std::function<void()>)> prepareUsb;
     std::function<void(std::function<void()>)> prepareShutdown;

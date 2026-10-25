@@ -473,7 +473,7 @@ void CaptionButton::paintEvent(QPaintEvent *) {
         const int textWidth = qMax(0, width() - left - c::actionRight - (previewWidth ? previewWidth + px(20) : 0));
         // The label and its note are one block, centred on its letters. Their
         // line boxes keep the same centre-to-centre distance as before.
-        const QFont noteFont = captionFont();
+        const QFont noteFont = valueCaption ? interfaceFont(c::descriptionText) : captionFont();
         const int labelHeight = interfaceLineHeight(label), noteHeight = interfaceLineHeight(noteFont);
         const int pitch = px(40);
         const int titleHeight = note.isEmpty() ? labelHeight : labelHeight / 2 + pitch + noteHeight / 2;

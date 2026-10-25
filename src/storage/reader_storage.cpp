@@ -25,6 +25,9 @@ QString child(const QString &directory, const QString &name) {
 QString Paths::preferences() const {
     return child(directory, "reader-settings.json");
 }
+QString Paths::syncAccount() const {
+    return child(directory, "kosync.json");
+}
 QString Paths::readingSpeed() const {
     return child(directory, "reading-speed.json");
 }

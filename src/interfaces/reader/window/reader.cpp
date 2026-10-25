@@ -54,6 +54,8 @@ Reader::~Reader() {
     disconnect(qApp, nullptr, this, nullptr);
     disconnect(QGuiApplication::primaryScreen(), nullptr, this, nullptr);
     delete annotationExportPicker.data();
+    cancelKosync();
+    kosyncPage->dismissEditor();
     book->onEstimatesChanged({});
     model->cancelPagePreview();
     if (pageScrubber) {
@@ -96,7 +98,7 @@ void Reader::observeReading() {
     const bool wasReading = book->readingActive();
     book->observeReading(!topControls->isVisible() && !general->isVisible() && !choices->isVisible() &&
                          !dictionaryPanel->isVisible() && !searchPanel->isVisible() && !linksActive() &&
-                         !appearanceEdit.panelOpen() && !syncDialog && !finishDialog);
+                         !appearanceEdit.panelOpen() && !syncDialog && !kosyncDialog && !finishDialog);
     if (clockTimer && book->readingActive() != wasReading)
         startClock();
 }
@@ -122,6 +124,8 @@ void Reader::prepareTransition(std::function<void()> finished, bool usb) {
     lifecycleHidden = true;
     exitPending = false;
     closing = true;
+    cancelKosync();
+    kosyncPage->dismissEditor();
     clockTimer->stop();
     setEnabled(false);
     // USB export and power-off need running annotation saves on storage.
@@ -238,12 +242,22 @@ void Reader::sleepReader() {
     closeSearch();
     dismissLookup();
     lifecycleHidden = true;
+    hideKosyncOpening();
+    kosyncPage->dismissEditor();
+    kosyncPage->setStatus(kosyncMessage, false);
+    kosyncStarted = false;
+    if (kosyncDialog) {
+        kosyncDialog->hide();
+        kosyncDialog->deleteLater();
+        kosyncDialog = nullptr;
+    }
     clockTimer->stop();
     refreshRenderNotice();
     if (syncDialog)
         syncDialog->hide();
     if (finishDialog)
         finishDialog->hide();
+    flushKosync([] {});
     // Keep the page on screen until Nickel's sleep view replaces it, as in
     // Nickel's own reader. sleepViewReady() submits that view.
 }
@@ -303,10 +317,13 @@ void Reader::sleepViewReady() {
 }
 
 void Reader::wakeReader() {
+    cancelKosync();
+    kosyncStarted = false;
     sleepImage = {};
     presentation->clearSleepScreen();
     setProperty("reader_sleep_clean_pending", false);
     lifecycleHidden = false;
+    QTimer::singleShot(0, this, [this] { synchronizeKosync(); });
     if (finishDialog)
         finishDialog->show();
     setProperty("reader_preparing_wake", true);
@@ -382,6 +399,8 @@ QVector<QWidget *> Reader::popups() const {
             annotationModeNotice,
             fontDefaultDialog.data(),
             settingsFontPopup.data(),
+            kosyncPage ? kosyncPage->editorDialog.data() : nullptr,
+            kosyncDialog.data(),
             linkDialog.data(),
             debugDialog.data(),
             syncDialog.data(),
@@ -428,7 +447,7 @@ bool Reader::event(QEvent *event) {
                         !chapterGraph->isVisible() && !linkReturn->isVisible() && !dictionaryPanel->isVisible() &&
                         !searchPanel->isVisible() && !linksActive() && !lookupPending &&
                         !acknowledgments->isVisible() && !bookmarkList->isVisible() && !lightPopup->isVisible() &&
-                        !busyNotice->isVisible() && !syncDialog && !finishDialog && !annotationErrorDialog &&
+                        !busyNotice->isVisible() && !syncDialog && !kosyncDialog && !finishDialog && !annotationErrorDialog &&
                         !formattingWarningDialog && !settingsWriteErrorDialog && !services.suspended() &&
                         page->image.text("kobalt.animation_text_only") == "true");
         // These panels hold text and line controls. Changes inside them can
@@ -455,7 +474,7 @@ bool Reader::eventFilter(QObject *watched, QEvent *event) {
         closeMarksActions();
     if (type == QEvent::Show && (watched == topControls || watched == general || watched == choices ||
                                  watched == dictionaryPanel || watched == searchPanel || watched == linkPanel ||
-                                 watched == linkDialog || watched == syncDialog || watched == finishDialog)) {
+                                 watched == linkDialog || watched == syncDialog || watched == kosyncDialog || watched == finishDialog)) {
         book->pauseLocalPace();
     }
     if (watched == menu && type == QEvent::Hide && fieldChooser) {
@@ -740,6 +759,8 @@ void Reader::resizeEvent(QResizeEvent *) {
     annotationModeNotice->centerIn(size());
     if (syncDialog)
         syncDialog->setGeometry(rect());
+    if (kosyncDialog)
+        kosyncDialog->setGeometry(rect());
     if (finishDialog)
         finishDialog->setGeometry(rect());
     resizeText();
@@ -793,7 +814,7 @@ bool Reader::rotationControlsBlocked() const {
 void Reader::updateOrientationBlock() {
     if (orientation)
         orientation->setBlocked(lifecycleHidden || services.suspended() || topControls->isVisible() || model->busy() ||
-                                appearanceEdit.panelOpen() || bool(syncDialog) || bool(finishDialog) ||
+                                appearanceEdit.panelOpen() || bool(syncDialog) || bool(kosyncDialog) || bool(finishDialog) ||
                                 bool(annotationErrorDialog) || bool(formattingWarningDialog) ||
                                 bool(settingsWriteErrorDialog) || dictionaryPanel->isVisible() ||
                                 searchPanel->isVisible() || linksActive() || lookupPending);
@@ -887,7 +908,7 @@ void Reader::updateLinkReturn() {
     syncLinkDiscovery();
     const bool available = !linkHistory.isEmpty() && !model->busy() && !lifecycleHidden && !closing && !linksActive() &&
                            !lookupPending && !general->isVisible() && !acknowledgments->isVisible() &&
-                           !bookmarkList->isVisible() && !lightPopup->isVisible() && !syncDialog && !finishDialog &&
+                           !bookmarkList->isVisible() && !lightPopup->isVisible() && !syncDialog && !kosyncDialog && !finishDialog &&
                            (bottomControls->isVisible() ||
                             (topControls->isVisible() && !menu->isVisible() && !chapterGraph->isVisible())) &&
                            !choices->isVisible() && !searchPanel->isVisible() && !dictionaryPanel->isVisible();
@@ -899,7 +920,7 @@ void Reader::updateLinkReturn() {
 }
 
 bool Reader::openLink(QPoint point, bool direct) {
-    if (model->busy() || closing || lifecycleHidden || services.suspended() || syncDialog || finishDialog)
+    if (model->busy() || closing || lifecycleHidden || services.suspended() || syncDialog || kosyncDialog || finishDialog)
         return false;
     for (const auto &link : model->pageLinks()) {
         if (direct && !link.tappable(preferences.value("tappable_links").toString("off")))
@@ -1176,7 +1197,7 @@ void Reader::syncLinkDiscovery() {
                          appearanceEdit.panelOpen() || general->isVisible() || menu->isVisible() ||
                          choices->isVisible() || chapterGraph->isVisible() || lightPopup->isVisible() ||
                          bookmarkList->isVisible() || acknowledgments->isVisible() || searchPanel->isVisible() ||
-                         dictionaryPanel->isVisible() || linksActive() || lookupPending || syncDialog || finishDialog;
+                         dictionaryPanel->isVisible() || linksActive() || lookupPending || syncDialog || kosyncDialog || finishDialog;
     if (blocked || (revealingLinks && revealedPosition != model->state().value("position").toString()))
         hideRevealedLinks();
     const int count = model->pageLinks().size();
@@ -1603,7 +1624,7 @@ void Reader::turnPage(int direction) {
         pageScrubber->cancel();
     turnStarted.start();
     lastInput.start();
-    if (finishDialog || syncDialog || annotationErrorDialog || formattingWarningDialog || settingsWriteErrorDialog ||
+    if (finishDialog || syncDialog || kosyncDialog || annotationErrorDialog || formattingWarningDialog || settingsWriteErrorDialog ||
         !model->canTurn() || closing || exitPending || lifecycleHidden || services.suspended() ||
         book->deviceTransition() || appearanceEdit.panelOpen() || appearanceEdit.applying())
         return;
@@ -1654,6 +1675,7 @@ void Reader::recordOpening() {
         syncDialog || finishDialog || services.suspended() || book->deviceTransition())
         return;
     recordedOpening = true;
+    if (!kosyncStarted) synchronizeKosync();
     // A newer synced position waits for the reader's choice.
     saveNativeProgress();
     save(true);
@@ -1693,8 +1715,10 @@ void Reader::finishExit() {
             return;
         }
         save(true);
-        closing = true;
-        close();
+        flushKosync([this] {
+            closing = true;
+            close();
+        });
     });
 }
 

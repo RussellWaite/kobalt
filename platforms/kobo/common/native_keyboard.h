@@ -1,6 +1,7 @@
 #pragma once
 #include <QObject>
 #include <QPointer>
+#include <QString>
 #include <functional>
 class QLineEdit;
 class QWidget;
@@ -19,6 +20,7 @@ public:
     bool show();
     void hide();
     void place();
+    void setSubmitText(const QString &text) { submitText = text; }
     std::function<void()> submitted;
 
 protected:
@@ -33,6 +35,7 @@ private:
     QWidget *host;
     int script = 0;
     bool ready = false;
+    QString submitText = QStringLiteral("Search");
     bool create();
 };
 }

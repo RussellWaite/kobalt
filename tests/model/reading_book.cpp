@@ -192,6 +192,17 @@ int main(int argc, char **argv) {
         }), "Cannot inspect reading history");
         return value;
     };
+
+    for (const auto &identity : {QStringLiteral("file:///mnt/onboard/book.epub"),
+                                QStringLiteral("file:///mnt/onboard/book.kepub.epub")}) {
+        Calls calls;
+        auto session = open();
+        const auto hash = session->sourceHash();
+        ReadingBook sideload(std::move(session), paths.bookState(identity), paths, identity, hash,
+                             std::make_unique<Bridge>(calls), {}, {});
+        require(!sideload.usesNativeCloudSync() && sideload.canWriteNative(),
+                "Sideloaded EPUB and KEPUB keep native local progress without excluding KOsync");
+    }
     for (const auto &original : {qt::object({{"line_spacing", 122}}), QJsonObject(),
                                  qt::object({{"font_pixels", 31},
                                              {"font_face", "Libron"},
@@ -403,6 +414,7 @@ int main(int argc, char **argv) {
         require(storage::readJson(paths.preferences()).value(appearance::pageMarginsKey).toObject()
                     .value("top_margin_pixels").toInt() == 36,
                 "A margins-only change was skipped by checkpoint caching");
+        require(!local.usesNativeCloudSync(), "Standalone opaque identities remain eligible for KOsync");
         require(!local.canWriteNative() && !local.deviceTransition(), "Local book acquired platform services");
         require(local.estimates().learningPace && local.estimates().bookMilliseconds > 0,
                 "Standalone book did not provide a rough estimate at opening");
@@ -558,6 +570,7 @@ int main(int argc, char **argv) {
         const auto hash = session->sourceHash();
         ReadingBook book(std::move(session), paths.bookState("store-id"), paths, "store-id", hash,
                          std::make_unique<Bridge>(calls), calls.current, calls.current);
+        require(book.usesNativeCloudSync(), "Downloaded native-library titles exclude KOsync");
         book.observeReading();
         require(calls.observed == 1, "Platform activity was not recorded");
         require(!book.tracksReadingHistory() &&
@@ -623,6 +636,7 @@ int main(int argc, char **argv) {
                 "Failed checkpoint was cached instead of retried");
         require(storage::readBookState(paths, "store-id").object == persistedBook(snapshot), "Retried checkpoint lost the current state");
         book.releaseNative();
+        require(book.usesNativeCloudSync(), "Releasing native services preserves the sync provider");
         require(calls.destroyed == 1 && !book.canWriteNative(), "Release retained platform services");
         book.pollProgress();
         book.observeProgress();

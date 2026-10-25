@@ -254,14 +254,14 @@ SettingsPanel::SettingsPanel(QWidget *parent, const SettingsPanelInputs &inputs)
     readerStyle(settingsPages, styles::tabFrame());
     auto *tabGroup = new QButtonGroup(this);
     const char *tabNames[] = {"rrSettingsDisplay",      "rrSettingsControls", "rrSettingsDefaults", "rrSettingsStyling",
-                              "rrSettingsDictionaries", "rrSettingsSystem",   "rrSettingsAbout"};
+                              "rrSettingsDictionaries", "rrSettingsSystem",   "rrSettingsAbout", "rrSettingsKosync"};
     const ui::ControlIcon tabIcons[] = {
         ui::ControlIcon::Display,      ui::ControlIcon::Swipe,  ui::ControlIcon::Undo, ui::ControlIcon::Styling,
-        ui::ControlIcon::Dictionaries, ui::ControlIcon::System, ui::ControlIcon::About};
+        ui::ControlIcon::Dictionaries, ui::ControlIcon::System, ui::ControlIcon::About, ui::ControlIcon::Sync};
     const QStringList tabs = {strings::get("settings.display"),      strings::get("settings.controls"),
                               strings::get("settings.defaults"),     strings::get("settings.styling"),
                               strings::get("settings.lookup"),       strings::get("settings.system"),
-                              strings::get("settings.about")};
+                              strings::get("settings.about"), strings::get("kosync.title")};
     for (int index = 0; index < tabs.size(); ++index) {
         auto *button = makeButton(this, settingsTabs, tabNames[index], tabs[index], [this, index] {
             settingsPages->setCurrentIndex(index);
@@ -288,6 +288,8 @@ SettingsPanel::SettingsPanel(QWidget *parent, const SettingsPanelInputs &inputs)
             settingsTabs->setStretch(index, 0);
         }
     }
+    settingsTabs->removeWidget(settingsTabButtons[KosyncSettings]);
+    settingsTabs->insertWidget(AboutSettings, settingsTabButtons[KosyncSettings], 1);
     auto section = [](QWidget *parent, QBoxLayout *rows, const char *name, const QString &caption) {
         auto *header = new ui::ListHeader(parent);
         header->setObjectName(name);
@@ -586,6 +588,8 @@ SettingsPanel::SettingsPanel(QWidget *parent, const SettingsPanelInputs &inputs)
     }
     dictionaries = new DictionariesPage(settingsPages);
     settingsPages->insertWidget(DictionariesSettings, dictionaries);
+    kosync = new KosyncPage(settingsPages, parent, inputs.keyboard);
+    settingsPages->addWidget(kosync);
     restoreDialog =
         new ui::ChoiceModal(parent,
                             {strings::get("reader.your_reading_position_stays_the_same_the_defaults_apply_when_you_c"),
@@ -629,7 +633,8 @@ SettingsPanel::SettingsPanel(QWidget *parent, const SettingsPanelInputs &inputs)
                                               denseGraphOption,
                                               hideTabLabelsOption,
                                               automaticOpeningOption,
-                                              minimalAnnotationOption};
+                                              minimalAnnotationOption,
+                                              kosync->automaticOption()};
     for (auto *option : options) {
         auto presentation = option->presentation();
         presentation.indicator = ui::DescribedOption::Indicator::Square;

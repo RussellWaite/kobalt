@@ -1,5 +1,6 @@
 #include "reader_inputs.h"
 #include "reading/reader_session.h"
+#include "reading/kosync.h"
 #include "interfaces/opening_message.h"
 #include "publication/native_resources.h"
 #include "publication/native_archive.h"
@@ -288,6 +289,62 @@ int run(int argc, char **argv) {
         require(!session->canTurn() && !session->turn(1), "An opening accepted a page turn");
         opened.exec();
         require(!session->image().isNull() && session->pages() > 0, "Session did not open a readable frame");
+        require(session->syncFilenameDigest() == kosync::filenameDigest(path), "Opened session exposes the original filename digest");
+        require(session->syncDigest().size() == 32, "Opened session exposes KOReader's document digest");
+        {
+            const auto anchor = session->state().value("position").toString();
+            const auto originalFrame = session->image().cacheKey();
+            session->describeSyncedPosition(anchor, [&](SyncedPositionDescription value) {
+                require(value.comparison.status == PositionComparison::Status::Compared && value.comparison.direction == 0,
+                        "Sync preview compares the current position exactly without navigating");
+                require(value.chapter == session->chapterTitle(), "Sync preview resolves the same chapter as the reading header");
+                opened.quit();
+            });
+            opened.exec();
+            session->describeSyncedPosition("/not/a/real/position", [&](SyncedPositionDescription value) {
+                require(value.comparison.status == PositionComparison::Status::Failed && value.chapter.isEmpty(),
+                        "An invalid remote position has no guessed chapter or direction");
+                opened.quit();
+            });
+            opened.exec();
+            QString later;
+            session->pageSummary(session->pages() - 1, [&](QString value, QString) { later = value; opened.quit(); });
+            opened.exec();
+            session->describeSyncedPosition(later, [&](SyncedPositionDescription value) {
+                require(value.comparison.status == PositionComparison::Status::Compared && value.comparison.direction > 0,
+                        "A later source position is identified as forward");
+                opened.quit();
+            });
+            opened.exec();
+            require(session->state().value("position").toString() == anchor && session->image().cacheKey() == originalFrame,
+                    "Sync previews preserve the local anchor and rendered image");
+            require(session->goToSyncedPosition(later, [&](QString error) { require(error.isEmpty(), "Open later position"); opened.quit(); }),
+                    "Start later position import");
+            opened.exec();
+            session->describeSyncedPosition(anchor, [&](SyncedPositionDescription value) {
+                require(value.comparison.status == PositionComparison::Status::Compared && value.comparison.direction < 0,
+                        "An earlier source position is identified as backward");
+                opened.quit();
+            });
+            opened.exec();
+            require(session->goToSyncedPosition(anchor, [&](QString error) { require(error.isEmpty(), "Restore local anchor"); opened.quit(); }),
+                    "Restore after direction checks");
+            opened.exec();
+            bool completed = false;
+            require(session->goToSyncedPosition("/not/a/real/position", [&](QString error) {
+                require(!error.isEmpty() && session->state().value("position").toString() == anchor &&
+                        session->error().isEmpty(), "Invalid sync position preserves the readable frame");
+                completed = true;
+                opened.quit();
+            }), "Sync import starts on the engine worker");
+            opened.exec();
+            require(completed, "Invalid sync position completes");
+            require(session->goToSyncedPosition(anchor, [&](QString error) {
+                require(error.isEmpty(), "Valid sync position imports");
+                opened.quit();
+            }), "Valid sync import starts");
+            opened.exec();
+        }
         {
             const auto rawImage = session->image();
             const auto emptyGeneration = session->markupGeneration();
@@ -729,6 +786,7 @@ int run(int argc, char **argv) {
         session->setChapters({{"Retired contents", "chapter", 0, 30}}, {});
         auto retained = session->retained();
         require(bool(retained), "Readable session did not retain its layout");
+        require(retained->syncFilenameDigest() == session->syncFilenameDigest(), "Retaining a session preserves filename identity");
         QEventLoop drained;
         ReaderSession::drain([&] {
             drained.quit();
@@ -748,7 +806,7 @@ int run(int argc, char **argv) {
         Q_UNUSED(previousPort);
         lease = std::make_shared<SourceLease>();
         session = std::move(retained);
-        session->open({path,
+        OpenRequest renamedRequest{path,
                        path,
                        QSize(758, 900),
                        saved,
@@ -756,12 +814,15 @@ int run(int argc, char **argv) {
                        {},
                        lease,
                        nativeResourceFactory(path, server.serverPort(), lease),
-                       secondPositions},
-                      [&](OpeningResult result) {
+                       secondPositions};
+        renamedRequest.syncFilename = "Original book.epub";
+        session->open(std::move(renamedRequest), [&](OpeningResult result) {
                           require(result.ready(), qPrintable(openingMessage(result)));
                           opened.quit();
                       });
         opened.exec();
+        require(session->syncFilenameDigest() == kosync::filenameDigest("Original book.epub"),
+                "A materialized archive uses its supplied original filename");
         require(!session->image().isNull() && session->spacing() == 140 && session->margin() == maximumMarginPixels(),
                 "Retained reopen through fresh access lost the readable layout");
         auto preview = std::make_unique<ReaderSession>(test::readerFonts(), test::readerPlaceholder());
@@ -808,7 +869,7 @@ int run(int argc, char **argv) {
         require(previewLease->revoked(), "Retiring the preview's reader left old access active");
         lease = std::make_shared<SourceLease>();
         session = std::move(retained);
-        session->open({path,
+        OpenRequest unnamedRequest{path,
                        path,
                        QSize(758, 900),
                        previewSaved,
@@ -816,12 +877,15 @@ int run(int argc, char **argv) {
                        {},
                        lease,
                        nativeResourceFactory(path, server.serverPort(), lease),
-                       secondPositions},
-                      [&](OpeningResult result) {
+                       secondPositions};
+        unnamedRequest.syncFilename = QStringLiteral("");
+        session->open(std::move(unnamedRequest), [&](OpeningResult result) {
                           require(result.ready(), qPrintable(openingMessage(result)));
                           opened.quit();
                       });
         opened.exec();
+        require(session->syncFilenameDigest().isEmpty() && session->syncDigest().size() == 32,
+                "A missing source name disables filename matching without affecting binary identity");
         require(session->pages() == previousPages && !session->image().isNull() && session->error().isEmpty(),
                 "Reopening with a live old preview lost the readable document");
         preview.reset();

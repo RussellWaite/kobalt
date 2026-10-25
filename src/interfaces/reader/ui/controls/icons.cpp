@@ -46,6 +46,17 @@ Geometry geometry(ControlIcon icon, bool sideButtons) {
         result.canvas = 256;
         result.filled = true;
         phosphorGeometry(QStringLiteral("file-zip"), path);
+    } else if (icon == ControlIcon::Sync) {
+        result.canvas = 24;
+        result.stroke = 1.5;
+        path.moveTo(4, 9);
+        path.cubicTo(7, 2, 17, 2, 20, 9);
+        line(20, 4, 20, 9);
+        line(20, 9, 15, 9);
+        path.moveTo(20, 15);
+        path.cubicTo(17, 22, 7, 22, 4, 15);
+        line(4, 20, 4, 15);
+        line(4, 15, 9, 15);
     } else if (icon == ControlIcon::ArrowDownRight) {
         result.canvas = 256;
         result.filled = true;
@@ -364,8 +375,8 @@ void paintOpeningIcon(QPainter &painter, ControlIcon icon, const QRectF &bounds,
 QIcon controlIcon(ControlIcon icon, QColor color, bool sideButtons) {
     if (int(icon) < 0 ||
         (int(icon) > int(ControlIcon::System) && icon != ControlIcon::PreviousChapter &&
-         icon != ControlIcon::NextChapter && icon != ControlIcon::Sort && icon != ControlIcon::ArrowDownRight &&
-         icon != ControlIcon::EditHighlight &&
+         icon != ControlIcon::NextChapter && icon != ControlIcon::Sync && icon != ControlIcon::Sort &&
+         icon != ControlIcon::ArrowDownRight && icon != ControlIcon::EditHighlight &&
          (icon < ControlIcon::Rows || icon > ControlIcon::Export)))
         return {};
     return QIcon(new VectorIconEngine(icon, color, sideButtons));

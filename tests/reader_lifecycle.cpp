@@ -30,6 +30,8 @@
 #include "reading/reading_density.h"
 #include "reading/sleep_screen.h"
 #include "reading/reader_session.h"
+#include "reading/kosync.h"
+#include <QLocale>
 #include "engine/crengine/engine_activity.h"
 #include "storage/profile_database.h"
 #include "storage/reader_storage.h"
@@ -42,6 +44,10 @@
 
 #include <QApplication>
 #include <QBuffer>
+#include <QTcpServer>
+#include <QSslConfiguration>
+#include <QSslCertificate>
+#include <QTcpSocket>
 #include <QCheckBox>
 #include <QDir>
 #include <QFile>
@@ -3001,6 +3007,227 @@ private slots:
         }
     }
 
+    void kosyncOpening_data() {
+        QTest::addColumn<bool>("skip");
+        QTest::newRow("cancel-sync") << true;
+        QTest::newRow("offline-deadline") << false;
+    }
+    void kosyncOpening() {
+        QFETCH(bool, skip);
+        QTcpServer stalled;
+        QVERIFY(stalled.listen(QHostAddress::LocalHost));
+        QSignalSpy attempts(&stalled, &QTcpServer::newConnection);
+        auto paths = testPaths();
+        QVERIFY(storage::writeJson(paths.syncAccount(), {
+            {"schema", 1}, {"server", QString("https://127.0.0.1:%1").arg(stalled.serverPort())},
+            {"username", "test-reader"}, {"key", QString(32, 'a')},
+            {"device_id", "test-device"}, {"automatic", true}}));
+        ReaderFixture host(paths, testFonts, testPlaceholder);
+        CloseHost cleanup{host};
+        QSignalSpy opened(&host, &ReaderFixture::opened);
+        const auto capture = qEnvironmentVariable("KOBALT_KOSYNC_CAPTURE");
+        host.open(capture.isEmpty() ? textBook : fixture(), nativeSize);
+        QTRY_COMPARE_WITH_TIMEOUT(opened.count(), 1, 30000);
+        bool prepared = false;
+        QElapsedTimer openingSync;
+        openingSync.start();
+        qint64 presentedAt = -1;
+        host.window()->preparePresentation([&](bool ready) {
+            presentedAt = openingSync.elapsed();
+            prepared = ready;
+        });
+        QVERIFY(!prepared);
+        QVERIFY(!host.window()->isVisible());
+        QVERIFY(!host.window()->findChild<QWidget *>("rrKosyncOpening"));
+        QTRY_VERIFY_WITH_TIMEOUT(prepared, 1500);
+        QVERIFY2(presentedAt >= 450 && presentedAt < 1700,
+                 qPrintable(QString("Opening presentation took %1 ms").arg(presentedAt)));
+        QVERIFY(attempts.count() > 0);
+        Canvas canvas(host.window(), nativeSize);
+        canvas.resize(900, 900);
+        canvas.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&canvas));
+        QTRY_VERIFY(host.window()->findChild<QWidget *>("rrKosyncOpening"));
+        QPointer<QWidget> popup = host.window()->findChild<QWidget *>("rrKosyncOpening");
+        QTRY_VERIFY(popup->isVisible());
+        QTRY_VERIFY(attempts.count() > 0);
+        const auto before = host.session()->state().value("position").toString();
+        const auto page = host.session()->page();
+        host.window()->pageButton(1);
+        QCOMPARE(host.session()->page(), page);
+        QVERIFY(!host.session()->busy());
+        auto *button = popup->findChild<QPushButton *>("rrKosyncCancel");
+        QVERIFY(button && button->isVisible());
+        QCOMPARE(button->text(), QString("Cancel sync"));
+        auto *icon = popup->findChild<QLabel *>("rrKosyncStatusIcon");
+        QVERIFY(icon && icon->isVisible() && !icon->pixmap().isNull());
+        QVERIFY(icon->parentWidget() == popup->findChild<QLabel *>("rrModalTitle")->parentWidget());
+        QVERIFY(!button->font().bold());
+        QVERIFY(popup->findChild<QLabel *>("rrModalDescription")->text().contains("Kobalt is syncing your progress"));
+        if (!capture.isEmpty()) QVERIFY(host.window()->grab().save(capture));
+        if (skip) {
+            QVERIFY(click(canvas, button));
+            QTRY_VERIFY(!popup || !popup->isVisible());
+        } else {
+            QTRY_VERIFY_WITH_TIMEOUT(!popup || !popup->isVisible(), 12000);
+        }
+        QCOMPARE(host.session()->state().value("position").toString(), before);
+        host.window()->pageButton(1);
+        QTRY_VERIFY(!host.session()->busy() && host.session()->page() > page);
+    }
+    void kosyncFinal_data() {
+        QTest::addColumn<QString>("transition");
+        QTest::addColumn<bool>("inFlight");
+        QTest::newRow("close") << "close" << false;
+        QTest::newRow("sleep") << "sleep" << false;
+        QTest::newRow("close-during-opening") << "close" << true;
+        QTest::newRow("sleep-during-opening") << "sleep" << true;
+        QTest::newRow("wake-during-final") << "wake" << false;
+        QTest::newRow("busy-event-loop") << "blocked" << false;
+        if (!qEnvironmentVariableIsEmpty("KOBALT_KOSYNC_TEST_SERVER")) {
+            QTest::newRow("https-close") << "https-close" << false;
+            QTest::newRow("https-sleep") << "https-sleep" << false;
+            QTest::newRow("https-filename-close") << "https-filename-close" << false;
+            QTest::newRow("https-filename-sleep") << "https-filename-sleep" << false;
+            QTest::newRow("https-switch-close") << "https-switch-close" << false;
+            for (const auto *decision : {"keep", "resume", "dismiss", "invalid"}) {
+                const auto name = QByteArray("https-choice-") + decision;
+                QTest::newRow(name.constData()) << QString::fromLatin1(name) << false;
+            }
+        }
+    }
+    void kosyncFinal() {
+        QFETCH(QString, transition);
+        QFETCH(bool, inFlight);
+        const bool live = transition.startsWith("https-");
+        if (live) transition.remove(0, 6);
+        if (live && transition.startsWith("choice-")) {
+            verifyKosyncChoice(transition.mid(7));
+            return;
+        }
+        bool filename = transition.startsWith("filename-");
+        const bool switchMatching = transition.startsWith("switch-");
+        if (switchMatching) transition.remove(0, 7);
+        if (filename) transition.remove(0, 9);
+        QTcpServer stalled;
+        if (!live) QVERIFY(stalled.listen(QHostAddress::LocalHost));
+        QSignalSpy attempts(&stalled, &QTcpServer::newConnection);
+        auto paths = testPaths();
+        QVERIFY(storage::writeJson(paths.syncAccount(), {
+            {"schema", 1}, {"server", live ? qEnvironmentVariable("KOBALT_KOSYNC_TEST_SERVER")
+                                          : QString("https://127.0.0.1:%1").arg(stalled.serverPort())},
+            {"username", live ? qEnvironmentVariable("KOBALT_KOSYNC_TEST_USER") : QString("test-reader")},
+            {"key", QString(32, 'a')},
+            {"device_id", "test-device"}, {"automatic", true},
+            {"match_method", filename ? "filename" : "binary"}}));
+        ReaderFixture host(paths, testFonts, testPlaceholder);
+        CloseHost cleanup{host};
+        QSignalSpy opened(&host, &ReaderFixture::opened);
+        host.open(textBook, nativeSize);
+        QTRY_COMPARE_WITH_TIMEOUT(opened.count(), 1, 30000);
+        if (live) {
+            bool prepared = false;
+            host.window()->preparePresentation([&](bool ready) { prepared = ready; });
+            QTRY_VERIFY_WITH_TIMEOUT(prepared, 1500);
+            QVERIFY(!host.window()->findChild<QWidget *>("rrKosyncOpening"));
+        }
+        Canvas canvas(host.window(), nativeSize);
+        canvas.resize(900, 900);
+        canvas.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&canvas));
+        if (live) {
+            auto *status = host.window()->findChild<QLabel *>("rrKosyncStatus");
+            QVERIFY(status);
+            QTRY_COMPARE_WITH_TIMEOUT(status->text(), strings::get("kosync.up_to_date"), 12000);
+            QVERIFY(kosync::Client(paths.syncAccount()).lastSync().isValid());
+            auto *timer = host.window()->findChild<QTimer *>("rrKosyncTimer");
+            QVERIFY(timer);
+            status->setText("unchanged position");
+            QVERIFY(QMetaObject::invokeMethod(timer, "timeout", Qt::DirectConnection));
+            QCOMPARE(status->text(), QString("unchanged position"));
+            QVERIFY(host.session()->go(1));
+            QTRY_VERIFY(!host.session()->busy());
+            QVERIFY(QMetaObject::invokeMethod(timer, "timeout", Qt::DirectConnection));
+            QCOMPARE(status->text(), strings::get("kosync.syncing"));
+            QTRY_COMPARE_WITH_TIMEOUT(status->text(), strings::get("kosync.up_to_date"), 12000);
+            if (switchMatching) {
+                auto *matching = host.window()->findChild<QPushButton *>("rrKosyncMatching");
+                QVERIFY(matching);
+                matching->click();
+                auto *option = host.window()->findChild<QAbstractButton *>("rrKosyncFilename");
+                QVERIFY(option);
+                option->click();
+                QCOMPARE(status->text(), strings::get("kosync.matching_changed"));
+                QVERIFY(!kosync::Client(paths.syncAccount()).lastSync().isValid());
+                auto *sync = host.window()->findChild<QPushButton *>("rrKosyncNow");
+                QVERIFY(sync);
+                sync->click();
+                QTRY_COMPARE_WITH_TIMEOUT(status->text(), strings::get("kosync.up_to_date"), 12000);
+                filename = true;
+            }
+        } else {
+            QTRY_VERIFY(host.window()->findChild<QWidget *>("rrKosyncOpening"));
+            QTRY_VERIFY(attempts.count() > 0);
+        }
+        if (!inFlight) {
+            if (!live) QVERIFY(click(canvas, host.window()->findChild<QPushButton *>("rrKosyncCancel")));
+            QVERIFY(host.session()->go(1));
+            QTRY_VERIFY(!host.session()->busy());
+        }
+        const auto document = filename ? host.session()->syncFilenameDigest() : host.session()->syncDigest();
+        const auto position = host.session()->state().value("position").toString();
+        const auto identity = QUrl::fromLocalFile(QFileInfo(textBook).absoluteFilePath()).toString();
+        const int openingAttempts = attempts.count();
+        QElapsedTimer elapsed;
+        elapsed.start();
+        QPointer<ReaderWindow> window = host.window();
+        if (transition == "close") window->close();
+        else window->sleepReader();
+        if (!live) QTRY_VERIFY(window && window->pendingNetworkSync());
+        if (!live && !inFlight) QTRY_VERIFY_WITH_TIMEOUT(attempts.count() > openingAttempts, 1500);
+        QCOMPARE(storage::readBookState(paths, identity).object.value("position").toString(), position);
+        if (transition == "blocked") {
+            // CPU suspension must not depend on a timer firing on the GUI thread.
+            QTest::qSleep(2100);
+            QVERIFY(!window->pendingNetworkSync());
+            QCoreApplication::processEvents();
+        }
+        if (transition == "wake") {
+            window->wakeReader();
+            QVERIFY(!window->pendingNetworkSync());
+            QTRY_VERIFY(window->findChild<QWidget *>("rrKosyncOpening"));
+            QVERIFY(click(canvas, window->findChild<QPushButton *>("rrKosyncCancel")));
+        } else {
+            QTRY_VERIFY_WITH_TIMEOUT(!window || !window->pendingNetworkSync(), 3500);
+            QVERIFY(elapsed.elapsed() < 3500);
+            if (transition == "close") QTRY_VERIFY(host.idle());
+            else if (!live) {
+                QVERIFY(window);
+                window->wakeReader();
+                QTRY_VERIFY(window->findChild<QWidget *>("rrKosyncOpening"));
+                QVERIFY(click(canvas, window->findChild<QPushButton *>("rrKosyncCancel")));
+            }
+        }
+        if (!live && !inFlight) QVERIFY(attempts.count() > openingAttempts);
+        if (live) {
+            // A second production client observes the final position on the server.
+            kosync::Client verify(paths.syncAccount());
+            QVERIFY(verify.lastSync().isValid());
+            bool received = false;
+            QString failure;
+            kosync::Progress remote;
+            verify.pull(document, [&](kosync::Progress progress, QString error) {
+                remote = progress;
+                failure = error;
+                received = true;
+            });
+            QTRY_VERIFY_WITH_TIMEOUT(received, 12000);
+            QVERIFY2(failure.isEmpty(), qPrintable(failure));
+            QCOMPARE(remote.position, position);
+        }
+        QCOMPARE(storage::readBookState(paths, identity).object.value("position").toString(), position);
+    }
+
     void nativeProgressWaitsForSleep_data() {
         QTest::addColumn<QString>("outcome");
         for (const auto *outcome : {"saved", "newer", "failed"}) {
@@ -3847,6 +4074,100 @@ private slots:
     }
 
 private:
+    void verifyKosyncChoice(const QString &decision) {
+        const bool forward = decision == "resume";
+        const bool invalid = decision == "invalid";
+        const QSize size(800, 1136);
+        auto paths = testPaths();
+        QJsonObject account{{"schema", 1}, {"server", qEnvironmentVariable("KOBALT_KOSYNC_TEST_SERVER")},
+            {"username", qEnvironmentVariable("KOBALT_KOSYNC_TEST_USER")}, {"key", QString(32, 'a')},
+            {"device_id", "choice-local"}, {"automatic", false}};
+        QVERIFY(storage::writeJson(paths.syncAccount(), account));
+        ReaderFixture host(paths, testFonts, testPlaceholder);
+        CloseHost cleanup{host};
+        QSignalSpy opened(&host, &ReaderFixture::opened);
+        host.open(fixture(), size);
+        QTRY_COMPARE_WITH_TIMEOUT(opened.count(), 1, 30000);
+        Canvas canvas(host.window(), size);
+        canvas.resize(size);
+        canvas.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&canvas));
+        const int count = host.session()->pages();
+        QVERIFY(count > 10);
+        QVERIFY(host.session()->go(int(count * (forward ? 0.8 : 0.2))));
+        QTRY_VERIFY(!host.session()->busy());
+        const auto remotePosition = invalid ? QString("/not/a/real/position") : host.session()->state().value("position").toString();
+        const auto remoteChapter = host.session()->chapterTitle();
+        // A contradictory percentage must not reverse the source-order warning.
+        const double remotePercent = decision == "dismiss" ? 0.99 : double(host.session()->page()) / (count - 1);
+        QVERIFY(host.session()->go(int(count * 0.5)));
+        QTRY_VERIFY(!host.session()->busy());
+        const auto localPosition = host.session()->state().value("position").toString();
+        const auto localChapter = host.session()->chapterTitle();
+        const double localPercent = 100.0 * host.session()->page() / (count - 1);
+        QVERIFY(!localChapter.isEmpty() && !remoteChapter.isEmpty());
+        account["device_id"] = "choice-remote";
+        account["device_name"] = "Crosspoint X4";
+        const auto otherPath = paths.directory + "/remote-account.json";
+        QVERIFY(storage::writeJson(otherPath, account));
+        kosync::Client other(otherPath);
+        const auto document = host.session()->syncDigest();
+        bool completed = false;
+        QString failure;
+        other.push(document, {remotePosition, {}, {}, remotePercent}, [&](QString error) { failure = error; completed = true; });
+        QTRY_VERIFY_WITH_TIMEOUT(completed, 12000);
+        QVERIFY2(failure.isEmpty(), qPrintable(failure));
+        auto *sync = host.window()->findChild<QPushButton *>("rrKosyncNow");
+        QVERIFY(sync);
+        sync->click();
+        QPointer<QWidget> widget;
+        QTRY_VERIFY((widget = host.window()->findChild<QWidget *>("rrKosyncChoice")) && widget->isVisible());
+        auto *dialog = dynamic_cast<ui::ChoiceModal *>(widget.data());
+        QVERIFY(dialog);
+        auto *description = dialog->descriptionLabel();
+        const auto direction = strings::get(invalid ? "kosync.direction_unknown" : forward ? "kosync.direction_forward" : "kosync.direction_backward");
+        QTRY_VERIFY(description->text().contains(direction));
+        QVERIFY(description->text().contains(localChapter));
+        QVERIFY(description->text().contains(invalid ? strings::get("kosync.chapter_unavailable") : remoteChapter));
+        QVERIFY(description->text().contains("Crosspoint X4"));
+        QVERIFY(description->text().contains("Synced: "));
+        QVERIFY(description->text().contains("On this device · " + QLocale().toString(localPercent, 'f', 1) + "%"));
+        QVERIFY(description->text().contains("Synced position · " + QLocale().toString(remotePercent * 100, 'f', 1) + "%"));
+        QCOMPARE(description->textFormat(), Qt::PlainText);
+        QVERIFY(host.window()->rect().contains(dialog->card()->geometry()));
+        QCOMPARE(description->visibleRegion().boundingRect(), description->rect());
+        QCOMPARE(host.session()->state().value("position").toString(), localPosition);
+        if (!invalid && !forward) {
+            QCOMPARE(dialog->findChild<QLabel *>("rrModalTitle")->text(), strings::get("kosync.resume_backward_title"));
+            QCOMPARE(dialog->focusWidget(), dialog->secondaryButton());
+        }
+        const auto capture = qEnvironmentVariable("KOBALT_KOSYNC_CHOICE_CAPTURE");
+        if (!capture.isEmpty() && (decision == "keep" || forward))
+            QVERIFY(host.window()->grab().save(capture + (forward ? "-forward.png" : "-backward.png")));
+        if (decision == "dismiss") dialog->dismissed();
+        else if (decision == "keep") dialog->secondaryButton()->click();
+        else dialog->primaryButton()->click();
+        QTRY_VERIFY(!widget || !widget->isVisible());
+        auto *status = host.window()->findChild<QLabel *>("rrKosyncStatus");
+        if (decision == "keep") {
+            sync->click();
+            QTRY_COMPARE_WITH_TIMEOUT(status->text(), strings::get("kosync.up_to_date"), 12000);
+        } else if (forward) {
+            QTRY_COMPARE_WITH_TIMEOUT(status->text(), strings::get("kosync.resumed"), 12000);
+            QCOMPARE(host.session()->state().value("position").toString(), remotePosition);
+        } else if (invalid) {
+            QTRY_COMPARE_WITH_TIMEOUT(status->text(), strings::get("kosync.position_error"), 12000);
+            QCOMPARE(host.session()->state().value("position").toString(), localPosition);
+        }
+        host.window()->close();
+        QTRY_VERIFY(host.idle());
+        completed = false;
+        kosync::Progress received;
+        other.pull(document, [&](kosync::Progress value, QString error) { received = value; failure = error; completed = true; });
+        QTRY_VERIFY_WITH_TIMEOUT(completed, 12000);
+        QVERIFY2(failure.isEmpty(), qPrintable(failure));
+        QCOMPARE(received.position, decision == "keep" ? localPosition : remotePosition);
+    }
     std::unique_ptr<QTemporaryDir> directory;
 };
 
@@ -3856,6 +4177,15 @@ int main(int argc, char **argv) {
     if (QGuiApplication::platformName() != "minimal")
         return 2;
     app.setStyle("Fusion");
+    if (!qEnvironmentVariableIsEmpty("KOBALT_KOSYNC_TEST_CA")) {
+        auto ssl = QSslConfiguration::defaultConfiguration();
+        auto authorities = ssl.caCertificates();
+        const auto certificates = QSslCertificate::fromPath(qEnvironmentVariable("KOBALT_KOSYNC_TEST_CA"));
+        if (certificates.isEmpty()) return 2;
+        authorities.append(certificates);
+        ssl.setCaCertificates(authorities);
+        QSslConfiguration::setDefaultConfiguration(ssl);
+    }
     app.setQuitOnLastWindowClosed(false);
     auto &assets = test::readerAssets();
     if (!assets.available() || !ui::initializeInterfaceFonts(assets))

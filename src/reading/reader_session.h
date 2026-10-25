@@ -85,6 +85,11 @@ struct PositionComparison {
     QString error;
 };
 
+struct SyncedPositionDescription {
+    PositionComparison comparison;
+    QString chapter;
+};
+
 // GUI-side settings and immutable frame copies. The worker owns engine access.
 // After application shutdown joins that worker, remaining models are released
 // synchronously by their GUI-side owners.
@@ -108,6 +113,8 @@ public:
     QByteArray sourceHash() const {
         return fingerprint;
     }
+    QByteArray syncDigest() const { return syncDigest_; }
+    QByteArray syncFilenameDigest() const { return syncFilenameDigest_; }
     // Whether the saved state passed to open belongs to this version of the book.
     bool savedStateMatched() const {
         return savedMatched;
@@ -138,6 +145,9 @@ public:
     bool go(int page);
     bool goTo(const QString &anchor);
     bool goToNative(const QString &location, std::function<void(QString)> finished);
+    bool goToSyncedPosition(const QString &position, std::function<void(QString)> finished);
+    // Resolves chapter and source order without navigating or rendering another page.
+    void describeSyncedPosition(const QString &position, std::function<void(SyncedPositionDescription)> finished);
     void nativePosition(std::function<void(QString, QString)> finished);
     void compareNativePosition(const QString &location, std::function<void(PositionComparison)> finished);
     // Source and pagination generation. Navigation within the same layout keeps it.
@@ -352,6 +362,9 @@ private:
     QImage documentCover;
     OpeningResult openingResult_;
     QByteArray fingerprint;
+    QByteArray syncDigest_;
+    QByteArray syncFilenameDigest_;
+    bool importPosition(const QString &location, bool native, std::function<void(QString)> finished);
     bool savedMatched = false;
     std::shared_ptr<SourceLease> lease_;
     bool ownsLease_ = false;

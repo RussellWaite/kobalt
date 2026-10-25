@@ -8,6 +8,7 @@
 #include <QLineEdit>
 #include <QPointer>
 #include <QTime>
+#include <QJniObject>
 
 namespace kobalt::android {
 namespace {
@@ -58,6 +59,10 @@ public:
 }
 ReaderHostServices readerServices() {
     ReaderHostServices result;
+    const auto model = QJniObject::getStaticObjectField("android/os/Build", "MODEL", "Ljava/lang/String;").toString().trimmed();
+    const auto maker = QJniObject::getStaticObjectField("android/os/Build", "MANUFACTURER", "Ljava/lang/String;").toString().trimmed();
+    result.deviceName = model.startsWith(maker, Qt::CaseInsensitive) ? model : (maker + " " + model).trimmed();
+    if (result.deviceName.isEmpty()) result.deviceName = QStringLiteral("Android");
     result.colorDisplay = [] {
         return true;
     };

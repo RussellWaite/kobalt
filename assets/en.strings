@@ -12,6 +12,48 @@
 "acknowledgments.license_text_is_unavailable" = "License text is unavailable.";
 "acknowledgments.thanks_to_the_open_source_projects_that_make_this_reader_possible" = "Thanks to the open-source projects that make this reader possible. Select a project to read its notices and license terms.";
 
+/* kosync */
+"kosync.title" = "Sync";
+"kosync.description" = "Sync progress with KOReader and Kobalt.";
+"kosync.not_set" = "Tap to enter";
+"kosync.server" = "Server URL";
+"kosync.username" = "Username";
+"kosync.password" = "Password";
+"kosync.login" = "Sign in";
+"kosync.logout" = "Sign out";
+"kosync.automatic" = "Automatic sync";
+"kosync.automatic_description" = "Sync when opening a book and while reading. Ask before moving to another device’s position.";
+"kosync.sync_now" = "Sync now";
+"kosync.signed_in" = "Signed in.";
+"kosync.account_changed" = "Sign in to apply the server or username change.";
+"kosync.signed_out" = "Not signed in.";
+"kosync.signing_in" = "Signing in…";
+"kosync.opening" = "Syncing…";
+"kosync.cancel_sync" = "Cancel sync";
+"kosync.opening_description" = "Kobalt is syncing your progress. Please wait...";
+"kosync.skipped" = "Sync skipped. Your position is saved locally.";
+"kosync.saved_locally" = "Could not sync. Your position is saved locally.";
+"kosync.syncing" = "Syncing progress…";
+"kosync.up_to_date" = "Reading progress is up to date.";
+"kosync.pending" = "Return to reading to choose which position to keep.";
+"kosync.retry_later" = "The reader is busy. Sync will retry later.";
+"kosync.busy" = "A sync request is already running.";
+"kosync.storage_error" = "Could not read or save the sync account. Existing account data was kept.";
+"kosync.auth_error" = "Sign-in failed. Check your username and password.";
+"kosync.network_error" = "Could not reach the sync server. Check the URL and connection, then try again.";
+"kosync.invalid_response" = "The sync server returned invalid progress. Your reading position was kept.";
+"kosync.invalid_account" = "Enter an HTTPS server URL, username and password. The URL cannot contain credentials, a query or a fragment.";
+"kosync.native_sync" = "This book uses Kobo’s built-in sync system. KOsync is unavailable for this copy.";
+"kosync.unavailable" = "Sync is unavailable for this book or account.";
+"kosync.position_error" = "This synced position could not be opened. Your position was kept and automatic sync was disabled.";
+"kosync.resume_title" = "Resume synced reading?";
+/* Arguments: %1 percentage read; %2 device name. */
+"kosync.resume_description" = "Another device saved a position at %1% (%2). Choose which position to keep.";
+"kosync.keep_local" = "Keep this position";
+"kosync.use_remote" = "Use synced position";
+"kosync.kept_local" = "Your position was kept. It will be sent on the next sync.";
+"kosync.resumed" = "Resumed at the synced position.";
+
 /* app */
 "app.name" = "Kobalt";
 "app.wordmark" = "Kobalt";
@@ -1011,3 +1053,35 @@
 "settings.vertical_spacing_scope_all_description" = "Also adjust ordinary pagination gaps on nearly full prose pages.";
 "settings.vertical_spacing_scope_protection" = "Only widow/orphan gaps";
 "settings.vertical_spacing_scope_protection_description" = "Adjust only when widow/orphan protection moves lines that would otherwise fit.";
+
+"kosync.last_synced" = "Last synced: %1";
+"kosync.never" = "Never";
+
+"kosync.sideload_copy" = "To use KOsync, download a DRM-free copy of the book and add it to your device separately.";
+"kosync.learn_more" = "Learn More";
+"kosync.learn_more_title" = "Kobo sync and KOsync";
+"kosync.learn_more_description" = "Kobo-managed books use Kobo’s built-in sync, even when the file has no DRM. Kobalt leaves their progress syncing to Kobo.\n\nKOsync is a separate service for KOReader and Kobalt. To use it for this title, add a DRM-free copy to your device as a separate sideloaded book and open that copy.\n\nUse the same book file on every device. Only reading progress is synced; books, bookmarks and annotations are not transferred.";
+
+"kosync.device_name" = "Device name";
+"kosync.device_name_saved" = "Device name saved.";
+
+"kosync.matching" = "Document matching";
+"kosync.match_binary" = "Binary (default)";
+"kosync.match_filename" = "Filename";
+"kosync.match_binary_description" = "Match identical book files, even if renamed. Use the same matching method on every device.";
+"kosync.match_filename_description" = "Match the exact filename, including its extension. Different files with the same name share progress.";
+"kosync.matching_changed" = "Document matching changed.";
+
+"kosync.filename_unavailable" = "The original filename is unavailable. Reimport this book on Android, or choose Binary matching.";
+
+"kosync.comparing_positions" = "Comparing reading positions…";
+"kosync.position_comparison" = "On this device · %1%\n%2\n\nSynced position · %3%\n%4\nDevice: %5\n%6\n\n%7";
+"kosync.direction_forward" = "Accepting the synced position would move you forward in the book.";
+"kosync.direction_backward" = "This would move you backward in the book. Check both positions before replacing your current position.";
+"kosync.direction_same" = "Both positions are at the same place in the book.";
+"kosync.direction_unknown" = "The synced position could not be compared with your current position.";
+"kosync.resume_backward_title" = "Move backward to synced position?";
+"kosync.chapter_unavailable" = "Chapter unavailable";
+"kosync.device_unknown" = "Unknown device";
+"kosync.time_unavailable" = "Sync time unavailable";
+"kosync.synced_at" = "Synced: %1";

@@ -218,6 +218,12 @@ bool Reader::hideNativeStatus() const {
 void Reader::openSettings() {
     if (model->temporaryTypography())
         return;
+    kosyncPage->setAccount(kosyncClient->server(), kosyncClient->username(), kosyncClient->signedIn(),
+                           kosyncClient->automatic());
+    kosyncPage->setLastSync(kosyncClient->lastSync());
+    kosyncPage->setFilenameMatching(kosyncClient->filenameMatching());
+    kosyncPage->setDeviceName(kosyncClient->customDeviceName(), kosyncClient->defaultDeviceName());
+    kosyncPage->setStatus(kosyncMessage, kosyncClient->busy());
     model->cancelPendingTurn();
     hideRevealedLinks(false);
     dismissLookup();

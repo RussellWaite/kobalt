@@ -27,6 +27,8 @@ struct BatteryStatus {
 // debugProgressAction, observeBattery, observeBluetooth and remoteKeyActivity is required,
 // including unsupported hosts.
 struct ReaderHostServices {
+    // Human-readable model used for the default sync device name.
+    QString deviceName;
     // Desktop-only presentation preferences; fixtures retain device chrome.
     bool desktopUi = false;
     // Kobo supplies its default export folder. Other hosts open a save-location picker.

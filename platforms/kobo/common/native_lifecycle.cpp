@@ -227,6 +227,7 @@ bool NativeLifecycle::canSuspend() {
     // while the device is idle, instead of after the tap that wakes it.
     return !active ||
            (!active->draining && !active->usbPending && !active->poweringOff && engineActivity().quiescent() &&
+            (!active->sleepWorkPending || !active->sleepWorkPending()) &&
             (!active->beforeStandby || active->beforeStandby()));
 }
 bool NativeLifecycle::interceptShutdown(QObject *manager, Shutdown mode) {

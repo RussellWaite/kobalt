@@ -102,6 +102,9 @@ ReaderCoordinator::ReaderCoordinator(ReaderEnvironment &environment, Coordinator
     lifecycle->beforeStandby = [this] {
         return busy || !run.reader || run.reader->flushBeforeStandby();
     };
+    lifecycle->sleepWorkPending = [this] {
+        return run.reader && run.reader->pendingNetworkSync();
+    };
     lifecycle->sleep = [this] {
         if (lifecycle->shuttingDown())
             return;

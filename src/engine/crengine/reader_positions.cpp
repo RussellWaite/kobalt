@@ -45,13 +45,17 @@ ReaderModel::PositionTarget ReaderModel::goToPlatformNearest(const PositionCodec
 }
 int ReaderModel::comparePlatformPosition(const PositionCodec &codec, const QString &location, QString *error) const {
     if (!engine_) {
-        if (error)
-            *error = strings::get("error.no_supported_native_reading_position");
+        if (error) *error = strings::get("error.no_supported_native_reading_position");
         return 0;
     }
     const auto anchor = decodePosition(*this, codec, location, error);
-    if (anchor.isEmpty())
+    return anchor.isEmpty() ? 0 : comparePosition(anchor, error);
+}
+int ReaderModel::comparePosition(const QString &anchor, QString *error) const {
+    if (!engine_) {
+        if (error) *error = strings::get("error.cannot_compare_the_reading_positions");
         return 0;
+    }
     auto *doc = engine_->getDocument();
     const ldomXPointerEx current(doc->createXPointer(cre(anchor_)));
     const ldomXPointerEx incoming(doc->createXPointer(cre(anchor)));

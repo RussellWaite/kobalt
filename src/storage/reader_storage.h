@@ -10,6 +10,7 @@ struct Paths {
     QString startup{}, active{}, stateReport{}, sessionReport{};
     QString bookPrefix{};
     QString preferences() const;
+    QString syncAccount() const;
     QString readingSpeed() const;
     QString selection() const;
     QString annotations() const;

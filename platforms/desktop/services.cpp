@@ -6,6 +6,7 @@
 #include <QLineEdit>
 #include <QPointer>
 #include <QTime>
+#include <sys/sysctl.h>
 
 namespace kobalt::desktop {
 namespace {
@@ -99,6 +100,11 @@ public:
 }
 ReaderHostServices readerServices() {
     ReaderHostServices result;
+    result.deviceName = QStringLiteral("Mac");
+    char model[256] = {};
+    size_t modelSize = sizeof(model);
+    if (::sysctlbyname("hw.model", model, &modelSize, nullptr, 0) == 0 && modelSize > 1)
+        result.deviceName = QString::fromLatin1(model, int(qMin(modelSize - 1, sizeof(model) - 1)));
     result.colorDisplay = [] {
         return true;
     };

@@ -9,6 +9,7 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.ParcelFileDescriptor;
 import android.provider.DocumentsContract;
+import android.provider.OpenableColumns;
 import android.database.Cursor;
 import android.os.Build;
 import android.view.View;
@@ -314,6 +315,20 @@ public class KobaltActivity extends QtActivity {
             return -1;
         }
     }
+    public String syncFilename(String path) {
+        return getSharedPreferences("book-filenames", MODE_PRIVATE).getString(path, "");
+    }
+    private void rememberSyncFilename(Uri uri, String path) {
+        try (Cursor cursor = getContentResolver().query(uri, new String[]{OpenableColumns.DISPLAY_NAME}, null, null, null)) {
+            if (cursor != null && cursor.moveToFirst()) {
+                String name = cursor.getString(0);
+                if (name != null && !name.isEmpty())
+                    getSharedPreferences("book-filenames", MODE_PRIVATE).edit().putString(path, name).apply();
+            }
+        } catch (Exception error) {
+            // Providers may omit names. Binary matching still works without one.
+        }
+    }
     // Copies a library book to the reader's cache path, unless the copy there
     // is current, then opens it. Only the open book is kept in the cache.
     public void openLibraryBook(String uri, String destination, long size, long modified) {
@@ -339,6 +354,7 @@ public class KobaltActivity extends QtActivity {
                     }
                     if (!temporary.renameTo(target)) throw new java.io.IOException("Cannot save this book");
                 }
+                rememberSyncFilename(Uri.parse(uri), destination);
                 File[] others = folder.listFiles();
                 if (others != null)
                     for (File other : others)
@@ -397,6 +413,7 @@ public class KobaltActivity extends QtActivity {
                 File destination = new File(books, key + ".epub");
                 if (!destination.exists() && !temporary.renameTo(destination)) throw new java.io.IOException("Cannot save this document");
                 final String path = destination.getAbsolutePath();
+                rememberSyncFilename(uri, path);
                 runOnUiThread(() -> {
                     if (request.get() != generation || isFinishing() || isDestroyed()) return;
                     if (ready) openBook(path); else pendingPath = path;

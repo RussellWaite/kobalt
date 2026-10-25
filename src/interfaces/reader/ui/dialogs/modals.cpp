@@ -293,7 +293,7 @@ void ModalOverlay::updateInputRegion() {
 void ModalOverlay::centerCard() {
     if (anchor.isEmpty()) {
         pointer->hide();
-        content->move(rect().center() - content->rect().center());
+        content->move((cardArea.isEmpty() ? rect() : cardArea).center() - content->rect().center());
         updateInputRegion();
         return;
     }

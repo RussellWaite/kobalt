@@ -196,7 +196,7 @@ void Reader::showFormattingWarning() {
 }
 
 bool Reader::progressBlocked() const {
-    return bool(debugDialog) || bool(finishDialog) || bool(annotationErrorDialog) || bool(formattingWarningDialog) ||
+    return bool(debugDialog) || bool(finishDialog) || bool(kosyncDialog) || bool(annotationErrorDialog) || bool(formattingWarningDialog) ||
            bool(settingsWriteErrorDialog) || book->deviceTransition() || services.suspended() || !isVisible() ||
            lightPopup->isVisible() || model->busy() || chapterGraph->isVisible() || dictionaryPanel->isVisible() ||
            searchPanel->isVisible() || linksActive() || lookupPending || appearanceEdit.panelOpen() ||

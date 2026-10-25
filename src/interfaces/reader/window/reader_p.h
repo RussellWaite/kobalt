@@ -13,6 +13,8 @@
 #include "reading/reading_book.h"
 #include "reading/appearance_settings.h"
 #include "reading/reader_session.h"
+#include "reading/kosync.h"
+#include "interfaces/reader/settings/kosync_page.h"
 #include "reading/bookmark_session.h"
 #include "reading/highlight_session.h"
 #include "storage/annotation_export.h"
@@ -72,6 +74,9 @@ public:
     void prepareShutdown(std::function<void()> finished) override;
     sleep::Snapshot powerScreenSnapshot() override;
     void sleepReader() override;
+    bool pendingNetworkSync() const override {
+        return kosyncFinishing && kosyncFinishingElapsed.elapsed() < kosyncFinishBudget;
+    }
     void prepareWake() override;
     void cancelWake() override;
     void sleepViewReady() override;
@@ -183,6 +188,35 @@ private:
     void buildOverlays();
     void buildAppearance(const kobalt::reader::AppearanceLayout &layout);
     void buildSettings();
+    void buildKosync();
+    void synchronizeKosync(bool interactive = false);
+    QByteArray kosyncDocument() const;
+    void prepareKosyncPresentation(std::function<void(bool)> finished);
+    void finishKosyncPresentation();
+    void prepareAnnotationPresentation(std::function<void(bool)> finished);
+    void showKosyncChoice();
+    void startKosyncExchange(bool finishing);
+    void flushKosync(std::function<void()> finished);
+    void finishKosync(const QString &message);
+    void cancelKosync();
+    void showKosyncOpening();
+    void hideKosyncOpening();
+    void kosyncStatus(const QString &message);
+    std::unique_ptr<kosync::Client> kosyncClient;
+    KosyncPage *kosyncPage = nullptr;
+    static constexpr int kosyncFinishBudget = 2000;
+    QTimer kosyncTimer, kosyncDeadline, kosyncOpeningGrace;
+    QElapsedTimer kosyncFinishingElapsed;
+    std::function<void()> kosyncFinished;
+    std::function<void(bool)> kosyncPresentationReady;
+    bool kosyncFinishing = false, kosyncOpening = false, kosyncFlushWaiting = false;
+    QPointer<ui::ModalOverlay> kosyncDialog;
+    kosync::Reconciler kosyncProgress;
+    QString kosyncMessage;
+    quint64 kosyncEpoch = 0;
+    bool kosyncStarted = false;
+    bool kosyncPositionFailed = false;
+    bool kosyncPromptDeferred = false;
     void showFontPicker();
     void showFontDefaultDialog(const QString &face);
     void buildNotices();

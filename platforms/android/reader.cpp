@@ -15,6 +15,11 @@
 #include <QTimer>
 #include <QUrl>
 #include <utility>
+#ifdef Q_OS_ANDROID
+#include <QCoreApplication>
+#include <QJniObject>
+#include <QtCore/qnativeinterface.h>
+#endif
 
 namespace kobalt::android {
 namespace {
@@ -134,6 +139,13 @@ void ReaderController::begin(const QString &path, QSize pixels) {
     opening = std::make_unique<ReaderSession>(fonts, placeholder);
     QPointer<ReaderController> guard(this);
     OpenRequest request{identity, path, viewport, saved, {}, paths.layoutCache(), lease, source->resources(lease)};
+#ifdef Q_OS_ANDROID
+    const QJniObject context = QNativeInterface::QAndroidApplication::context();
+    request.syncFilename = context.callObjectMethod(
+        "syncFilename", "(Ljava/lang/String;)Ljava/lang/String;", QJniObject::fromString(path).object<jstring>()).toString();
+    // An absent legacy name must not silently identify the internal hashed filename.
+    if (request.syncFilename.isNull()) request.syncFilename = QStringLiteral("");
+#endif
     request.userStyleSheetPath = paths.directory + "/userstyle.css";
     request.appearanceDefaults = appearance::bookDefaults(settings);
     opening->open(

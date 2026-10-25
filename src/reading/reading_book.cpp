@@ -14,7 +14,8 @@ ReadingBook::ReadingBook(std::unique_ptr<ReaderSession> session, QString statePa
                          QString identity, QByteArray digest, std::unique_ptr<ReadingBridge> bridge,
                          ReadingProgress baseline, ReadingProgress diskBaseline, QString sourceKey)
     : model(std::move(session)), statePath(std::move(statePath)), identity_(std::move(identity)),
-      paths_(std::move(paths)), digest(std::move(digest)), bridge(std::move(bridge)), baseline(std::move(baseline)),
+      paths_(std::move(paths)), digest(std::move(digest)), bridge(std::move(bridge)),
+      nativeCloudSync(this->bridge && !identity_.startsWith("file:///")), baseline(std::move(baseline)),
       reconciliation(std::move(diskBaseline)) {
     auto saved = storage::readBookState(paths_, identity_, this->statePath).object;
     // The native opener resets its snapshot before the database record is

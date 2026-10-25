@@ -1062,6 +1062,13 @@ void Reader::syncMarkupRequest() {
 }
 
 void Reader::preparePresentation(std::function<void(bool)> finished) {
+    prepareKosyncPresentation([this, finished = std::move(finished)](bool ready) mutable {
+        if (!ready) { finished(false); return; }
+        prepareAnnotationPresentation(std::move(finished));
+    });
+}
+
+void Reader::prepareAnnotationPresentation(std::function<void(bool)> finished) {
     syncMarkupRequest();
     if (annotationRequest.saved.isEmpty()) {
         finished(true);

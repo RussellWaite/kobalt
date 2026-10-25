@@ -33,6 +33,8 @@ public:
     virtual void prepareShutdown(std::function<void()> finished) = 0;
     virtual sleep::Snapshot powerScreenSnapshot() { return {}; }
     virtual void sleepReader() = 0;
+    // A bounded final upload can briefly keep the CPU awake after the sleep view appears.
+    virtual bool pendingNetworkSync() const { return false; }
     virtual void prepareWake() = 0;
     virtual void cancelWake() = 0;
     virtual void sleepViewReady() = 0;

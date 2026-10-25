@@ -203,6 +203,7 @@ public:
         update();
     }
     void setDescription(const QString &text);
+    void setValueCaption(bool enabled) { valueCaption = enabled; update(); }
     bool hasHeightForWidth() const override { return !description.isEmpty(); }
     int heightForWidth(int width) const override;
     QString caption() const {
@@ -243,7 +244,7 @@ private:
     QFont previewFont;
     int previewDensity = 0;
     Edges rule;
-    bool chevron = false, iconVisible = true;
+    bool chevron = false, iconVisible = true, valueCaption = false;
 };
 CaptionButton *makeCaptionButton(QWidget *parent, QBoxLayout *layout, const char *name, const QString &text,
                                  std::function<void()> action);

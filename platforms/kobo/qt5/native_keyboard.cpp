@@ -85,8 +85,8 @@ bool NativeKeyboard::create() {
     // LibraryFinderController uses this same sequence. The receiver constructor
     // parents it to the editor; setReceiver retains a guarded QObject pointer.
     api().attach(controller, static_cast<QObject *>(storage), true);
-    const auto submitText = editor->property("reader_keyboard_submit_text").toString();
-    api().goText(controller, submitText.isEmpty() ? QStringLiteral("Search") : submitText);
+    const auto caption = editor->property("reader_keyboard_submit_text").toString();
+    api().goText(controller, caption.isEmpty() ? submitText : caption);
     connect(controller, SIGNAL(commitRequested()), this, SLOT(commit()));
     connect(controller, SIGNAL(returnPressed()), this, SLOT(commit()));
     connect(controller, SIGNAL(languageChanged(KeyboardScript)), this, SLOT(changeScript(KeyboardScript)));

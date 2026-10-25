@@ -39,6 +39,9 @@ public:
     }
     bool deviceTransition() const;
     bool canWriteNative() const;
+    // Downloaded native-library titles use that platform's cloud sync.
+    // Sideloaded file identities keep native local progress and use KOsync.
+    bool usesNativeCloudSync() const { return nativeCloudSync; }
     // A sideloaded EPUB file that is not a kepub.
     bool plainEpub() const {
         return identity_.startsWith("file://") && identity_.endsWith(".epub", Qt::CaseInsensitive) &&
@@ -114,6 +117,7 @@ private:
     storage::Paths paths_;
     QByteArray digest;
     std::unique_ptr<ReadingBridge> bridge;
+    const bool nativeCloudSync;
     bool released = false;
     ReadingProgress baseline;
     ProgressReconciler reconciliation;

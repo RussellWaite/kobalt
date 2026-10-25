@@ -5,6 +5,7 @@
 #include "interfaces/reader/ui/controls/paging.h"
 #include "interfaces/reader/ui/dialogs/modals.h"
 #include "dictionaries_page.h"
+#include "kosync_page.h"
 #include "assets/font_catalog.h"
 #include <QStackedWidget>
 #include <QVector>
@@ -18,9 +19,11 @@ enum SettingsPage {
     StylingSettings,
     DictionariesSettings,
     SystemSettings,
-    AboutSettings
+    AboutSettings,
+    KosyncSettings
 };
 struct SettingsPanelInputs {
+    KeyboardFactory keyboard;
     QString release, commit;
     int qtMajor = 0;
     bool commitVisible = false;
@@ -76,6 +79,7 @@ public:
     QPushButton *keepDefaults = nullptr, *confirmDefaults = nullptr;
     QPushButton *openAcknowledgments = nullptr, *debugProgress = nullptr;
     DictionariesPage *dictionaries = nullptr;
+    KosyncPage *kosync = nullptr;
     QLabel *settingsError = nullptr;
 
 protected:

@@ -995,6 +995,7 @@ void Reader::buildAppearance(const kobalt::reader::AppearanceLayout &layout) {
 
 void Reader::buildSettings() {
     kobalt::reader::SettingsPanelInputs settingsInputs;
+    settingsInputs.keyboard = services.keyboard;
     const auto release = QStringLiteral(KOBALT_VERSION);
     settingsInputs.release = release.mid(release.startsWith('v') ? 1 : 0);
     settingsInputs.commit = QString::fromLatin1(kobaltCommit) + (KOBALT_COMMIT_MODIFIED ? "*" : "");
@@ -1011,6 +1012,8 @@ void Reader::buildSettings() {
 #endif
     auto *settings = new kobalt::reader::SettingsPanel(this, settingsInputs);
     general = settings;
+    kosyncPage = settings->kosync;
+    buildKosync();
     connect(settings->closeButton, &QPushButton::clicked, this, [this] {
         if (appearanceEdit.applying())
             return;
@@ -1283,7 +1286,7 @@ void Reader::connectLightGestures() {
     page->lightStarted = [this](bool warmth) {
         if (annotationMode || !isVisible() || services.suspended() || book->deviceTransition() || this->model->busy() ||
             appearanceEdit.preview() || general->isVisible() || topControls->isVisible() || choices->isVisible() ||
-            dictionaryPanel->isVisible() || searchPanel->isVisible() || linksActive() || lookupPending || syncDialog ||
+            dictionaryPanel->isVisible() || searchPanel->isVisible() || linksActive() || lookupPending || syncDialog || kosyncDialog ||
             finishDialog || applyingText || lightPopup->isVisible() || exitPending)
             return false;
         if (warmth) {

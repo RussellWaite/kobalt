@@ -47,6 +47,9 @@ void Reader::refreshRenderNotice() {
 void Reader::refresh() {
     if (lifecycleHidden)
         return;
+    if (recordedOpening && !kosyncStarted)
+        synchronizeKosync();
+    showKosyncChoice();
     // Reporting a page to Nickel's reading session asks Nickel for its
     // database, the account and the book. On a page turn that waits until
     // the new page is painted.
@@ -74,7 +77,7 @@ void Reader::refresh() {
     // for the rest of its work. On a plain page turn, paint now and let the
     // controls, the chapter graph and the saved position follow.
     const bool readingTurn = isVisible() && !appearanceEdit.panelOpen() && !topControls->isVisible() &&
-                             !general->isVisible() && !choices->isVisible() && !syncDialog && !finishDialog &&
+                             !general->isVisible() && !choices->isVisible() && !syncDialog && !kosyncDialog && !finishDialog &&
                              !services.suspended() && !applyingText && !model->busy() && model->turnDirection() != 0 &&
                              nextImage.cacheKey() != previousPageImage;
     if (readingTurn) {
@@ -103,7 +106,7 @@ void Reader::refresh() {
     // when its content changes, including a completed typography preview.
     if (!readingTurn)
         page->refreshContent(isVisible() && !appearanceEdit.panelOpen() && !topControls->isVisible() &&
-                             !general->isVisible() && !choices->isVisible() && !syncDialog && !finishDialog &&
+                             !general->isVisible() && !choices->isVisible() && !syncDialog && !kosyncDialog && !finishDialog &&
                              !services.suspended() && !applyingText && (model->turnDirection() != 0 || passageFrame) &&
                              nextImage.cacheKey() != previousPageImage);
     if (!recordedOpening)
@@ -235,7 +238,7 @@ void Reader::showPageImage(const QImage &nextImage) {
         page->mark({});
         page->animationDirection =
             isVisible() && !appearanceEdit.panelOpen() && !topControls->isVisible() && !general->isVisible() &&
-                    !linkReturn->isVisible() && !syncDialog && !finishDialog && !services.suspended() &&
+                    !linkReturn->isVisible() && !syncDialog && !kosyncDialog && !finishDialog && !services.suspended() &&
                     preferences.value("page_animations").toBool(false) && services.animationsAvailable()
                 ? model->turnDirection()
                 : 0;

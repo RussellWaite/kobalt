@@ -159,6 +159,7 @@ public:
     // Unavailable. *error explains why the exact position was not used.
     PositionTarget goToPlatformNearest(const PositionCodec &codec, const QString &location, QString *error);
     // Negative is before the current source anchor; positive is beyond it.
+    int comparePosition(const QString &position, QString *error) const;
     int comparePlatformPosition(const PositionCodec &codec, const QString &location, QString *error) const;
     // The page of each position in the current layout, or -1 where a
     // position no longer resolves.
