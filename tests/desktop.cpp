@@ -1659,8 +1659,8 @@ private slots:
         QVERIFY(headword);
         const auto word = headword->text();
         QCOMPARE(word.split(' ', Qt::SkipEmptyParts).size(), 1);
-        QVERIFY(page->annotationHandleRect(true).isEmpty() && page->annotationHandleRect(false).isEmpty());
-        QVERIFY(page->annotationHandleHitRegion().isEmpty());
+        QTRY_VERIFY(!page->annotationHandleRect(true).isEmpty() && !page->annotationHandleRect(false).isEmpty());
+        QVERIFY(!page->annotationHandleHitRegion().isEmpty());
         QVERIFY(!toggle->isChecked());
         // Moving a held lookup across other words or past a page edge must
         // retain its original word and consume the whole gesture.
@@ -1675,11 +1675,62 @@ private slots:
             QCOMPARE(headword->text(), word);
             QVERIFY(page->annotationContains(first - QPoint(0, page->topHeight())));
             QVERIFY(!page->annotationContains(later - QPoint(0, page->topHeight())));
-            QVERIFY(page->annotationHandleRect(true).isEmpty() && page->annotationHandleRect(false).isEmpty());
-            QVERIFY(page->annotationHandleHitRegion().isEmpty());
+            QTRY_VERIFY(!page->annotationHandleRect(true).isEmpty() && !page->annotationHandleRect(false).isEmpty());
+            QVERIFY(!page->annotationHandleHitRegion().isEmpty());
             QCOMPARE(fixture.state().value("position"), position);
             QVERIFY(!toggle->isChecked());
         }
+        // Lookup handles adjust a phrase without enabling annotations or turning pages.
+        const auto endGrip = page->annotationHandleRect(false).center();
+        QVERIFY(fixture.drag(page, endGrip, endGrip + later - first));
+        QTRY_VERIFY(!fixture.state().value("annotation_dragging").toBool());
+        QTRY_VERIFY(fixture.visible("rrDictionary"));
+        QTRY_VERIFY(headword->text().split(' ', Qt::SkipEmptyParts).size() >= 3);
+        const auto phrase = headword->text();
+        const int phraseWords = phrase.split(' ', Qt::SkipEmptyParts).size();
+        const auto second = fixture.wordPoint(1);
+        const auto startGrip = page->annotationHandleRect(true).center();
+        QVERIFY(fixture.drag(page, startGrip, startGrip + second - first));
+        QTRY_VERIFY(!fixture.state().value("annotation_dragging").toBool());
+        QTRY_VERIFY(fixture.visible("rrDictionary") && headword->text() != phrase);
+        QVERIFY(headword->text().split(' ', Qt::SkipEmptyParts).size() < phraseWords);
+        QVERIFY(!toggle->isChecked());
+        QCOMPARE(fixture.stored("highlights.json", "highlights").size(), 0);
+        QCOMPARE(fixture.state().value("position"), position);
+        // A lookup grip stays on this page even when dragged past its edge.
+        const auto edgeGrip = page->annotationHandleRect(false).center();
+        QVERIFY(fixture.drag(page, edgeGrip, QPoint(page->width() / 2, page->height() - 2)));
+        QTRY_VERIFY(!fixture.state().value("annotation_dragging").toBool());
+        QTRY_VERIFY(fixture.visible("rrDictionary"));
+        QCOMPARE(fixture.state().value("position"), position);
+        QVERIFY(fixture.press("rrDictionaryClose"));
+        QTRY_VERIFY(page->annotationHandleRect(true).isEmpty() && page->annotationHandleRect(false).isEmpty());
+        QVERIFY(!page->annotationContains(first - QPoint(0, page->topHeight())));
+        QVERIFY(!toggle->isChecked());
+        QCOMPARE(fixture.stored("highlights.json", "highlights").size(), 0);
+        QVERIFY(fixture.selectWord(page, first));
+        QTRY_VERIFY(fixture.visible("rrDictionary"));
+        // Cancelling a grip must not schedule a lookup that reopens a dismissed sheet.
+        auto *canvas = fixture.window.findChild<QGraphicsView *>();
+        auto *reader = fixture.window.readerWindow();
+        const auto grip = page->annotationHandleRect(false).center();
+        const auto at = canvas->mapFromScene(page->mapTo(reader, grip));
+        const auto moved = at + QPoint(30, 0);
+        QTest::mousePress(canvas->viewport(), Qt::LeftButton, Qt::NoModifier, at);
+        QTest::mouseMove(canvas->viewport(), moved);
+        QTRY_VERIFY(fixture.state().value("annotation_dragging").toBool());
+        page->cancelHold();
+        QTest::mouseRelease(canvas->viewport(), Qt::LeftButton, Qt::NoModifier, moved);
+        QTRY_VERIFY(!fixture.state().value("annotation_dragging").toBool());
+        // The geometry query waits behind any earlier lookup work on the engine worker.
+        QVERIFY(fixture.wordPoint(1).x() >= 0);
+        QVERIFY(!fixture.visible("rrDictionary"));
+        QCOMPARE(fixture.state().value("position"), position);
+        QVERIFY(!toggle->isChecked());
+        QVERIFY(fixture.click(page, first));
+        QTRY_VERIFY(fixture.visible("rrSelectionLookup"));
+        QVERIFY(fixture.press("rrSelectionLookup"));
+        QTRY_VERIFY(fixture.visible("rrDictionary"));
         QVERIFY(fixture.click(page, first));
         QVERIFY(!fixture.visible("rrSelectionAnnotate"));
         QVERIFY(!fixture.visible("rrAnnotationStyles"));
@@ -1714,7 +1765,7 @@ private slots:
         QVERIFY(fixture.selectWord(page, next));
         QTRY_VERIFY(fixture.visible("rrDictionary"));
         QCOMPARE(headword->text().split(' ', Qt::SkipEmptyParts).size(), 1);
-        QVERIFY(page->annotationHandleRect(true).isEmpty() && page->annotationHandleRect(false).isEmpty());
+        QTRY_VERIFY(!page->annotationHandleRect(true).isEmpty() && !page->annotationHandleRect(false).isEmpty());
         QVERIFY(!toggle->isChecked());
         QCOMPARE(fixture.state().value("position"), position);
         QVERIFY(fixture.press("rrDictionaryClose"));
@@ -1999,7 +2050,7 @@ private slots:
         QVERIFY(fixture.selectWord(page, first));
         if (!toolbarEntry) {
             QTRY_VERIFY(fixture.visible("rrDictionary"));
-            QVERIFY(page->annotationHandleRect(true).isEmpty() && page->annotationHandleRect(false).isEmpty());
+            QTRY_VERIFY(!page->annotationHandleRect(true).isEmpty() && !page->annotationHandleRect(false).isEmpty());
             QVERIFY(!fixture.visible("rrSelectionAnnotate"));
             QVERIFY(fixture.startAnnotation(page, first));
             QTRY_VERIFY(fixture.visible("rrAnnotationSave"));
@@ -2084,7 +2135,7 @@ private slots:
         QVERIFY(fixture.selectWord(page, first));
         if (!toolbarEntry) {
             QTRY_VERIFY(fixture.visible("rrDictionary"));
-            QVERIFY(page->annotationHandleRect(true).isEmpty() && page->annotationHandleRect(false).isEmpty());
+            QTRY_VERIFY(!page->annotationHandleRect(true).isEmpty() && !page->annotationHandleRect(false).isEmpty());
             QVERIFY(!fixture.visible("rrSelectionAnnotate"));
             QVERIFY(fixture.startAnnotation(page, first));
             QTRY_VERIFY(fixture.visible("rrAnnotationSave"));
@@ -2266,7 +2317,7 @@ private slots:
                 QVERIFY(fixture.selectWord(page, word));
                 if (!marking) {
                     QTRY_VERIFY(fixture.visible("rrDictionary"));
-                    QVERIFY(page->annotationHandleRect(true).isEmpty());
+                    QTRY_VERIFY(!page->annotationHandleRect(true).isEmpty());
                     QVERIFY(!fixture.visible("rrSelectionAnnotate"));
                     QVERIFY(fixture.startAnnotation(page, word));
                 }
@@ -2300,7 +2351,7 @@ private slots:
         // Adjust may change its own saved range, but cannot cross another mark.
         QVERIFY(fixture.selectWord(page, beyond));
         QTRY_VERIFY(fixture.visible("rrDictionary"));
-        QVERIFY(page->annotationHandleRect(true).isEmpty());
+        QTRY_VERIFY(!page->annotationHandleRect(true).isEmpty());
         QVERIFY(!fixture.visible("rrSelectionAnnotate"));
         QVERIFY(fixture.startAnnotation(page, beyond));
         QTRY_VERIFY(fixture.visible("rrAnnotationSave"));
@@ -2816,7 +2867,7 @@ private slots:
         auto *headword = qobject_cast<QLabel *>(fixture.widget("rrDictionaryWord"));
         QVERIFY(headword);
         QVERIFY(headword->text() == "short" || headword->text() == "note");
-        QVERIFY(reading->annotationHandleRect(true).isEmpty() && reading->annotationHandleRect(false).isEmpty());
+        QTRY_VERIFY(!reading->annotationHandleRect(true).isEmpty() && !reading->annotationHandleRect(false).isEmpty());
         QVERIFY(fixture.press("rrDictionaryClose"));
         QTRY_VERIFY(!reading->annotationContains(note - QPoint(0, reading->topHeight())));
         QVERIFY(!fixture.visible("rrAnnotationPopover"));

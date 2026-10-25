@@ -1004,7 +1004,8 @@ void Reader::lookupSelection() {
         if (!guard || guard->lookupEpoch != epoch || guard->lifecycleHidden || guard->services.suspended())
             return;
         guard->lookupPending = false;
-        if (range.text.isEmpty()) {
+        const auto query = range.text.simplified();
+        if (query.isEmpty()) {
             guard->updateOrientationBlock();
             guard->updateLinkReturn();
             return;
@@ -1012,14 +1013,14 @@ void Reader::lookupSelection() {
         QRect bounds;
         for (const auto &rect : guard->draftHighlightRects)
             bounds = bounds.united(rect);
-        guard->lookupText = range.text;
+        guard->lookupText = query;
         guard->lookupBounds = bounds.translated(0, guard->page->topHeight());
-        const auto result = guard->dictionary->lookup(guard->book->identity(), range.text);
+        const auto result = guard->dictionary->lookup(guard->book->identity(), query);
         if (!guard || guard->lookupEpoch != epoch || guard->lifecycleHidden)
             return;
         guard->dictionaryPanel->setChoices(guard->dictionary->choices());
         guard->dictionaryPanel->setBookFont(guard->bookFace());
-        guard->dictionaryPanel->open(range.text, result, guard->lookupBounds);
+        guard->dictionaryPanel->open(query, result, guard->lookupBounds);
         guard->syncAnnotationControls();
         guard->updateOrientationBlock();
         guard->updateLinkReturn();

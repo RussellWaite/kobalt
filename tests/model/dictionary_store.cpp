@@ -433,6 +433,25 @@ int main(int argc, char **argv) {
     const QByteArray first("<p>A domesticated animal with a definition crossing compressed chunks.</p>"),
         second("<p>\xd9\x83\xd8\xaa\xd8\xa7\xd8\xa8</p>");
     checkDictzip(temp.path() + "/dictzip-validation", first + second);
+    {
+        const auto folder = temp.path() + "/phrase";
+        require(QDir().mkpath(folder), "make phrase dictionary directory");
+        const QByteArray definition("<p>A frozen dessert.</p>");
+        QByteArray index("ice cream\0", 10);
+        be32(index, 0);
+        be32(index, definition.size());
+        save(folder + "/phrase.idx", index);
+        save(folder + "/phrase.dict.dz", dictzip(definition));
+        save(folder + "/phrase.ifo", "StarDict's dict ifo file\nversion=2.4.2\nwordcount=1\nidxfilesize=" +
+                                        QByteArray::number(index.size()) + "\nsametypesequence=h\n");
+        QString error;
+        require(StarDict::prepare(folder, "phrase", &error), qPrintable(error));
+        StarDict dictionary;
+        require(dictionary.open(folder, "phrase", &error), qPrintable(error));
+        require(dictionary.lookup("ice cream").html.toUtf8() == definition,
+                "Dictionary lookup did not resolve a complete phrase entry");
+        require(dictionary.lookup("ice").html.isEmpty(), "Phrase lookup silently used only its first word");
+    }
     QByteArray idx("CAT\0", 4);
     be32(idx, first.size());
     be32(idx, second.size());

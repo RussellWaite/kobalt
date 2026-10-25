@@ -202,7 +202,7 @@ void Reader::paintAnnotationDraft() {
                    draftHighlightGeometry.vertical);
     auto geometry = draftHighlightGeometry;
     geometry.rectangles = draftHighlightRects;
-    page->setAnnotationHandles(annotationMode ? geometry : AnnotationGeometry{});
+    page->setAnnotationHandles(geometry);
     annotationPopover->setInputExclusions(page->annotationHandleHitRegion().translated(
         page->mapTo(this, QPoint()) - annotationPopover->pos()));
 }
@@ -502,7 +502,7 @@ void Reader::annotationTap(QPoint point) {
 
 bool Reader::beginAnnotationDrag(QPoint point, int boundary) {
     if (annotationSaving || model->busy() || lifecycleHidden || closing || services.suspended() ||
-        (boundary >= 0 && !annotationMode) ||
+        (boundary >= 0 && !annotationMode && (annotationStart.isEmpty() || annotationEnd.isEmpty())) ||
         (topControls->isVisible() && !annotationMenuSelectionEnabled()))
         return false;
     if (topControls->isVisible())
@@ -601,9 +601,9 @@ int Reader::annotationDragPageDirection(QPoint point) const {
 }
 
 void Reader::moveAnnotationDrag(QPoint point) {
-    // Ordinary lookup keeps the word where the hold began. The page still owns
-    // the gesture, so movement and release cannot become a page turn.
-    if (!annotationDragging || !annotationMode)
+    // The initial lookup hold keeps its word. Lookup handles can adjust the
+    // range after release without enabling annotation mode.
+    if (!annotationDragging || (!annotationMode && !annotationHandleDragging))
         return;
     annotationDragPoint = point;
     requestAnnotationDrag();
@@ -612,7 +612,7 @@ void Reader::moveAnnotationDrag(QPoint point) {
 void Reader::finishAnnotationDrag(bool cancelled) {
     if (!annotationDragging) {
         if (std::exchange(annotationDragAwaitingRelease, false) && !cancelled && !annotationMode)
-            showAnnotationActions();
+            lookupSelection();
         return;
     }
     if (cancelled) {
@@ -633,7 +633,7 @@ void Reader::requestAnnotationDrag() {
     if (annotationHandleDragging) {
         const int direction = annotationDragPageDirection(annotationDragPoint);
         if (direction != 0) {
-            if (!(direction > 0 ? annotationDragEdges.continuesAfter : annotationDragEdges.continuesBefore)) {
+            if (!annotationMode || !(direction > 0 ? annotationDragEdges.continuesAfter : annotationDragEdges.continuesBefore)) {
                 const auto token = direction > 0 ? annotationDragEdges.last : annotationDragEdges.first;
                 const bool start = annotationDragBoundary == 0;
                 annotationDragPending = true;
@@ -643,6 +643,8 @@ void Reader::requestAnnotationDrag() {
                         return;
                     guard->annotationDragging = guard->annotationDragPending = false;
                     guard->annotationDragAwaitingRelease = !guard->annotationDragReleased;
+                    if (guard->annotationDragReleased && !guard->annotationMode)
+                        guard->lookupSelection();
                 };
                 resolveAnnotationTokens(start ? token : annotationStartWord, start ? annotationEndWord : token,
                     start ? !token.punctuation : annotationStartPolicy,
@@ -690,7 +692,7 @@ void Reader::requestAnnotationDrag() {
             } else if (guard->annotationDragReleased) {
                 guard->annotationDragging = false;
                 if (!guard->annotationMode && !guard->annotationStart.isEmpty()) {
-                    if (guard->annotationStartWord.start != guard->annotationEndWord.start || guard->selectionLinkPoint().x() >= 0)
+                    if (!guard->annotationHandleDragging && guard->selectionLinkPoint().x() >= 0)
                         guard->showAnnotationActions();
                     else
                         guard->lookupSelection();
@@ -1034,7 +1036,7 @@ void Reader::syncAnnotationControls() {
         !searchPanel->isVisible() && !dictionaryPanel->isVisible() && !lightPopup->isVisible();
     const bool selectionEnabled = annotationMenuSelectionEnabled();
     page->setAnnotationInputEnabled(readingOnly || dictionaryPanel->isVisible() || selectionEnabled);
-    page->setAnnotationHandles(annotationMode ? draftHighlightGeometry : AnnotationGeometry{});
+    page->setAnnotationHandles(draftHighlightGeometry);
     annotationPopover->setInputExclusions(page->annotationHandleHitRegion().translated(
         page->mapTo(this, QPoint()) - annotationPopover->pos()));
 }
@@ -1174,7 +1176,7 @@ void Reader::syncAnnotations() {
         draftHighlightRects = matchingDraft ? markup.draft.rectangles : QVector<QRect>{};
         draftHighlightGeometry = matchingDraft ? markup.draft : AnnotationGeometry{};
         page->installAnnotationFrame(draftHighlightRects, markup.saved, draftHighlightGeometry.vertical,
-                                     annotationMode ? &draftHighlightGeometry : nullptr);
+                                     &draftHighlightGeometry);
         if (showActions) {
             annotationShowActionsPending = false;
             showAnnotationActions();
