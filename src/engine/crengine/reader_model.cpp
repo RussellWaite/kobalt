@@ -413,6 +413,8 @@ void ReaderModel::configure(QSize size, const QJsonObject &settings) {
     darkMode_ = saved.value("dark_mode").toBool(false);
     hideNonlinearFragments_ = saved.value("hide_nonlinear_fragments").toBool(false);
     avoidWastefulStyling_ = saved.value("avoid_wasteful_styling").toBool(true);
+    verticalSpacing_ = appearance::verticalSpacingMode(saved.value("vertical_justification"));
+    verticalSpacingScope_ = appearance::verticalSpacingScope(saved.value("vertical_spacing_scope"));
     wordSpacing_ = saved.value("word_spacing").toInt(100);
     if (!appearance::validWordSpacing(wordSpacing_))
         wordSpacing_ = 100;
@@ -525,6 +527,7 @@ void ReaderModel::configure(QSize size, const QJsonObject &settings) {
                           lString8(QString("|||||%1|%2||").arg(monospaceFontFace, mathFontFace).toUtf8().constData()));
     engine_->propsApply(properties);
     engine_->setViewMode(DVM_PAGES, 1);
+    engine_->setVerticalSpacing(verticalSpacing_ == "center" ? 2 : verticalSpacing_ == "expand" ? 1 : 0, verticalSpacingScope_ == "protection");
     engine_->setDefaultFontFace(lString8((face_.isEmpty() ? QString(defaultFontFace) : face_).toUtf8().constData()));
     engine_->setFontSize(pixels_);
     // CSS sets the line height; the engine must not multiply it again.
@@ -697,6 +700,11 @@ bool ReaderModel::applyAppearance(const QJsonObject &settings, QSize size, Openi
     const bool dark = settings.value("dark_mode").toBool(darkMode_);
     const bool hideNonlinear = settings.value("hide_nonlinear_fragments").toBool(hideNonlinearFragments_);
     const bool avoidWastefulStyling = settings.value("avoid_wasteful_styling").toBool(avoidWastefulStyling_);
+    const auto verticalSpacing = settings.contains("vertical_justification")
+        ? appearance::verticalSpacingMode(settings.value("vertical_justification")) : verticalSpacing_;
+    const auto verticalScope = settings.contains("vertical_spacing_scope")
+        ? appearance::verticalSpacingScope(settings.value("vertical_spacing_scope")) : verticalSpacingScope_;
+    const bool verticalChanged = verticalSpacing != verticalSpacing_ || verticalScope != verticalSpacingScope_;
     const int wordSpacing = settings.value("word_spacing").toInt(wordSpacing_);
     const int tracking = settings.value("justification_tracking").toInt(justificationTracking_);
     if (size.width() < 320 || size.height() < 240)
@@ -730,9 +738,9 @@ bool ReaderModel::applyAppearance(const QJsonObject &settings, QSize size, Openi
     const bool resized = size != size_ || columns != columns_ || columnSpacing != columnSpacing_;
     twoColumnsLandscape_ = landscapeColumns;
     columnSpacingPercent_ = gapPercent;
-    if (!styled && !resized && weight == weight_ && dark == darkMode_ && hideNonlinear == hideNonlinearFragments_)
+    if (!verticalChanged && !styled && !resized && weight == weight_ && dark == darkMode_ && hideNonlinear == hideNonlinearFragments_)
         return true;
-    if (styled || resized)
+    if (styled || resized || verticalChanged)
         sourceIndex_.reset();
     const QString anchor = position();
     OpeningCallback callback(engine_, std::move(progress));
@@ -754,6 +762,9 @@ bool ReaderModel::applyAppearance(const QJsonObject &settings, QSize size, Openi
     activateFontParameters();
     hideNonlinearFragments_ = hideNonlinear;
     avoidWastefulStyling_ = avoidWastefulStyling;
+    verticalSpacing_ = verticalSpacing;
+    verticalSpacingScope_ = verticalScope;
+    engine_->setVerticalSpacing(verticalSpacing_ == "center" ? 2 : verticalSpacing_ == "expand" ? 1 : 0, verticalSpacingScope_ == "protection");
     wordSpacing_ = wordSpacing;
     justificationTracking_ = tracking;
     widowsOrphans_ = widowsOrphans;
@@ -1043,6 +1054,8 @@ quint64 ReaderModel::layoutSignature() const {
     };
     mix(quint64(quintptr(engine_->getDocument())));
     mix(engine_->getDocumentRenderingHash(true));
+    mix(verticalSpacing_ == "center" ? 2 : verticalSpacing_ == "expand" ? 1 : 0);
+    mix(verticalSpacingScope_ == "protection");
     return hash ? hash : 1;
 }
 const ReaderModel::ChapterIndex &ReaderModel::chapterIndex(ChapterIndex &index, const QVector<ChapterLink> &source,
@@ -1288,6 +1301,8 @@ QJsonObject ReaderModel::state() const {
                                {"dark_mode", darkMode_},
                                {"hide_nonlinear_fragments", hideNonlinearFragments_},
                                {"avoid_wasteful_styling", avoidWastefulStyling_},
+                               {"vertical_justification", verticalSpacing_},
+                               {"vertical_spacing_scope", verticalSpacingScope_},
                                {"columns", columns_},
                                {"two_columns_landscape", twoColumnsLandscape_},
                                {"column_spacing_percent", columnSpacingPercent_},

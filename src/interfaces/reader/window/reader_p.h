@@ -470,6 +470,7 @@ private:
     int settingsWordSpacing = 100;
     int settingsTracking = 0;
     QString settingsWidowsOrphans = "publisher";
+    QString settingsVerticalSpacing = "off", settingsVerticalSpacingScope = "all";
     void showAdvancedText();
     static QString refreshExplanation(kobalt::ScreenRefresh mode);
     static QString refreshLabel(kobalt::ScreenRefresh mode);

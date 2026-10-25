@@ -30,8 +30,32 @@ int main() {
     require(appearance::same({}, dictionary), "Dictionary UI preferences invalidated the book layout");
     // Appearance settings decide the layout. The list must stay complete, because a
     // missing key would let a retained layout survive a changed setting.
-    require(appearance::keys.size() == 27, "The appearance keys changed without this check");
+    require(appearance::keys.size() == 29, "The appearance keys changed without this check");
 
+    const QJsonObject fillOn{{"vertical_justification", "expand"}}, fillOff{{"vertical_justification", "off"}};
+    require(!appearance::same(fillOn, fillOff), "Vertical fill reused a retained layout");
+    auto copiedFill = fillOff;
+    appearance::copy(copiedFill, fillOn);
+    require(copiedFill.value("vertical_justification").toString() == "expand", "Preview copy lost vertical fill");
+    const auto fill = appearance::bookDefaults({{"vertical_justification", true}});
+    auto oldBook = QJsonObject{{"vertical_justification", false}};
+    appearance::applyBookDefaults(oldBook, fill);
+    require(oldBook.value("vertical_justification").toString() == "expand", "global vertical fill was lost to book settings");
+    appearance::applyBookDefaults(oldBook, appearance::bookDefaults({}));
+    require(oldBook.value("vertical_justification").toString() == "off", "missing vertical fill did not default off");
+    const auto invalidFill = appearance::cleanPreferences({{"vertical_justification", "yes"}, {"future_option", 42}});
+    require(invalidFill.value("vertical_justification").toString() == "off" && invalidFill.value("future_option").toInt() == 42,
+            "vertical fill validation changed unknown preferences");
+    for (const auto &mode : {QString("off"), QString("expand"), QString("center")}) {
+        const auto cleaned = appearance::cleanPreferences({{"vertical_justification", mode}, {"vertical_spacing_scope", "protection"}});
+        require(cleaned.value("vertical_justification").toString() == mode &&
+                cleaned.value("vertical_spacing_scope").toString() == "protection", "Vertical mode or scope was lost");
+    }
+    require(appearance::verticalSpacingMode(true) == "expand" && appearance::verticalSpacingMode(false) == "off",
+            "Legacy Boolean page filling did not migrate");
+    require(appearance::verticalSpacingScope("invalid") == "all", "Invalid spacing scope did not default to all pages");
+    require(!appearance::same({{"vertical_spacing_scope", "all"}}, {{"vertical_spacing_scope", "protection"}}),
+            "Changing the spacing scope reused an old appearance");
     const auto from = qt::object({{"font_pixels", 40},
                                   {"line_spacing", QJsonValue(QJsonValue::Null)},
                                   {"font_face", "Libron"},

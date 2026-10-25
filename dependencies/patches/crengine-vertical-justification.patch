@@ -1,0 +1,351 @@
+--- a/crengine/include/lvpagesplitter.h
++++ b/crengine/include/lvpagesplitter.h
+@@ -55,6 +55,11 @@
+ #define RN_SPLIT_DISCARD_AT_START 0x400
+ 
+ #define RN_LINE_IS_RTL 0x1000
++#define RN_LINE_JUSTIFIABLE_TEXT 0x2000
++#define RN_LINE_WHITESPACE 0x4000
++#define RN_LINE_PARAGRAPH_PROTECTION 0x8000
++#define RN_PAGE_PARAGRAPH_PROTECTION_GAP 0x80
++#define RN_PAGE_KEEP_VERTICAL_SPACING 0x40
+ 
+ #define RN_GET_SPLIT_BEFORE(flags) ((flags >> RN_SPLIT_BEFORE) & 0x7)
+ #define RN_GET_SPLIT_AFTER(flags)  ((flags >> RN_SPLIT_AFTER)  & 0x7)
+@@ -216,10 +221,52 @@
+ /// rendered page splitting info
+ class LVRendPageInfo {
+ public:
++    // Source line boxes, relative to page start. These do not change pagination.
++    LVArray<lvPoint> justificationLines;
++    int justificationExtra(int available) const {
++        int count = justificationLines.length();
++        if (count < 6 || footnotes.length() || (flags & RN_PAGE_KEEP_VERTICAL_SPACING)) return 0;
++        int extra = available - justificationLines[count-1].y;
++        int average = (justificationLines[count-1].y - justificationLines[0].x) / count;
++        // Avoid conspicuous leading on sparse pages or after large kept blocks.
++        return extra > 0 && extra <= available / 8 && extra <= (count-1) * average / 8 ? extra : 0;
++    }
++    int centeringOffset(int available) const {
++        if (!justificationLines.length() || footnotes.length() || available <= 0) return 0;
++        int top = justificationLines[0].x;
++        int occupied = justificationLines[justificationLines.length()-1].y - top;
++        if (occupied > available || occupied * 10 < available * 9) return 0;
++        return (available - occupied) / 2 - top;
++    }
++    int justificationOffset(int y, int available, int mode, bool bottom=false) const {
++        if (mode == 2) return centeringOffset(available);
++
++        int extra = justificationExtra(available);
++        if (!extra) return 0;
++        if (bottom) --y;
++        int index = 0;
++        while (index+1 < justificationLines.length() && y >= justificationLines[index+1].x) ++index;
++        return extra * index / (justificationLines.length()-1);
++    }
++    int justificationSourceY(int y, int available, int mode, bool pull) const {
++        if (mode == 2) return y - centeringOffset(available);
++        int extra = justificationExtra(available);
++        if (!extra) return y;
++        int previous = 0;
++        for (int i=1; i<justificationLines.length(); ++i) {
++            int offset = extra * i / (justificationLines.length()-1);
++            int edge = justificationLines[i].x;
++            if (y < edge + previous) return y - previous;
++            if (y < edge + offset) return pull ? edge : -1;
++            previous = offset;
++        }
++        return y - previous;
++    }
+     int start; /// start of page
++
+     int index;  /// index of page
+     lInt16 height; /// height of page, does not include footnotes
+-    lInt8 flags;   /// RN_PAGE_*
++    lUInt8 flags;  /// RN_PAGE_*
+     CompactArray<LVPageFootNoteInfo, 1, 4> footnotes; /// footnote fragment list for page
+     lUInt16 flow;
+     lUInt8 writing_mode; /// FORK: css_writing_mode_t of this page's content (per-page mixed writing mode)
+--- a/crengine/include/lvdocview.h
++++ b/crengine/include/lvdocview.h
+@@ -327,6 +327,8 @@
+     bool   m_twoVisiblePagesAsOnePageNumber;
+     int m_pageHeaderInfo;
+     bool m_showCover;
++    int m_verticalSpacingMode = 0;
++    bool m_verticalSpacingOnlyProtection = false;
+     LVRefVec<LVImageSource> m_headerIcons;
+     LVRefVec<LVImageSource> m_batteryIcons;
+ 
+@@ -905,6 +907,10 @@
+ 
+     /// set default interline space, percent (100..200)
+     void setDefaultInterlineSpace( int percent );
++    void setVerticalSpacing(int mode, bool onlyProtection) {
++        m_verticalSpacingMode = mode;
++        m_verticalSpacingOnlyProtection = onlyProtection;
++    }
+ 
+     /// change font size, if rollCyclic is true, largest font is followed by smallest and vice versa
+     void ZoomFont( int delta );
+--- a/crengine/include/lvrend.h
++++ b/crengine/include/lvrend.h
+@@ -161,6 +161,10 @@
+     // styles all keep the specified value `inherit` need this to avoid being
+     // reformatted as horizontal after vertical layout.
+     int writing_mode;
++    const LVRendPageInfo * justification_page;
++    int justification_height;
++    int justification_mode;
++    int justification_origin;
+ } draw_extra_info_t;
+ 
+ /// returns true if styles are identical
+--- a/crengine/src/lvpagesplitter.cpp
++++ b/crengine/src/lvpagesplitter.cpp
+@@ -1015,7 +1015,16 @@
+             if ( lines_max_bottom - cur_page_bottom <= page_height ) {
+                 // If we end current page at the current cur_page_bottom,
+                 // these lines will fit in a new empty page
++                bool protected_boundary = false, text_would_fit = false;
++                for (int j=start; j<=end; ++j) {
++                    protected_boundary |= (lines[j]->flags & RN_LINE_PARAGRAPH_PROTECTION) != 0;
++                    text_would_fit |= (lines[j]->flags & RN_LINE_JUSTIFIABLE_TEXT) &&
++                                      lines[j]->getEnd() <= getCurPageMaxBottom();
++                }
++                int previous_count = page_list->length();
+                 flushCurrentPage(false);
++                if (protected_boundary && text_would_fit && page_list->length() > previous_count)
++                    page_list->last()->flags |= RN_PAGE_PARAGRAPH_PROTECTION_GAP;
+                 // We don't push delayed footnotes (as this would reduce
+                 // the available height and these lines may then not fit),
+                 // so make sure that if there is any, we'll push them below
+@@ -1356,6 +1365,7 @@
+             }
+             if ( force_new_page || is_last_line ) {
+                 flushCurrentPage();
++                if (page_list->length()) page_list->last()->flags |= RN_PAGE_KEEP_VERTICAL_SPACING;
+             }
+         }
+     }
+@@ -1385,6 +1395,34 @@
+                       vert_split_page_h > 0 ? vert_split_page_h : split_page_h,
+                       page_h);
+     s.splitToPages();
++    LVArray<int> unsuitable_pages;
++    for (int i=0; i<page_list->length(); ++i) unsuitable_pages.add(0);
++    // Retain text boxes while split lines still exist. Unknown content disables
++    // filling for its entire page. Footnotes and forced endings retain their spacing.
++    for (int i=0; i<lines.length(); ++i) {
++        LVRendLineInfo *line = lines[i];
++        if ((line->flags & RN_SPLIT_FOOT_NOTE) || line->getHeight() <= 0) continue;
++        int lo=0, hi=page_list->length();
++        while (lo < hi) {
++            int mid=(lo+hi)/2;
++            if ((*page_list)[mid]->start + (*page_list)[mid]->height <= line->getStart()) lo=mid+1;
++            else hi=mid;
++        }
++        if (lo >= page_list->length()) continue;
++        LVRendPageInfo *page=(*page_list)[lo];
++        if (unsuitable_pages[lo]) continue;
++        if (line->flags & RN_LINE_WHITESPACE) continue;
++        if (!(line->flags & RN_LINE_JUSTIFIABLE_TEXT) || line->getStart() < page->start ||
++            line->getEnd() > page->start + page->height ||
++            (page->justificationLines.length() && line->getStart()-page->start < page->justificationLines[page->justificationLines.length()-1].y)) {
++            page->flags |= RN_PAGE_KEEP_VERTICAL_SPACING;
++            unsuitable_pages[lo] = 1;
++            page->justificationLines.clear();
++            continue;
++        }
++        page->justificationLines.add(lvPoint(line->getStart()-page->start, line->getEnd()-page->start));
++    }
++
+     page_list->setHasMixedWritingModes( has_mixed_writing_modes );
+ 
+ #else
+@@ -1495,6 +1533,9 @@
+     buf << (lUInt8) flags;  /// RN_PAGE_*
+     buf << (lUInt16)flow;   /// flow the page belongs to
+     buf << (lUInt8) writing_mode; /// FORK: per-page writing mode
++    buf << (lUInt16)justificationLines.length();
++    for (int i=0; i<justificationLines.length(); ++i)
++        buf << (lUInt16)justificationLines[i].x << (lUInt16)justificationLines[i].y;
+     lUInt16 len = footnotes.length();
+     buf << len;
+     for ( int i=0; i<len; i++ ) {
+@@ -1521,7 +1562,18 @@
+     flags = n3;
+     flow = n4;
+     writing_mode = n5;
++    lUInt16 line_count;
++    buf >> line_count;
++    justificationLines.clear();
++    for (int i=0; i<line_count && !buf.error(); ++i) {
++        lUInt16 top, bottom;
++        buf >> top >> bottom;
++        if (top >= bottom || bottom > height ||
++            (justificationLines.length() && top < justificationLines[justificationLines.length()-1].y)) return false;
++        justificationLines.add(lvPoint(top, bottom));
++    }
+ 
++
+     lUInt16 len;
+     buf >> len;
+     footnotes.clear();
+--- a/crengine/src/lvdocview.cpp
++++ b/crengine/src/lvdocview.cpp
+@@ -2083,6 +2083,13 @@
+ 	draw_extra_info_t draw_extra_info = { 0 };
+ 	drawbuf->SetDrawExtraInfo(&draw_extra_info);
+ 	draw_extra_info.is_page_mode = true;
++    if (m_verticalSpacingMode && (!m_verticalSpacingOnlyProtection || (page.flags & RN_PAGE_PARAGRAPH_PROTECTION_GAP))) {
++        draw_extra_info.justification_page = &page;
++        draw_extra_info.justification_mode = m_verticalSpacingMode;
++        draw_extra_info.justification_height = m_dy - headerHeight - m_pageMargins.top - m_pageMargins.bottom;
++        draw_extra_info.justification_origin = clip.top;
++    }
++
+ 	draw_extra_info.is_left_page = false;
+ 	draw_extra_info.is_right_page = false;
+ 	draw_extra_info.draw_body_background = true;
+@@ -2786,6 +2793,12 @@
+ 			}
+ 			pt.x -= rc->left;
+ 			pt.y -= rc->top;
++            if (m_verticalSpacingMode && (!m_verticalSpacingOnlyProtection || (m_pages[page]->flags & RN_PAGE_PARAGRAPH_PROTECTION_GAP))) {
++                int available = rc->height();
++                pt.y = m_pages[page]->justificationSourceY(pt.y, available, m_verticalSpacingMode, pullInPageArea);
++                if (pt.y < 0) return false;
++            }
++
+ 			if ( pullInPageArea ) {
+ 				if ( pt.y >= m_pages[page]->height )
+ 					pt.y = m_pages[page]->height - 1;
+@@ -2898,6 +2911,11 @@
+                     // ensure anything and crop on the right, and this allows text
+                     // selection to grab bits of overflowed glyph
+                     pt.x = pt.x + m_pageRects[index].left + m_pageMargins.left;
++                    if (m_verticalSpacingMode && (!m_verticalSpacingOnlyProtection || (m_pages[page+index]->flags & RN_PAGE_PARAGRAPH_PROTECTION_GAP))) {
++                        LVRendPageInfo *info = m_pages[page+index];
++                        int available = m_dy - getPageHeaderHeight() - m_pageMargins.top - m_pageMargins.bottom;
++                        pt.y += info->justificationOffset(pt.y-info->start, available, m_verticalSpacingMode, isRectBottom);
++                    }
+                     pt.y = pt.y + getPageHeaderHeight() + m_pageMargins.top - m_pages[page + index]->start;
+                     return true;
+                 }
+--- a/crengine/src/lvrend.cpp
++++ b/crengine/src/lvrend.cpp
+@@ -6790,6 +6790,7 @@
+         if ( !(flags & RN_SPLIT_BEFORE_AVOID) && (hasFloatRunningAtY(c_y) || hasCarriedInitialLetterAtY(c_y)) )
+             flags |= RN_SPLIT_BEFORE_AVOID;
+         flags |= line_dir_flag;
++        if (is_padding) flags |= RN_LINE_WHITESPACE;
+         context.AddLine( flowPos(), flowPos() + height, flags );
+         advanceFlowPos( height );
+         last_split_after_flag = RN_GET_SPLIT_AFTER(flags);
+@@ -7215,7 +7216,7 @@
+                     // hasn't been reset.
+                 }
+                 flags |= line_dir_flag;
+-                context.AddLine( flowPos(), flowPos() + margin, flags );
++                context.AddLine( flowPos(), flowPos() + margin, flags | RN_LINE_WHITESPACE );
+                 // (c_x is advanced together with c_y in the moveDown(margin) below)
+                 // Note: we don't use AddSpace, a margin does not have to be arbitrarily
+                 // splitted, RN_SPLIT_DISCARD_AT_START ensures it does not continue
+@@ -10145,6 +10146,32 @@
+                 // We have lines of text in 'txform', that we should register
+                 // into flow/context for later page splitting.
+                 int count = txform->GetLineCount();
++                // Prose markers exclude headings, preformatted text and media.
++                // Decorated containers and floats cannot follow independent line offsets.
++                bool justify_prose = !flow->isVertical() && enode->getAttributeValue("data-kobalt-prose") == U"1";
++                for (ldomNode *ancestor = enode; justify_prose && ancestor; ancestor = ancestor->getParentNode()) {
++                    if (!ancestor->isElement()) continue;
++                    css_style_ref_t a = ancestor->getStyle();
++                    if (a.isNull()) continue;
++                    if (ancestor->isNodeName("table") || ancestor->isNodeName("pre") ||
++                        ancestor->isNodeName("li") || ancestor->isNodeName("blockquote") ||
++                        (a->white_space != css_ws_normal && a->white_space != css_ws_inherit && a->white_space != css_ws_nowrap) || a->float_ != css_f_none ||
++                        !a->background_image.empty() ||
++                        (a->background_color.type == css_val_color && !IS_COLOR_FULLY_TRANSPARENT(a->background_color.value)) ||
++                        a->border_style_top != css_border_none || a->border_style_bottom != css_border_none ||
++                        a->border_style_left != css_border_none || a->border_style_right != css_border_none)
++                        justify_prose = false;
++                }
++                LVArray<ldomNode *> prose_nodes;
++                if (justify_prose) prose_nodes.add(enode);
++                for (int n=0; justify_prose && n<prose_nodes.length(); ++n) {
++                    ldomNode *node=prose_nodes[n];
++                    if (node->isNodeName("br") || node->isNodeName("code") || node->isNodeName("math") || node->isNodeName("ruby")) {
++                        justify_prose = false;
++                        break;
++                    }
++                    for (int c=0; c<node->getChildCount(); ++c) prose_nodes.add(node->getChildNode(c));
++                }
+                 int orphans = (int)(style->orphans) - (int)(css_orphans_widows_1) + 1;
+                 int widows = (int)(style->widows) - (int)(css_orphans_widows_1) + 1;
+                 for (int i=0; i<count; i++) {
+@@ -10161,11 +10188,11 @@
+                     if (orphans > 1 && i > 0 && i < orphans)
+                         // with orphans:2, and we're the 2nd line (i=1), avoid split before
+                         // so we stick to first line
+-                        line_flags |= RN_SPLIT_BEFORE_AVOID;
++                        line_flags |= RN_SPLIT_BEFORE_AVOID | RN_LINE_PARAGRAPH_PROTECTION;
+                     if (widows > 1 && i < count-1 && count-1 - i < widows)
+                         // with widows:2, and we're the last before last line (i=count-2),
+                         // avoid split after so we stick to last line
+-                        line_flags |= RN_SPLIT_AFTER_AVOID;
++                        line_flags |= RN_SPLIT_AFTER_AVOID | RN_LINE_PARAGRAPH_PROTECTION;
+ 
+                     // Honor line's own flags (used when filling space when
+                     // clearing floats)
+@@ -10184,6 +10211,11 @@
+                             line_flags |= RN_SPLIT_AFTER_AVOID;
+                     }
+ 
++                    // General keep-together rules must not be reported as a gap
++                    // caused specifically by widow/orphan protection.
++                    if (break_inside == RN_SPLIT_AVOID ||
++                        (line->flags & (LTEXT_LINE_SPLIT_AVOID_BEFORE | LTEXT_LINE_SPLIT_AVOID_AFTER)))
++                        line_flags &= ~RN_LINE_PARAGRAPH_PROTECTION;
+                     // If a publisher/DocFragment page break is already pending,
+                     // don't inject another zero-height split carrier: that can
+                     // become a real blank page before image-only fragments.
+@@ -10211,6 +10243,11 @@
+ 
+                     int lh = (vert_eph_cap > 0 && line->height > vert_eph_cap)
+                         ? vert_eph_cap : line->height;
++                    bool justify_line = justify_prose && line->word_count > 0;
++                    for (int w=0; justify_line && w<line->word_count; ++w)
++                        if (line->words[w].flags & (LTEXT_WORD_IS_IMAGE | LTEXT_WORD_IS_INLINE_BOX))
++                            justify_line = false;
++                    if (justify_line) line_flags |= RN_LINE_JUSTIFIABLE_TEXT;
+                     flow->addContentLine(lh, line_flags, line->baseline);
+ 
+                     // See if there are links to footnotes in that line, and add
+--- a/crengine/src/lvtextfm.cpp
++++ b/crengine/src/lvtextfm.cpp
+@@ -6676,6 +6676,14 @@
+                 }
+             }
+ 
++            int justification_offset = 0;
++            if (!is_vertical && draw_extra_info && draw_extra_info->justification_page) {
++                justification_offset = draw_extra_info->justification_page->justificationOffset(
++                    line_y - draw_extra_info->justification_origin,
++                    draw_extra_info->justification_height, draw_extra_info->justification_mode);
++                y += justification_offset;
++                line_y += justification_offset;
++            }
+             // process background (first) and borders (which may be drawn over background)
+             bool has_inline_borders = false;
+ 
+@@ -7571,6 +7579,8 @@
+                 }
+             }
+ #endif
++            y -= justification_offset;
++            line_y -= justification_offset;
+             if ( restore_orig_clip ) {
+                 buf->SetClipRect(&origClip);
+             }

@@ -599,6 +599,133 @@ bool revealSettingsOption(Fixture &fixture, const char *name) {
     return false;
 }
 
+void verticalJustificationTour(Fixture &fixture, const QString &name, bool screenshots) {
+    const auto scene = [&](const QString &suffix) { return !screenshots || capture(fixture, name + "-vertical-" + suffix); };
+    QSignalSpy opened(&fixture.window, &desktop::Window::bookOpened);
+    fixture.window.openBook(book);
+    QTRY_COMPARE_WITH_TIMEOUT(opened.count(), 1, 10000);
+    QTRY_VERIFY(!fixture.state().value("busy").toBool());
+    openPrologueBody(fixture);
+    const auto fullProsePage = [&] {
+        for (int attempt = 0; attempt < 16; ++attempt) {
+            const bool fills = fixture.coordinateQuery(book, false, [](ReaderModel &coordinates) {
+                const int page = coordinates.page();
+                if (!coordinates.applyAppearance({{"vertical_justification", "off"}, {"vertical_spacing_scope", "all"}})) return false;
+                const auto before = coordinates.image(page);
+                if (!coordinates.applyAppearance({{"vertical_justification", "expand"}}) || coordinates.image(page) == before) return false;
+                return coordinates.applyAppearance({{"vertical_justification", "center"}}) && coordinates.image(page) != before;
+            });
+            if (fills) return;
+            const int previous = fixture.state().value("page").toInt();
+            fixture.window.readerWindow()->pageButton(1);
+            QTRY_VERIFY(fixture.state().value("page").toInt() > previous);
+            QTRY_VERIFY(!fixture.state().value("busy").toBool());
+        }
+        QFAIL("No full prose page found for the vertical spacing sample");
+    };
+    fullProsePage();
+    const auto before = static_cast<ReadingPage *>(fixture.widget("rrPage"))->image;
+    const auto pageCount = fixture.state().value("pages");
+    QVERIFY(scene("off"));
+    const auto settings = [&](const QString &mode, bool columns, bool config, bool protection = false) {
+        if (!fixture.visible("rrSettings")) QVERIFY(fixture.press("rrPage"));
+        // A resized canvas can report model state before its controls have
+        // reached their new visible positions. Wait before sending the click.
+        const auto settingsReady = [&] {
+            auto *target = fixture.widget("rrSettings");
+            auto *reader = fixture.window.readerWindow();
+            auto *canvas = fixture.window.findChild<QGraphicsView *>();
+            return target && reader && canvas && target->isVisible() && target->isEnabled() &&
+                canvas->viewport()->rect().contains(canvas->mapFromScene(target->mapTo(reader, target->rect().center())));
+        };
+        QTRY_VERIFY(settingsReady());
+
+        QVERIFY(fixture.press("rrSettings"));
+        QVERIFY(fixture.press("rrSettingsStyling"));
+        auto reveal = [&](const char *key) {
+            QCoreApplication::processEvents();
+            // Choice captions can change row heights and repaginate Settings.
+            // Start from the first page rather than assuming a forward-only tour.
+            for (int i = 0; i < 8; ++i) {
+                auto *previous = fixture.widget("rrSettingsOptionsPrevious");
+                if (!previous || !previous->isEnabled()) break;
+                if (!fixture.press("rrSettingsOptionsPrevious")) return false;
+                QCoreApplication::processEvents();
+            }
+            for (int i = 0; i < 8; ++i) {
+                auto *row = fixture.widget(key);
+                if (row && row->visibleRegion().contains(row->rect().center())) return true;
+                if (!fixture.press("rrSettingsOptionsNext")) return false;
+                QCoreApplication::processEvents();
+            }
+            return false;
+        };
+        QVERIFY(reveal("rrVerticalSpacing"));
+        if (config) QVERIFY(scene("settings"));
+        QVERIFY(fixture.press("rrVerticalSpacing"));
+        QTRY_VERIFY(fixture.visible("rrVerticalSpacing_off"));
+        if (config) QVERIFY(scene("choices"));
+        QVERIFY(fixture.press(qPrintable("rrVerticalSpacing_" + mode)));
+        QTRY_VERIFY(!fixture.visible("rrVerticalSpacingPopup"));
+        QVERIFY(reveal("rrVerticalSpacingScope"));
+        QCOMPARE(fixture.widget("rrVerticalSpacingScope")->isEnabled(), mode != "off");
+        if (mode != "off") {
+            QVERIFY(fixture.press("rrVerticalSpacingScope"));
+            QTRY_VERIFY(fixture.visible("rrVerticalSpacingScope_all"));
+            if (config) QVERIFY(scene("scope"));
+            QVERIFY(fixture.press(protection ? "rrVerticalSpacingScope_protection" : "rrVerticalSpacingScope_all"));
+        }
+        if (columns) {
+            QVERIFY(fixture.press("rrSettingsDisplay"));
+            QVERIFY(reveal("rrLandscapeColumns"));
+            auto *choice = qobject_cast<QCheckBox *>(fixture.widget("rrLandscapeColumns"));
+            QVERIFY(choice);
+            if (!choice->isChecked()) QVERIFY(fixture.press("rrLandscapeColumns"));
+        }
+        QVERIFY(fixture.press("rrSettingsClose"));
+        QTRY_VERIFY(!fixture.visible("rrGeneralSettings"));
+        QTRY_VERIFY(!fixture.state().value("busy").toBool());
+        QTRY_COMPARE(fixture.state().value("vertical_justification").toString(), mode);
+        QCOMPARE(storage::readJson(fixture.paths.preferences()).value("vertical_justification").toString(), mode);
+        if (mode != "off")
+            QCOMPARE(storage::readJson(fixture.paths.preferences()).value("vertical_spacing_scope").toString(),
+                     protection ? QString("protection") : QString("all"));
+        if (fixture.visible("rrControlsTop")) QVERIFY(fixture.press("rrPage"));
+    };
+    settings("expand", false, true);
+    QCOMPARE(fixture.state().value("pages"), pageCount);
+    QTRY_VERIFY(static_cast<ReadingPage *>(fixture.widget("rrPage"))->image != before);
+    QVERIFY(scene("expand"));
+    settings("center", false, false);
+    QTRY_VERIFY(static_cast<ReadingPage *>(fixture.widget("rrPage"))->image != before);
+    QVERIFY(scene("center"));
+    const auto word = fixture.wordPoint();
+    QVERIFY(word.x() >= 0);
+    auto *paper = static_cast<ReadingPage *>(fixture.widget("rrPage"));
+    QVERIFY(fixture.selectWord(paper, word));
+    QTRY_VERIFY(fixture.visible("rrDictionary") || fixture.visible("rrAnnotationPopover"));
+    if (fixture.visible("rrDictionary")) QVERIFY(fixture.press("rrDictionaryClose"));
+    else QVERIFY(fixture.press("rrAnnotationCancel"));
+    settings("off", true, false);
+    auto *rotate = fixture.window.findChild<QAction *>("desktopRotateDevice");
+    QVERIFY(rotate);
+    if (rotate->isEnabled()) rotate->trigger();
+    else fixture.window.resize(1200, 850);
+    QTRY_VERIFY(!fixture.state().value("busy").toBool());
+    QTRY_COMPARE(fixture.state().value("columns").toInt(), 2);
+    fullProsePage();
+    const auto columnsBefore = static_cast<ReadingPage *>(fixture.widget("rrPage"))->image;
+    QVERIFY(scene("columns-off"));
+    settings("expand", false, false);
+    QTRY_VERIFY(static_cast<ReadingPage *>(fixture.widget("rrPage"))->image != columnsBefore);
+    QVERIFY(scene("columns-expand"));
+    settings("center", false, false);
+    QTRY_VERIFY(static_cast<ReadingPage *>(fixture.widget("rrPage"))->image != columnsBefore);
+    QVERIFY(scene("columns-center"));
+    settings("center", false, false, true);
+    QCOMPARE(fixture.state().value("vertical_spacing_scope").toString(), QString("protection"));
+}
+
 // The same real-widget tour supplies integration checks and screenshot scenes.
 void tour(Fixture &fixture, const QString &name, bool screenshots) {
     const auto scene = [&](const QString &suffix) { return !screenshots || capture(fixture, name + '-' + suffix); };
@@ -3322,6 +3449,11 @@ private slots:
         QTRY_VERIFY(!fixture.visible("rrGeneralSettings"));
         QTRY_COMPARE(storage::readJson(fixture.paths.preferences()).value("show_link_indicator").toBool(), !previous);
     }
+    void verticalJustification() {
+        Fixture fixture;
+        QVERIFY(fixture.prepared);
+        verticalJustificationTour(fixture, "six-inch-light", false);
+    }
     void advancedText_data() {
         QTest::addColumn<int>("dpi");
         QTest::addColumn<QString>("bookFont");
@@ -4471,6 +4603,17 @@ private slots:
 class ScreenshotTests final : public QObject {
     Q_OBJECT
 private slots:
+    void verticalJustification_data() { variants(); }
+    void verticalJustification() {
+        QFETCH(int, preset);
+        QFETCH(bool, dark);
+        Fixture fixture(dark);
+        QVERIFY(fixture.prepared);
+        fixture.window.findChild<QComboBox *>("desktopScreenPicker")->setCurrentIndex(preset);
+        const auto name = QStringList{"fill", "six-inch", "seven-inch"}.at(preset) + (dark ? "-dark" : "-light");
+        verticalJustificationTour(fixture, name, true);
+    }
+
     void directLinks_data() { variants(); }
     void directLinks() {
         QFETCH(int, preset);
@@ -4780,7 +4923,7 @@ int main(int argc, char **argv) {
         return result;
     }
     QFile fixture(book);
-    constexpr int expectedScreenshots = 344;
+    constexpr int expectedScreenshots = 398;
     if (captures.size() != expectedScreenshots)
         qCritical() << "Expected" << expectedScreenshots << "screenshots, captured" << captures.size();
     if (!fixture.open(QIODevice::ReadOnly) || captures.size() != expectedScreenshots) {

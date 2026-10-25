@@ -206,14 +206,14 @@ if(BUILD_TESTING)
         KOBALT_TEST_VARIABLE_FONT="${test_variable_font}")
     file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-tmp")
     set(headless_environment "QT_QPA_PLATFORM=minimal:enable_fonts:freetype" "QT_STYLE_OVERRIDE=Fusion" "TMPDIR=${CMAKE_CURRENT_BINARY_DIR}/test-tmp")
-    foreach(check startup libraryOnboarding reading errors diagnostics storageDiagnostics features stylesheet bookmarks bookmarkMerge annotations annotationModeFeedback annotationSelection coordinateProbeSerialization annotationGripMenus annotationCrossPageDrag selectionCrossPageDrag annotationCrossPageOverlap annotationOverlap touchCursor touchCursorOutsideReader links tappableLinks bookmarkCornerLinks
+    foreach(check verticalJustification startup libraryOnboarding reading errors diagnostics storageDiagnostics features stylesheet bookmarks bookmarkMerge annotations annotationModeFeedback annotationSelection coordinateProbeSerialization annotationGripMenus annotationCrossPageDrag selectionCrossPageDrag annotationCrossPageOverlap annotationOverlap touchCursor touchCursorOutsideReader links tappableLinks bookmarkCornerLinks
             annotationSectionBoundary headerFooterDismissal settings advancedText globalLayout columns fullWidthPanels dictionaryRedraw dictionaryAppearance dictionaryDismissal opticalSize desktopControls navigation bookmarkReturn booxMenuDismissalRefresh booxRetirementFrame annotationTwoFingerTapConsumesWholeSequence annotationRightClickRejectsChords library libraryTextInheritance libraryGridRows libraryHold libraryAtStart)
         add_test(NAME desktop.${check} COMMAND "${CMAKE_COMMAND}"
             "-DTEST_EXECUTABLE=$<TARGET_FILE:kobalt-desktop-tests>" "-DTEST_ARGUMENTS=${check}"
             "-DTEST_TMP_ROOT=${CMAKE_CURRENT_BINARY_DIR}/test-tmp"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/run-test.cmake")
         set(lane fast)
-        if(check MATCHES "^(features|diagnostics|stylesheet|bookmarks|bookmarkMerge|annotations|annotationModeFeedback|annotationSelection|coordinateProbeSerialization|annotationGripMenus|annotationCrossPageDrag|annotationSectionBoundary|selectionCrossPageDrag|annotationCrossPageOverlap|annotationOverlap|touchCursor|touchCursorOutsideReader|links|tappableLinks|bookmarkCornerLinks|headerFooterDismissal|settings|advancedText|globalLayout|columns|fullWidthPanels|dictionaryRedraw|dictionaryAppearance|dictionaryDismissal|opticalSize|desktopControls|navigation|bookmarkReturn|booxMenuDismissalRefresh|booxRetirementFrame|library|libraryTextInheritance|libraryGridRows|libraryHold|libraryAtStart)$")
+        if(check MATCHES "^(verticalJustification|features|diagnostics|stylesheet|bookmarks|bookmarkMerge|annotations|annotationModeFeedback|annotationSelection|coordinateProbeSerialization|annotationGripMenus|annotationCrossPageDrag|annotationSectionBoundary|selectionCrossPageDrag|annotationCrossPageOverlap|annotationOverlap|touchCursor|touchCursorOutsideReader|links|tappableLinks|bookmarkCornerLinks|headerFooterDismissal|settings|advancedText|globalLayout|columns|fullWidthPanels|dictionaryRedraw|dictionaryAppearance|dictionaryDismissal|opticalSize|desktopControls|navigation|bookmarkReturn|booxMenuDismissalRefresh|booxRetirementFrame|library|libraryTextInheritance|libraryGridRows|libraryHold|libraryAtStart)$")
             set(lane integration)
         endif()
         set_tests_properties(desktop.${check} PROPERTIES ENVIRONMENT "${headless_environment}"
@@ -373,6 +373,9 @@ if(BUILD_TESTING)
             target_compile_definitions(kobalt-${name}-tests PRIVATE
                 KOBALT_TEST_ASSET_ROOT="${KOBALT_ASSETS}" KOBALT_FONT_DIRECTORY="${KOBALT_ASSETS}/fonts"
                 KOBALT_INSTALLED_FONTS)
+            if(check STREQUAL "vertical_spacing")
+                target_compile_definitions(kobalt-${name}-tests PRIVATE KOBALT_TEST_ZIP="${KOBALT_TEST_ZIP}")
+            endif()
             if(check STREQUAL "svg_limits")
                 target_include_directories(kobalt-${name}-tests SYSTEM PRIVATE "${KOBALT_TEST_DEPENDENCIES}/include/lunasvg")
             endif()
@@ -424,7 +427,7 @@ if(BUILD_TESTING)
     kobalt_regressions(model font_axes touch_rotation)
     kobalt_regressions(platform reader_orientation font_sources system_fonts nickel_dictionary_selection
         nickel_reading_pace_cache nickel_session_calls nickel_book_menu native_progress usb_removal page_transition_native)
-    kobalt_regressions(engine source_index columns advanced_text alignment indentation page_layout vertical_writing mathml line_breaking
+    kobalt_regressions(engine vertical_spacing source_index columns advanced_text alignment indentation page_layout vertical_writing mathml line_breaking
         fallback_styles svg_limits whitespace links search word_selection reader publisher_markup local_reader document_word_count document_cache)
     kobalt_regressions(component ui acknowledgments font_data font_registration)
     kobalt_regressions(session reading_book bookmark_session highlight_session reader_session)

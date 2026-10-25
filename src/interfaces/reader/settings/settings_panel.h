@@ -46,7 +46,7 @@ public:
     static QString dictionaryFontSizeLabel(int percent);
     void showColumnSpacingChoices(int current, std::function<void(int)> chosen);
     static QString columnSpacingLabel(int percent);
-    enum class AdvancedText { WordSpacing, Tracking, Pagination };
+    enum class AdvancedText { WordSpacing, Tracking, Pagination, VerticalSpacing, VerticalSpacingScope };
     void showAdvancedTextChoices(AdvancedText feature, int current, std::function<void(int)> chosen,
                                  const QFont &sampleFont = {}, const QString &alignment = {});
     QPointer<ui::ModalOverlay> fontDialog;
@@ -68,6 +68,7 @@ public:
     ui::CaptionButton *dictionaryFontButton = nullptr, *dictionaryFontSizeButton = nullptr;
     ui::DescribedOption *landscapeColumnsOption = nullptr;
     ui::CaptionButton *columnSpacingButton = nullptr;
+    ui::CaptionButton *verticalSpacingButton = nullptr, *verticalSpacingScopeButton = nullptr;
     ui::CaptionButton *wordSpacingButton = nullptr, *trackingButton = nullptr, *widowsOrphansButton = nullptr;
     ui::CaptionButton *sleepScreenButton = nullptr, *sleepTileButton = nullptr, *menuViewButton = nullptr;
     ui::CaptionButton *pageNavigationButton = nullptr, *tapZonesButton = nullptr, *navigationBarButton = nullptr,

@@ -432,6 +432,13 @@ SettingsPanel::SettingsPanel(QWidget *parent, const SettingsPanelInputs &inputs)
                                            strings::get("settings.justification_tracking"), [] {});
     widowsOrphansButton = ui::makeCaptionButton(stylingPage, stylingRows, "rrWidowsOrphans",
                                                strings::get("settings.widows_orphans"), [] {});
+    section(stylingPage, stylingRows, "rrVerticalSpacingSection", strings::get("settings.vertical_spacing"));
+    verticalSpacingButton = ui::makeCaptionButton(stylingPage, stylingRows, "rrVerticalSpacing",
+        strings::get("settings.vertical_spacing_mode"), [] {});
+    verticalSpacingButton->setDescription(strings::get("settings.vertical_spacing_description"));
+    verticalSpacingScopeButton = ui::makeCaptionButton(stylingPage, stylingRows, "rrVerticalSpacingScope",
+        strings::get("settings.vertical_spacing_apply_to"), [] {});
+    verticalSpacingScopeButton->setDescription(strings::get("settings.vertical_spacing_scope_description"));
     section(stylingPage, stylingRows, "rrAdvancedContentSection", strings::get("settings.section_book_content"));
     hideNonlinearOption =
         check(stylingPage, "rrHideNonlinearFragments", strings::get("reader.hide_nonlinear_fragments"),
@@ -673,7 +680,7 @@ SettingsPanel::SettingsPanel(QWidget *parent, const SettingsPanelInputs &inputs)
           tapZonesButton, tappableLinksButton, navigationBarButton,
           menuViewButton, uiFontButton, uiMonoFontButton, headerFooterFontButton, headerFooterWeightButton,
           dictionaryFontButton, dictionaryFontSizeButton,
-          defaultFontButton, serifFontButton, sansFontButton, monoFontButton, wordSpacingButton, trackingButton, widowsOrphansButton}) {
+          defaultFontButton, serifFontButton, sansFontButton, monoFontButton, wordSpacingButton, trackingButton, widowsOrphansButton, verticalSpacingButton, verticalSpacingScopeButton}) {
         button->setRule(Qt::BottomEdge);
         // The refresh row's caption shows its current choice, set when Settings opens.
         if (button == resetDefaults)
@@ -685,7 +692,7 @@ SettingsPanel::SettingsPanel(QWidget *parent, const SettingsPanelInputs &inputs)
                 .arg(int(c::labelText))
                 .arg(int(c::listActionHeight))
                 .arg(int(c::inset)));
-        if (button == wordSpacingButton || button == trackingButton || button == widowsOrphansButton) {
+        if (button == wordSpacingButton || button == trackingButton || button == widowsOrphansButton || button == verticalSpacingButton || button == verticalSpacingScopeButton) {
             button->setMaximumHeight(QWIDGETSIZE_MAX);
             readerStyle(button, QString("QPushButton{font-size:%1px;border:0;border-radius:0;text-align:left;padding:0;background:palette(window);color:palette(window-text);}").arg(int(c::labelText)));
             button->setMinimumHeight(c::listActionHeight);
@@ -1092,7 +1099,22 @@ void SettingsPanel::showAdvancedTextChoices(AdvancedText feature, int current, s
     fontDialog = new ui::ModalOverlay(parentWidget());
     const bool tracking = feature == AdvancedText::Tracking;
     const bool wordSpacing = feature == AdvancedText::WordSpacing;
-    fontDialog->setObjectName(wordSpacing ? "rrWordSpacingPopup" : tracking ? "rrTrackingPopup" : "rrWidowsOrphansPopup");
+    const bool vertical = feature == AdvancedText::VerticalSpacing || feature == AdvancedText::VerticalSpacingScope;
+    QString key, prefix;
+    QStringList values;
+    switch (feature) {
+    case AdvancedText::WordSpacing:
+        key = "settings.word_spacing"; prefix = "rrWordSpacing"; values = {"narrow", "normal", "wide"}; break;
+    case AdvancedText::Tracking:
+        key = "settings.justification_tracking"; prefix = "rrTracking"; values = {"off", "subtle", "more"}; break;
+    case AdvancedText::Pagination:
+        key = "settings.widows_orphans"; prefix = "rrWidowsOrphans"; values = {"publisher", "avoid", "allow"}; break;
+    case AdvancedText::VerticalSpacing:
+        key = "settings.vertical_spacing"; prefix = "rrVerticalSpacing"; values = {"off", "expand", "center"}; break;
+    case AdvancedText::VerticalSpacingScope:
+        key = "settings.vertical_spacing_scope"; prefix = "rrVerticalSpacingScope"; values = {"all", "protection"}; break;
+    }
+    fontDialog->setObjectName(prefix + "Popup");
     fontDialog->setDimmed(true);
     fontDialog->setGeometry(parentWidget()->rect());
     fontDialog->dismissed = [this] { dismissFontChoices(); };
@@ -1100,8 +1122,6 @@ void SettingsPanel::showAdvancedTextChoices(AdvancedText feature, int current, s
     auto *rows = card->rows();
     rows->setContentsMargins(m::control::border, m::notice::cardMargins.top(), m::control::border, m::control::border);
     rows->setSpacing(0);
-    const QString key = wordSpacing ? "settings.word_spacing"
-                                   : tracking ? "settings.justification_tracking" : "settings.widows_orphans";
     auto *heading = card->title(strings::get(key.toUtf8().constData()), "rrAdvancedTextTitle");
     heading->setContentsMargins(c::inset, 0, c::inset, m::spacing::row);
     if (tracking) {
@@ -1114,30 +1134,29 @@ void SettingsPanel::showAdvancedTextChoices(AdvancedText feature, int current, s
     auto *choices = new ui::RadioList(card);
     choices->setMinimumRowHeight(c::listActionHeight);
     choices->setTopDivider(true);
-    const QStringList values = wordSpacing ? QStringList{"narrow", "normal", "wide"}
-                                          : tracking ? QStringList{"off", "subtle", "more"}
-                                                     : QStringList{"publisher", "avoid", "allow"};
     int index = 0;
     for (const auto &value : values) {
         const auto description = strings::get((key + "_" + value + "_description").toUtf8().constData());
-        auto *row = choices->add((wordSpacing ? "rrWordSpacing_" : tracking ? "rrTracking_" : "rrWidowsOrphans_") + value,
+        auto *row = choices->add(prefix + "_" + value,
                                 strings::get((key + "_" + value).toUtf8().constData()), description);
-        using Kind = TypographyExample::Kind;
-        const auto kind = wordSpacing ? Kind::WordSpacing
-                                      : tracking ? Kind::Tracking
-                                                 : index == 0 ? Kind::Publisher : index == 1 ? Kind::Avoid : Kind::Allow;
-        const int strength = wordSpacing ? 80 + index * 20 : index == 2 ? 15 : index == 1 ? 5 : 0;
-        auto *preview = new TypographyExample(kind, strength, row);
-        if (tracking || wordSpacing) {
-            preview->setFont(sampleFont);
-            auto family = sampleFont.family();
-            family.replace('\\', "\\\\");
-            family.replace('"', "\\\"");
-            readerStyle(preview, QString("font-family:\"%1\";").arg(family));
+        if (!vertical) {
+            using Kind = TypographyExample::Kind;
+            const auto kind = wordSpacing ? Kind::WordSpacing
+                                          : tracking ? Kind::Tracking
+                                                     : index == 0 ? Kind::Publisher : index == 1 ? Kind::Avoid : Kind::Allow;
+            const int strength = wordSpacing ? 80 + index * 20 : index == 2 ? 15 : index == 1 ? 5 : 0;
+            auto *preview = new TypographyExample(kind, strength, row);
+            if (tracking || wordSpacing) {
+                preview->setFont(sampleFont);
+                auto family = sampleFont.family();
+                family.replace('\\', "\\\\");
+                family.replace('"', "\\\"");
+                readerStyle(preview, QString("font-family:\"%1\";").arg(family));
+            }
+            preview->setObjectName((wordSpacing ? "rrWordSpacingPreview_" : tracking ? "rrTrackingPreview_" : "rrPaginationPreview_") + value);
+            preview->setAccessibleName(description);
+            row->setPreview(preview, {ui::px(320), ui::px(134)});
         }
-        preview->setObjectName((wordSpacing ? "rrWordSpacingPreview_" : tracking ? "rrTrackingPreview_" : "rrPaginationPreview_") + value);
-        preview->setAccessibleName(description);
-        row->setPreview(preview, {ui::px(320), ui::px(134)});
         ++index;
     }
     choices->setCurrent(current);

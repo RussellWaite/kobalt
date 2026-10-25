@@ -1095,6 +1095,20 @@ void Reader::buildSettings() {
             showAdvancedText();
         });
     });
+    connect(settings->verticalSpacingButton, &QPushButton::clicked, this, [this, settings] {
+        const int current = settingsVerticalSpacing == "center" ? 2 : settingsVerticalSpacing == "expand" ? 1 : 0;
+        settings->showAdvancedTextChoices(SettingsPanel::AdvancedText::VerticalSpacing, current, [this](int index) {
+            settingsVerticalSpacing = QStringList{"off", "expand", "center"}.at(index);
+            showAdvancedText();
+        });
+    });
+    connect(settings->verticalSpacingScopeButton, &QPushButton::clicked, this, [this, settings] {
+        settings->showAdvancedTextChoices(SettingsPanel::AdvancedText::VerticalSpacingScope,
+            settingsVerticalSpacingScope == "protection" ? 1 : 0, [this](int index) {
+                settingsVerticalSpacingScope = index ? "protection" : "all";
+                showAdvancedText();
+            });
+    });
     bionicOption = settings->bionicOption;
     refreshButton = settings->refreshButton;
     resetDefaults = settings->resetDefaults;
@@ -1192,6 +1206,9 @@ void Reader::buildSettings() {
         darkOption->setChecked(false);
         animationOption->setChecked(false);
         bionicOption->setChecked(false);
+        settingsVerticalSpacing = "off";
+        settingsVerticalSpacingScope = "all";
+        showAdvancedText();
         screenRefreshMode = kobalt::ScreenRefresh::Smart;
         showScreenRefresh();
         resetDefaults->setText(strings::get("reader.defaults_selected"));

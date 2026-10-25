@@ -78,6 +78,10 @@ QJsonObject cleanPreferences(QJsonObject preferences) {
     choice("tappable_links", {"off", "footnotes", "all"});
     choice("bold_reading", {"off", "bold"});
     choice("widows_orphans", {"publisher", "avoid", "allow"});
+    if (preferences.contains("vertical_justification"))
+        preferences["vertical_justification"] = verticalSpacingMode(preferences.value("vertical_justification"));
+    if (preferences.contains("vertical_spacing_scope"))
+        preferences["vertical_spacing_scope"] = verticalSpacingScope(preferences.value("vertical_spacing_scope"));
     choice("marks_sort", {"position", "newest", "oldest"});
     choice("sleep_screen", {"stock", "cover", "page"});
     choice("sleep_tile", {"card", "band", "bookmark"});
@@ -119,6 +123,8 @@ QJsonObject bookDefaults(const QJsonObject &preferences) {
     auto defaults = typographyDefaults();
     defaults.remove("font_face");
     applyFontDefault(defaults, preferences);
+    defaults["vertical_justification"] = verticalSpacingMode(preferences.value("vertical_justification"));
+    defaults["vertical_spacing_scope"] = verticalSpacingScope(preferences.value("vertical_spacing_scope"));
     defaults["two_columns_landscape"] = preferences.value("two_columns_landscape").toBool(false);
     defaults["column_spacing_percent"] =
         qBound(100, preferences.value("column_spacing_percent").toInt(defaultColumnSpacingPercent), 300);
@@ -170,6 +176,8 @@ void applyBookDefaults(QJsonObject &saved, const QJsonObject &defaults) {
         saved[key] = defaults.value(key);
     // Settings choices replace stale book values.
     saved["columns"] = 1;
+    saved["vertical_justification"] = verticalSpacingMode(defaults.value("vertical_justification"));
+    saved["vertical_spacing_scope"] = verticalSpacingScope(defaults.value("vertical_spacing_scope"));
     saved["two_columns_landscape"] = defaults.value("two_columns_landscape").toBool(false);
     saved["column_spacing_percent"] = defaults.value("column_spacing_percent").toInt(defaultColumnSpacingPercent);
     saved["word_spacing"] = defaults.value("word_spacing").toInt(100);

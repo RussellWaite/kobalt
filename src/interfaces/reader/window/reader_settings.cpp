@@ -269,6 +269,8 @@ void Reader::openSettings() {
     hideNonlinearOption->setChecked(model->state().value("hide_nonlinear_fragments").toBool(false));
     avoidWastefulStylingOption->setChecked(model->state().value("avoid_wasteful_styling").toBool(true));
     auto *displaySettings = static_cast<SettingsPanel *>(general);
+    settingsVerticalSpacing = appearance::verticalSpacingMode(model->state().value("vertical_justification"));
+    settingsVerticalSpacingScope = appearance::verticalSpacingScope(model->state().value("vertical_spacing_scope"));
     displaySettings->landscapeColumnsOption->setChecked(preferences.value("two_columns_landscape").toBool(false));
     settingsColumnSpacing = preferences.value("column_spacing_percent").toInt(defaultColumnSpacingPercent);
     displaySettings->columnSpacingButton->setEnabled(displaySettings->landscapeColumnsOption->isChecked());
@@ -306,6 +308,10 @@ void Reader::showAdvancedText() {
     const QString tracking = settingsTracking == 15 ? "more" : settingsTracking == 5 ? "subtle" : "off";
     panel->trackingButton->setCaption(strings::get(("settings.justification_tracking_" + tracking).toUtf8().constData()).toUpper());
     panel->widowsOrphansButton->setCaption(strings::get(("settings.widows_orphans_" + settingsWidowsOrphans).toUtf8().constData()).toUpper());
+    panel->verticalSpacingButton->setCaption(strings::get(("settings.vertical_spacing_" + settingsVerticalSpacing).toUtf8().constData()).toUpper());
+    panel->verticalSpacingScopeButton->setCaption(strings::get(("settings.vertical_spacing_scope_" + settingsVerticalSpacingScope).toUtf8().constData()).toUpper());
+    panel->verticalSpacingScopeButton->setEnabled(settingsVerticalSpacing != "off");
+
 }
 
 void Reader::fitSettings() {
@@ -359,6 +365,8 @@ void Reader::applySettings() {
     next[appearance::inheritTextLayoutKey] = inheritTextLayoutOption->isChecked();
     next["hide_nonlinear_fragments"] = hideNonlinearOption->isChecked();
     next["avoid_wasteful_styling"] = avoidWastefulStylingOption->isChecked();
+    next["vertical_justification"] = settingsVerticalSpacing;
+    next["vertical_spacing_scope"] = settingsVerticalSpacingScope;
     next.remove("columns");
     next["two_columns_landscape"] = static_cast<SettingsPanel *>(general)->landscapeColumnsOption->isChecked();
     next["column_spacing_percent"] = settingsColumnSpacing;
@@ -409,6 +417,8 @@ void Reader::applySettings() {
     settings["dark_mode"] = darkOption->isChecked();
     settings["hide_nonlinear_fragments"] = hideNonlinearOption->isChecked();
     settings["avoid_wasteful_styling"] = avoidWastefulStylingOption->isChecked();
+    settings["vertical_justification"] = preferences.value("vertical_justification");
+    settings["vertical_spacing_scope"] = preferences.value("vertical_spacing_scope");
     settings["columns"] = 1;
     settings["two_columns_landscape"] = preferences.value("two_columns_landscape");
     settings["column_spacing_percent"] = settingsColumnSpacing;

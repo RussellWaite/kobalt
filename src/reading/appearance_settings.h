@@ -50,14 +50,24 @@ QJsonObject globalPreferences(QJsonObject preferences);
 QJsonObject cleanPreferences(QJsonObject preferences);
 // The saved settings that decide how the book is laid out and drawn. A
 // retained layout is reused only when all of them match.
-inline constexpr std::array<const char *, 27> keys{
+inline constexpr std::array<const char *, 29> keys{
     "line_spacing_version",   "font_pixels",     "line_spacing",      "font_face",
     "default_font_face",      "margin_pixels",   "top_margin_pixels", "bottom_margin_pixels",
     "text_alignment",         "bold_reading",    "weight_steps",      "font_weight",
     "font_optical_size",      "hyphenation",     "dark_mode",         "hide_nonlinear_fragments",
     "avoid_wasteful_styling", "serif_font_face", "sans_font_face",    "monospace_font_face",
-    "column_spacing", "columns", "two_columns_landscape", "column_spacing_percent", "word_spacing", "justification_tracking", "widows_orphans"};
+    "vertical_justification", "vertical_spacing_scope", "column_spacing", "columns", "two_columns_landscape", "column_spacing_percent", "word_spacing", "justification_tracking", "widows_orphans"};
+// Preserve the Boolean used by early development builds of page filling.
+inline QString verticalSpacingMode(const QJsonValue &value) {
+    if (value.isBool()) return value.toBool() ? QStringLiteral("expand") : QStringLiteral("off");
+    const auto mode = value.toString();
+    return mode == "expand" || mode == "center" ? mode : QStringLiteral("off");
+}
+inline QString verticalSpacingScope(const QJsonValue &value) {
+    return value.toString() == "protection" ? QStringLiteral("protection") : QStringLiteral("all");
+}
 inline bool validWordSpacing(int percent) {
+
     return percent == 80 || percent == 100 || percent == 120;
 }
 inline bool validTracking(int percent) {

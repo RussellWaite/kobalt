@@ -570,6 +570,99 @@ static void checkDeferredPublisherStyles() {
         }
     }
 }
+static void checkVerticalJustification() {
+    const QByteArray paragraph = "<p>A reader follows <a href='#end'>the passage</a> across the page. "
+        "<em>Careful spacing</em> keeps words clear and preserves every selection. "
+        "We can return to this sentence after a change in appearance.</p>";
+    const auto publication = [](const QByteArray &body) { return storedEpub({
+        {"mimetype", "application/epub+zip"},
+        {"META-INF/container.xml", "<container xmlns='urn:oasis:names:tc:opendocument:xmlns:container'><rootfiles><rootfile full-path='book.opf' media-type='application/oebps-package+xml'/></rootfiles></container>"},
+        {"book.opf", "<package xmlns='http://www.idpf.org/2007/opf' version='2.0' unique-identifier='id'><metadata xmlns:dc='http://purl.org/dc/elements/1.1/'><dc:identifier id='id'>vertical-fill</dc:identifier><dc:title>Vertical fill</dc:title><dc:language>en</dc:language></metadata><manifest><item id='c' href='c.xhtml' media-type='application/xhtml+xml'/></manifest><spine><itemref idref='c'/></spine></package>"},
+        {"c.xhtml", "<html xmlns='http://www.w3.org/1999/xhtml'><head><style>p{margin:0;text-indent:0}</style></head><body>" + body + "</body></html>"}}); };
+    const auto bytes = publication("<h1>Chapter</h1>" + paragraph.repeated(90) + "<p id='end'>The end.</p>");
+    QString error;
+    QTemporaryDir cache;
+    require(cache.isValid(), "create vertical justification cache");
+    QByteArray expected;
+    for (bool cached : {false, true}) {
+        kobalt::ReaderModel model(kobalt::test::readerFonts());
+        model.setDocumentCache(cache.path(), "vertical-fill-fingerprint", "vertical-fill", bytes.size());
+        require(model.open(bytes, QSize(800, 973), {}, &error), qPrintable(error));
+        require(model.openedFromCache() == cached, "vertical fill cache was not reused");
+        const auto pages = model.pages();
+        require(pages > 5, "vertical fill fixture is too short");
+        const auto opening = model.image(0);
+        require(model.applyAppearance({{"vertical_justification", true}}), "enable vertical fill");
+        require(model.image(0) == opening, "chapter heading page was stretched");
+        require(model.applyAppearance({{"vertical_justification", false}}), "disable vertical fill");
+        require(model.go(1), "open prose page");
+        const auto before = model.image(1);
+        const auto edges = model.annotationPageEdges();
+        const auto beforeFirst = model.rangeRects(edges.first.start, edges.first.end);
+        const auto beforeLast = model.rangeRects(edges.last.start, edges.last.end);
+        const auto beforeHandles = model.annotationGeometry(edges.last.start, edges.last.end);
+        const auto position = model.position();
+        const auto links = model.pageLinks();
+        require(!beforeFirst.isEmpty() && !beforeLast.isEmpty() && !links.isEmpty(), "missing prose geometry");
+        require(model.applyAppearance({{"vertical_justification", true}}), "enable prose fill");
+        const auto after = model.image(1);
+        require(after != before, "vertical justification did not change prose pixels");
+        require(model.pages() == pages && model.position() == position, "vertical fill changed page breaks or position");
+        const auto afterFirst = model.rangeRects(edges.first.start, edges.first.end);
+        const auto afterLast = model.rangeRects(edges.last.start, edges.last.end);
+        require(afterFirst == beforeFirst, "first prose line moved");
+        const int shift = afterLast.last().top() - beforeLast.last().top();
+        require(shift > 0 && afterLast.last().size() == beforeLast.last().size(), "last word was not translated intact");
+        auto inkBounds = [](const QImage &image) {
+            QRect ink;
+            for (int y=0; y<image.height(); ++y)
+                for (int x=0; x<image.width(); ++x)
+                    if (qGray(image.pixel(x,y)) < 100) ink |= QRect(x,y,1,1);
+            return ink;
+        };
+        const auto beforeInk = inkBounds(before), afterInk = inkBounds(after);
+        require(afterInk.top() == beforeInk.top() && afterInk.bottom()-beforeInk.bottom() == shift,
+                "painted text and selection geometry moved by different amounts");
+
+        require(model.wordAt(afterLast.last().center()).start == edges.last.start, "shifted word hit test missed");
+        const auto geometry = model.annotationGeometry(edges.last.start, edges.last.end);
+        require(geometry.rectangles == afterLast, "annotation did not follow shifted word");
+        require(geometry.start.first.y() == beforeHandles.start.first.y() + shift &&
+                geometry.end.first.y() == beforeHandles.end.first.y() + shift, "annotation handles did not follow shifted word");
+        require(model.pageLinks().last().rectangles.last().top() >= links.last().rectangles.last().top(), "link geometry did not follow text");
+        auto imageHash = [](const QImage &image) {
+            return QCryptographicHash::hash(QByteArray(reinterpret_cast<const char *>(image.constBits()), image.sizeInBytes()), QCryptographicHash::Sha256);
+        };
+        if (cached) require(imageHash(after) == expected, "cache reload changed vertical fill");
+        else expected = imageHash(after);
+        require(model.go(pages-1), "open ending page");
+        const auto ending = model.image(pages-1);
+        require(model.applyAppearance({{"vertical_justification", false}}), "disable ending fill");
+        require(model.image(pages-1) == ending, "short ending page was stretched");
+        require(model.applyAppearance({{"vertical_justification", true}, {"columns", 2}}, QSize(1280, 783)), "enable two-column fill");
+        require(model.go(1), "open two-column prose");
+        const auto columnEdges = model.annotationPageEdges();
+        const auto lastRects = model.rangeRects(columnEdges.last.start, columnEdges.last.end);
+        require(!lastRects.isEmpty() && model.wordAt(lastRects.last().center()).start == columnEdges.last.start,
+                "second-column inverse mapping missed the word");
+        require(model.applyAppearance({{"columns", 1}}, QSize(800, 973)), "restore single-column viewport");
+        require(model.saveDocumentCache(), "save vertical justification line metadata");
+    }
+    // These books fill several pages, so an unchanged first page proves the
+    // exclusion rather than merely hitting the short-ending-page rule.
+    for (const auto &body : {
+             QByteArray("<p>First verse<br/>Second verse<br/>Third verse<br/>Fourth verse</p>").repeated(60),
+             QByteArray("<pre>First code line\nSecond code line\nThird code line\n</pre>").repeated(60),
+             QByteArray("<div style='border:1px solid black'>") + paragraph.repeated(90) + "</div>"}) {
+        kobalt::ReaderModel excluded(kobalt::test::readerFonts());
+        require(excluded.open(publication(body), QSize(800, 973), {}, &error), qPrintable(error));
+        require(excluded.pages() > 2, "exclusion fixture did not fill a page");
+        const auto before = excluded.image(0);
+        require(excluded.applyAppearance({{"vertical_justification", true}}), "enable excluded layout fill");
+        require(excluded.image(0) == before, "vertical fill changed an authored or decorated layout");
+    }
+}
+
 int main(int argc, char **argv) {
     QGuiApplication app(argc, argv);
     checkDeferredPublisherStyles();
@@ -586,6 +679,7 @@ int main(int argc, char **argv) {
                 kobalt::normalizedOpticalSize(opticalFixture, 73) == 72 &&
                 kobalt::normalizedOpticalSize(opticalFixture, 14.6) == 15,
             "Optical size normalization lost defaults or whole-point bounds");
+    checkVerticalJustification();
     checkCssDensity();
     {
         kobalt::ReaderModel unopened(kobalt::test::readerFonts());
