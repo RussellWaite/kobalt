@@ -34,6 +34,7 @@ public:
     // The system back action: closes the topmost layer. False when only the
     // library itself is left.
     bool dismiss();
+    void pageButton(int direction);
 
     std::function<void(const QString &key)> openBook, removeFolder, removeBook;
     std::function<void(const QString &key, Book::Mark mark)> markBook;

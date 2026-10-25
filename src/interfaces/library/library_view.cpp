@@ -580,8 +580,19 @@ public:
         ui::readerStyle(title, ui::styles::brand(c::titleText) + "background:transparent;");
         heading = new ui::ListHeader(this);
         heading->setTrailingInset(c::cellWidth);
+        viewport = new QWidget(this);
+        content = new QWidget(viewport);
+        pager = new ui::PagerBar(this, "libraryFolders");
+        connect(pager->previous, &QPushButton::clicked, this, [this] {
+            page = pager->turnTarget(-1);
+            arrange();
+        });
+        connect(pager->next, &QPushButton::clicked, this, [this] {
+            page = pager->turnTarget(1);
+            arrange();
+        });
         check = new ui::DescribedOption(strings::get("library.check_at_start"),
-                                        strings::get("library.check_at_start_description"), this);
+                                        strings::get("library.check_at_start_description"), content);
         check->setObjectName("libraryCheckAtStart");
         auto look = check->presentation();
         look.indicator = ui::DescribedOption::Indicator::Square;
@@ -592,9 +603,9 @@ public:
         look.indicatorSize = {c::checkSize, c::checkSize};
         look.minimumRowHeight = c::optionHeight;
         check->setPresentation(look);
-        add = actionButton(this, strings::get("library.add_folder"), "libraryFoldersAdd", true);
-        rescan = actionButton(this, strings::get("library.rescan"), "libraryFoldersRescan", false);
-        description = new kobalt::ui::InterfaceLabel(strings::get("library.folders_description"), this);
+        add = actionButton(content, strings::get("library.add_folder"), "libraryFoldersAdd", true);
+        rescan = actionButton(content, strings::get("library.rescan"), "libraryFoldersRescan", false);
+        description = new kobalt::ui::InterfaceLabel(strings::get("library.folders_description"), content);
         description->setWordWrap(true);
         description->setTextFormat(Qt::PlainText);
         ui::readerStyle(description, ui::styles::font(c::descriptionText) +
@@ -610,7 +621,7 @@ public:
         heading->setCaptions(strings::get("library.folders_summary").arg(index.folders.size()),
                              strings::get("library.books_heading"));
         while (rows.size() < index.folders.size()) {
-            auto *row = new ui::ListRow(this);
+            auto *row = new ui::ListRow(content);
             auto *remove = row->addAction({}, strings::get("library.remove_folder"));
             const int position = rows.size();
             connect(remove, &QPushButton::clicked, this, [this, position] {
@@ -650,25 +661,59 @@ private:
     QLabel *title, *description;
     ui::ListHeader *heading;
     QVector<ui::ListRow *> rows;
+    QWidget *viewport, *content;
+    ui::PagerBar *pager;
+    int page = 0;
     void arrange() {
         const int bar = c::actionHeight - c::heavyRule;
         back->setGeometry(0, 0, c::cellWidth, bar);
         title->setGeometry(c::cellWidth + c::inset, 0, qMax(1, width() - c::cellWidth - 2 * c::inset), bar);
         heading->setGeometry(0, c::actionHeight, width(), ui::metrics::list::headerHeight);
-        int y = c::actionHeight + ui::metrics::list::headerHeight;
+        const int top = c::actionHeight + ui::metrics::list::headerHeight;
+        int y = 0;
+        QVector<QPair<int, int>> items;
         for (int i = 0; i < rows.size() && i < index.folders.size(); ++i) {
             rows[i]->setGeometry(0, y, width(), ui::metrics::list::twoLines);
+            items.append({y, y + int(ui::metrics::list::twoLines)});
             y += ui::metrics::list::twoLines;
         }
         const int checkHeight = check->heightForWidth(width());
         check->setGeometry(0, y, width(), checkHeight);
+        items.append({y, y + checkHeight});
         y += checkHeight + ui::metrics::spacing::gutter;
         const int buttons = width() - 2 * c::inset, buttonHeight = add->sizeHint().height();
         add->setGeometry(c::inset, y, buttons, buttonHeight);
+        items.append({y, y + buttonHeight});
         y += buttonHeight + ui::metrics::spacing::row;
         rescan->setGeometry(c::inset, y, buttons, buttonHeight);
+        items.append({y, y + buttonHeight});
         y += buttonHeight + ui::metrics::spacing::gutter;
-        description->setGeometry(c::inset, y, buttons, description->heightForWidth(buttons));
+        const int descriptionHeight = description->heightForWidth(buttons);
+        description->setGeometry(c::inset, y, buttons, descriptionHeight);
+        items.append({y, y + descriptionHeight});
+        const int bodyHeight = y + descriptionHeight;
+        const bool overflow = bodyHeight > height() - top;
+        const int available = qMax(1, height() - top - (overflow ? int(c::actionHeight) : 0));
+        QVector<int> starts{0};
+        int start = 0;
+        for (const auto &item : items) {
+            if (item.second - start > available && item.first > start) {
+                starts.append(item.first);
+                start = item.first;
+            }
+            while (item.second - start > available) {
+                start += available;
+                starts.append(start);
+            }
+        }
+        page = qBound(0, page, int(starts.size()) - 1);
+        const int end = page + 1 < starts.size() ? starts[page + 1] : bodyHeight;
+        const int used = qMin(available, qMax(0, end - starts[page]));
+        viewport->setGeometry(0, top, width(), used);
+        content->setGeometry(0, -starts[page], width(), bodyHeight);
+        pager->setGeometry(0, height() - c::actionHeight, width(), c::actionHeight);
+        pager->setPage(page, starts.size(), {}, true);
+        pager->setBlankArea({c::inset, top + used, qMax(1, width() - 2 * int(c::inset)), available - used});
     }
 };
 
@@ -917,6 +962,12 @@ void LibraryView::showNotice(const QString &title, const QString &message) {
     notice->show();
     notice->raise();
     notice->setFocus();
+}
+void LibraryView::pageButton(int direction) {
+    if (!isVisible() || !isEnabled() || overlay || (sortSheet && sortSheet->isVisible()) ||
+        (moreSheet && moreSheet->isVisible()))
+        return;
+    ui::turnVisiblePageControl(folderPage && folderPage->isVisible() ? static_cast<QWidget *>(folderPage) : this, direction);
 }
 bool LibraryView::dismiss() {
     if (overlay || (sortSheet && sortSheet->isVisible()) || (moreSheet && moreSheet->isVisible())) {

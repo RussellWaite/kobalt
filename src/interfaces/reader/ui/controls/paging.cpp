@@ -10,6 +10,34 @@
 
 namespace kobalt::ui {
 namespace m = metrics;
+bool turnVisiblePageControl(QWidget *scope, int direction) {
+    if (!scope || !scope->isVisible() || !scope->isEnabled() || (direction != -1 && direction != 1))
+        return false;
+    QWidget *selected = nullptr;
+    int deepest = -1;
+    auto widgets = scope->findChildren<QWidget *>();
+    widgets.prepend(scope);
+    for (auto *widget : widgets) {
+        if (!widget->isVisible() ||
+            (!dynamic_cast<PagerBar *>(widget) && !dynamic_cast<PageControls *>(widget)))
+            continue;
+        int depth = 0;
+        for (auto *parent = widget; parent && parent != scope; parent = parent->parentWidget())
+            ++depth;
+        if (depth >= deepest) {
+            selected = widget;
+            deepest = depth;
+        }
+    }
+    QPushButton *button = nullptr;
+    if (auto *pager = dynamic_cast<PagerBar *>(selected))
+        button = direction > 0 ? pager->next : pager->previous;
+    else if (auto *pager = dynamic_cast<PageControls *>(selected))
+        button = direction > 0 ? pager->next : pager->previous;
+    if (button && button->isVisible() && button->isEnabled())
+        button->click();
+    return selected;
+}
 namespace {
 class ContinuationHint final : public InterfaceLabel {
 public:

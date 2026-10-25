@@ -30,6 +30,13 @@
 #include "interfaces/reader/ui/controls/loading.h"
 #include "interfaces/reader/settings/dictionaries_page.h"
 #include "interfaces/reader/panels/dictionary_panel.h"
+#include "interfaces/reader/panels/link_panel.h"
+#include "interfaces/reader/panels/choice_screen.h"
+#include "interfaces/reader/panels/bookmark_list.h"
+#include "interfaces/reader/panels/search_panel.h"
+#include "interfaces/reader/panels/chapter_graph.h"
+#include "interfaces/reader/settings/header_footer_panel.h"
+#include "interfaces/reader/settings/acknowledgments.h"
 #include "interfaces/reader/ui/controls/paged_text.h"
 #include <lvtinydom.h>
 
@@ -1368,6 +1375,203 @@ private slots:
         picker->setCurrentIndex(0);
         hover(library->viewport());
         QVERIFY(!touchPointer());
+    }
+    void libraryPageButtons() {
+        Fixture fixture(false, false, true);
+        QVERIFY(fixture.prepared);
+        fixture.window.findChild<QComboBox *>("desktopScreenPicker")->setCurrentIndex(2);
+        auto *start = fixture.window.findChild<android::StartScreen *>();
+        QVERIFY(start && start->libraryShown());
+        auto *library = start->library();
+        QTRY_VERIFY(library->isVisible() && library->size() == QSize(1264, 1680));
+        QApplication::setActiveWindow(&fixture.window);
+        for (const auto *mode : {"libraryViewGrid", "libraryViewList"}) {
+            library->findChild<QPushButton *>(mode)->click();
+            auto *counter = library->findChild<QLabel *>("libraryPage");
+            QVERIFY(counter && counter->isVisible());
+            const auto initial = counter->text();
+            fixture.window.setFocus();
+            QTest::keyClick(&fixture.window, Qt::Key_PageDown);
+            QTRY_VERIFY(counter->text() != initial);
+            QTest::keyClick(&fixture.window, Qt::Key_PageUp);
+            QTRY_COMPARE(counter->text(), initial);
+            auto *next = fixture.window.findChild<QPushButton *>("desktopDeviceNext");
+            auto *previous = fixture.window.findChild<QPushButton *>("desktopDevicePrevious");
+            QVERIFY(next && previous);
+            QTRY_VERIFY(next->isVisible() && previous->isVisible() && next->isEnabled() && previous->isEnabled());
+            QTest::mouseClick(next, Qt::LeftButton);
+            QTRY_VERIFY(counter->text() != initial);
+            QTest::mouseClick(previous, Qt::LeftButton);
+            QTRY_COMPARE(counter->text(), initial);
+            library->findChild<QPushButton *>("libraryMore")->click();
+            library->pageButton(1);
+            QCOMPARE(counter->text(), initial);
+            QVERIFY(library->dismiss());
+            library->showNotice("Notice", "Hardware buttons must not page behind this notice.");
+            library->pageButton(1);
+            QCOMPARE(counter->text(), initial);
+            QVERIFY(library->dismiss());
+        }
+    }
+    void hardwarePageButtons_data() {
+        QTest::addColumn<QString>("view");
+        for (const auto *view : {"dictionary", "dictionary-choices", "footnote", "settings", "settings-fonts",
+                                "reading-fonts", "stats", "fields", "chapters", "bookmarks", "search",
+                                "acknowledgments", "license", "downloaded-dictionaries", "blocked-modal"})
+            QTest::newRow(view) << QString::fromLatin1(view);
+    }
+    void hardwarePageButtons() {
+        QFETCH(QString, view);
+        Fixture fixture;
+        QVERIFY(fixture.prepared);
+        if (view == "downloaded-dictionaries")
+            fixture.window.findChild<QComboBox *>("desktopScreenPicker")->setCurrentIndex(0);
+        QSignalSpy opened(&fixture.window, &desktop::Window::bookOpened);
+        fixture.window.openBook(book);
+        QTRY_COMPARE_WITH_TIMEOUT(opened.count(), 1, 10000);
+        QTRY_VERIFY(!fixture.state().value("busy").toBool());
+        QCoreApplication::processEvents();
+        auto *reader = fixture.window.readerWindow();
+        const auto position = fixture.state().value("position");
+        const QString definition = QString("<p>A long definition with enough text to wrap and fill several pages.</p>").repeated(100);
+        const char *counterName = nullptr;
+        if (view.startsWith("dictionary")) {
+            auto *panel = dynamic_cast<DictionaryPanel *>(fixture.widget("rrDictionary"));
+            QVERIFY(panel);
+            QVector<DictionaryChoice> choices;
+            for (int i = 0; i < 35; ++i)
+                choices.append({QString::number(i), QString("Dictionary %1").arg(i)});
+            panel->setChoices(choices);
+            DictionaryResult result;
+            result.received = result.restored = true;
+            result.dictionary = "Dictionary 0";
+            result.dictionaryId = "0";
+            result.html = definition;
+            panel->open("word", result, {100, 100, 50, 40});
+            counterName = "rrDictionaryPages";
+            if (view == "dictionary-choices") {
+                QVERIFY(fixture.press("rrDictionarySelect"));
+                counterName = "rrDictionaryChoicesPages";
+            }
+        } else if (view == "footnote") {
+            auto *panel = dynamic_cast<LinkPanel *>(fixture.widget("rrLinkPanel"));
+            QVERIFY(panel);
+            LinkDetails details;
+            details.kind = LinkKind::Footnote;
+            details.html = definition;
+            details.target = "passage";
+            panel->open(details, {100, 100, 50, 40});
+            counterName = "rrLinkPages";
+        } else if (view == "settings" || view == "settings-fonts" ||
+                   view == "downloaded-dictionaries" || view == "blocked-modal") {
+            QVERIFY(fixture.press("rrPage"));
+            QVERIFY(fixture.press("rrSettings"));
+            QVERIFY(fixture.press(view == "downloaded-dictionaries" ? "rrSettingsDictionaries" : "rrSettingsSystem"));
+            counterName = view == "downloaded-dictionaries" ? "rrDictionariesPage" : "rrSettingsOptionsPage";
+            if (view == "settings-fonts") {
+                QVERIFY(revealSettingsOption(fixture, "rrUiFont"));
+                QVERIFY(fixture.press("rrUiFont"));
+                counterName = "rrSettingsFontPage";
+            }
+        } else if (view == "reading-fonts") {
+            QVERIFY(fixture.press("rrPage"));
+            QVERIFY(fixture.press("rrNavText"));
+            QVERIFY(fixture.press("rrFont"));
+            auto *choices = dynamic_cast<ChoiceScreen *>(fixture.widget("rrChoices"));
+            QVERIFY(choices);
+            QVector<Choice> fonts;
+            for (int i = 0; i < 40; ++i)
+                fonts.append({QString("Font %1").arg(i), "Libron", QString("testFont%1").arg(i)});
+            choices->showChoices("Font", fonts, {}, ChoiceScreen::Mode::Fonts);
+            counterName = "rrFontPagerPage";
+        } else if (view == "stats") {
+            auto *graph = dynamic_cast<ChapterGraph *>(fixture.widget("rrChapterGraph"));
+            QVERIFY(graph);
+            QVector<ChapterLink> chapters;
+            for (int i = 0; i < 50; ++i)
+                chapters.append({QString("Chapter %1").arg(i), QString::number(i), i, 0, 100});
+            graph->changed = {};
+            graph->setDense(false);
+            graph->setData(chapters, {}, true, {});
+            graph->open();
+            counterName = "rrGraphPage";
+        } else if (view == "fields") {
+            auto *fields = dynamic_cast<kobalt::reader::FieldChooser *>(fixture.widget("rrHeaderFooterChooser"));
+            QVERIFY(fields);
+            fields->setGeometry(reader->rect());
+            fields->open(0, headerfooter::choosableFields[0], {}, false);
+            fields->show();
+            fields->raise();
+            counterName = "rrHeaderFooterFieldsPage";
+        } else if (view == "chapters") {
+            auto *choices = dynamic_cast<ChoiceScreen *>(fixture.widget("rrChoices"));
+            QVERIFY(choices);
+            QVector<Choice> chapters;
+            for (int i = 0; i < 50; ++i)
+                chapters.append({QString("Chapter %1").arg(i), QString::number(i), QString("testChapter%1").arg(i)});
+            choices->changed = {};
+            choices->showChoices("Chapters", chapters);
+            counterName = "rrContentsPage";
+        } else if (view == "bookmarks") {
+            auto *list = dynamic_cast<BookmarkList *>(fixture.widget("rrBookmarkList"));
+            QVERIFY(list);
+            QVector<BookmarkRow> rows;
+            for (int i = 0; i < 40; ++i)
+                rows.append({QString::number(i), "Chapter", "Excerpt", {}, i});
+            list->showBookmarks(rows);
+            counterName = "rrBookmarkListPage";
+        } else if (view == "search") {
+            auto *search = dynamic_cast<SearchPanel *>(fixture.widget("rrSearch"));
+            QVERIFY(search);
+            search->open(false, 0);
+            SearchBatch batch;
+            batch.done = true;
+            for (int i = 0; i < 40; ++i)
+                batch.hits.append({QString::number(i), QString::number(i + 1), "Before", "match", "after", i});
+            search->append(batch, 100);
+            counterName = "rrSearchPage";
+        } else {
+            auto *acknowledgments = dynamic_cast<Acknowledgments *>(fixture.widget("rrAcknowledgments"));
+            QVERIFY(acknowledgments);
+            acknowledgments->setGeometry(reader->rect());
+            acknowledgments->open();
+            if (view == "license") {
+                QVERIFY(fixture.press("rrAcknowledgment0"));
+                for (auto *child : acknowledgments->findChildren<QWidget *>())
+                    if (auto *license = dynamic_cast<LicenseText *>(child))
+                        license->setText(QString("A long license paragraph.\n\n").repeated(300));
+                acknowledgments->resize(acknowledgments->width(), acknowledgments->height() - 1);
+            }
+            counterName = "rrAcknowledgmentsPage";
+        }
+        // Dictionary rows redraw after their nested layout has resized.
+        QCoreApplication::processEvents();
+        auto *counter = reader->findChild<QLabel *>(counterName);
+        QVERIFY(counter && counter->isVisible());
+        auto *pager = dynamic_cast<ui::PagerBar *>(counter->parentWidget());
+        QVERIFY(pager && pager->next->isEnabled());
+        const auto initial = counter->text();
+        if (view == "blocked-modal") {
+            ui::NoticeModal notice(reader, {"", "Notice", {}}, {"OK", "testNoticeClose"});
+            notice.show();
+            notice.raise();
+            reader->pageButton(1);
+            QCOMPARE(counter->text(), initial);
+            QCOMPARE(fixture.state().value("position"), position);
+            notice.hide();
+        }
+        reader->pageButton(1);
+        QTRY_VERIFY(counter->text() != initial);
+        QCOMPARE(fixture.state().value("position"), position);
+        reader->pageButton(-1);
+        QTRY_COMPARE(counter->text(), initial);
+        QApplication::setActiveWindow(&fixture.window);
+        fixture.window.setFocus();
+        QTest::keyClick(&fixture.window, Qt::Key_PageDown);
+        QTRY_VERIFY(counter->text() != initial);
+        QTest::keyClick(&fixture.window, Qt::Key_PageUp);
+        QTRY_COMPARE(counter->text(), initial);
+        QCOMPARE(fixture.state().value("position"), position);
     }
     void dictionaryDismissal_data() {
         QTest::addColumn<bool>("dark");

@@ -4,6 +4,9 @@
 #include <QPointer>
 
 namespace kobalt::ui {
+// Uses the deepest visible pager, including a list inside a paged settings sheet.
+// A disabled page arrow still consumes the request at a text/list boundary.
+bool turnVisiblePageControl(QWidget *scope, int direction);
 // A full-width bar with a cell at each end and the count between them.
 // It hides itself when there is only one page.
 class PagerBar : public QWidget {

@@ -117,6 +117,7 @@ public:
             libraryRefresh->requestClean();
             surfaceHandoff.present(true);
             libraryHandoff.stop();
+            syncPageButtons();
         });
         connect(&controller, &android::ReaderController::retiring, this, [this] {
             if (layout->currentWidget() == canvas) {
@@ -156,7 +157,10 @@ public:
             [this](int direction) {
                 if (!pageButtonsReady())
                     return;
-                controller.window()->pageButton(direction);
+                if (layout->currentWidget() == start)
+                    start->library()->pageButton(direction);
+                else
+                    controller.window()->pageButton(direction);
             },
             [this](const QString &uri, const QString &label) {
                 store.addFolder({uri, label});
@@ -207,6 +211,7 @@ public:
             android::activity("showStartup");
             start->showLibraryError(error);
             layout->setCurrentWidget(start);
+            syncPageButtons();
             qWarning() << "Kobalt reader error:" << error;
         });
         connect(&controller, &android::ReaderController::closed, this, [this] {
@@ -231,6 +236,7 @@ public:
             android::activity("readerReady");
             if (store.index().settings.checkAtStart)
                 store.scan();
+            syncPageButtons();
         });
     }
     ~Window() override {
@@ -266,12 +272,13 @@ private:
         canvas->fitContent();
     }
     bool pageButtonsReady() const {
-        auto *reader = controller.window();
-        if (closing || !reader || openingHandoff.isActive() || layout->currentWidget() != canvas ||
-            !reader->isEnabled() || QGuiApplication::applicationState() != Qt::ApplicationActive)
+        if (closing || !isEnabled() || openingHandoff.isActive() || libraryHandoff.isActive() ||
+            QGuiApplication::applicationState() != Qt::ApplicationActive)
             return false;
-        auto *list = reader->findChild<QWidget *>("rrBookmarkList");
-        return !list || !list->isVisible();
+        if (layout->currentWidget() == start)
+            return start->libraryShown();
+        auto *reader = controller.window();
+        return layout->currentWidget() == canvas && reader && reader->isVisible() && reader->isEnabled();
     }
     void syncPageButtons() {
         android::setPageButtonsAvailable(pageButtonsReady());
@@ -354,10 +361,11 @@ private:
         auto *reader = controller.window();
         if (reader && object == reader && event->type() == QEvent::Close && reader->updatesEnabled())
             surfaceHandoff.capture();
-        if (reader && (event->type() == QEvent::Show || event->type() == QEvent::Hide ||
-                       event->type() == QEvent::EnabledChange)) {
+        if (event->type() == QEvent::Show || event->type() == QEvent::Hide ||
+            event->type() == QEvent::EnabledChange) {
             auto *widget = qobject_cast<QWidget *>(object);
-            if (widget && (widget == reader || reader->isAncestorOf(widget)))
+            if (widget && (widget == this || widget == start || start->isAncestorOf(widget) ||
+                           (reader && (widget == reader || reader->isAncestorOf(widget)))))
                 syncPageButtons();
         }
         if (reader && object == reader && event->type() == QEvent::PaletteChange && palette() != reader->palette())

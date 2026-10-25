@@ -825,7 +825,21 @@ private slots:
         QCOMPARE(inspectReader(host)["preview_settings"].toObject(), draft);
         QCOMPARE(host.session()->state()["font_pixels"], original["font_pixels"]);
         QVERIFY(!text->isVisible());
+        QVERIFY(click(canvas, host.window()->findChild<QPushButton *>("rrSettingsSystem")));
+        auto *counter = host.window()->findChild<QLabel *>("rrSettingsOptionsPage");
+        QVERIFY(counter && counter->isVisible());
+        const auto settingsPage = counter->text();
+        struct ResumeWorker {
+            ~ResumeWorker() { engineActivity().pause(false); }
+        } resumeWorker;
+        engineActivity().pause(true);
         QVERIFY(click(canvas, host.window()->findChild<QPushButton *>("rrSettingsClose")));
+        QVERIFY(host.session()->busy() && panel->isVisible());
+        host.window()->pageButton(1);
+        QCOMPARE(counter->text(), settingsPage);
+        host.window()->pageButton(-1);
+        QCOMPARE(counter->text(), settingsPage);
+        engineActivity().pause(false);
         QTRY_VERIFY_WITH_TIMEOUT(!panel->isVisible() && !host.session()->busy(), 10000);
         QCOMPARE(host.session()->state()["font_pixels"], draft["font_pixels"]);
         QVERIFY(click(canvas, text));

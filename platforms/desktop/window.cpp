@@ -1,4 +1,5 @@
 #include "window.h"
+#include "interfaces/library/library_view.h"
 #include "services.h"
 #include "platforms/android/canvas.h"
 #include "platforms/android/start_screen.h"
@@ -205,12 +206,10 @@ Window::Window(storage::Paths paths, EngineFontInputs fonts, QString placeholder
     deviceFrame->hide();
     stack = new QStackedWidget(stage);
     connect(deviceFrame->previous, &QPushButton::clicked, this, [this] {
-        if (auto *reader = controller.window())
-            reader->pageButton(-1);
+        turnPage(-1, true);
     });
     connect(deviceFrame->next, &QPushButton::clicked, this, [this] {
-        if (auto *reader = controller.window())
-            reader->pageButton(1);
+        turnPage(1, true);
     });
     auto *toolbar = addToolBar(tr("Preview Toolbar"));
     toolbar->setObjectName("desktopPreviewToolbar");
@@ -368,8 +367,10 @@ Window::Window(storage::Paths paths, EngineFontInputs fonts, QString placeholder
     view->addAction(showToolbar);
     for (const auto key : {Qt::Key_Right, Qt::Key_PageDown, Qt::Key_Left, Qt::Key_PageUp}) {
         auto *shortcut = new QShortcut(QKeySequence(key), this);
+        shortcut->setAutoRepeat(false);
         connect(shortcut, &QShortcut::activated, this, [this, key] {
-            turnPage(key == Qt::Key_Right || key == Qt::Key_PageDown ? 1 : -1);
+            turnPage(key == Qt::Key_Right || key == Qt::Key_PageDown ? 1 : -1,
+                     key == Qt::Key_PageUp || key == Qt::Key_PageDown);
         });
     }
     resizeTimer.setSingleShot(true);
@@ -493,9 +494,10 @@ void Window::sizeCanvas() {
         deviceFrame->hide();
         stack->setGeometry(bounds);
     }
-    const bool reading = controller.window() && controller.window()->isEnabled();
-    deviceFrame->previous->setEnabled(reading);
-    deviceFrame->next->setEnabled(reading);
+    const bool paging = (controller.window() && controller.window()->isEnabled()) ||
+                        (start->isVisible() && start->libraryShown());
+    deviceFrame->previous->setEnabled(paging);
+    deviceFrame->next->setEnabled(paging);
     if (auto *reader = controller.window())
         reader->resize(pixels());
     const qreal scale = screenPreset
@@ -564,13 +566,24 @@ void Window::openBook(const QString &path) {
     stack->setCurrentWidget(start);
     controller.open(absolute, pixels());
 }
-void Window::turnPage(int direction) {
+void Window::turnPage(int direction, bool hardware) {
     auto *reader = controller.window();
-    if (!reader || !reader->isVisible() || !reader->isEnabled() || QApplication::activeModalWidget())
+    if (closing || QApplication::activeModalWidget())
         return;
-    if (screenPicker->hasFocus() || resolutionPicker->hasFocus() ||
-        qobject_cast<QLineEdit *>(QApplication::focusWidget()))
+    if (!hardware && (screenPicker->hasFocus() || resolutionPicker->hasFocus() ||
+                      qobject_cast<QLineEdit *>(QApplication::focusWidget())))
         return;
+    if (!reader) {
+        if (start->isVisible() && start->libraryShown())
+            start->library()->pageButton(direction);
+        return;
+    }
+    if (!reader->isVisible() || !reader->isEnabled())
+        return;
+    if (hardware) {
+        reader->pageButton(direction);
+        return;
+    }
     // Only turn from the reading surface. The same keys must remain available
     // to search fields, sliders, lists and dialogs while controls are open.
     for (auto *child : reader->findChildren<QWidget *>(QString(), Qt::FindDirectChildrenOnly))

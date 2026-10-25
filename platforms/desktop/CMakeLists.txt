@@ -219,6 +219,21 @@ if(BUILD_TESTING)
         set_tests_properties(desktop.${check} PROPERTIES ENVIRONMENT "${headless_environment}"
             LABELS "desktop;${lane}" TIMEOUT 35)
     endforeach()
+    add_test(NAME desktop.libraryPageButtons COMMAND "${CMAKE_COMMAND}"
+        "-DTEST_EXECUTABLE=$<TARGET_FILE:kobalt-desktop-tests>" "-DTEST_ARGUMENTS=libraryPageButtons"
+        "-DTEST_TMP_ROOT=${CMAKE_CURRENT_BINARY_DIR}/test-tmp"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/run-test.cmake")
+    set_tests_properties(desktop.libraryPageButtons PROPERTIES ENVIRONMENT "${headless_environment}"
+        LABELS "desktop;integration" TIMEOUT 35)
+    foreach(view dictionary dictionary-choices footnote settings settings-fonts reading-fonts stats fields chapters
+            bookmarks search acknowledgments license downloaded-dictionaries blocked-modal)
+        add_test(NAME desktop.hardwarePageButtons.${view} COMMAND "${CMAKE_COMMAND}"
+            "-DTEST_EXECUTABLE=$<TARGET_FILE:kobalt-desktop-tests>" "-DTEST_ARGUMENTS=hardwarePageButtons:${view}"
+            "-DTEST_TMP_ROOT=${CMAKE_CURRENT_BINARY_DIR}/test-tmp"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/run-test.cmake")
+        set_tests_properties(desktop.hardwarePageButtons.${view} PROPERTIES ENVIRONMENT "${headless_environment}"
+            LABELS "desktop;integration" TIMEOUT 35)
+    endforeach()
     # Archive the existing objects so each standalone check links only the
     # production objects it uses, without compiling another implementation.
     add_library(kobalt-regression-runtime STATIC)

@@ -448,6 +448,22 @@ bool Reader::eventFilter(QObject *watched, QEvent *event) {
         if (target && (target == this || isAncestorOf(target)))
             return true;
     }
+    if ((type == QEvent::KeyPress || type == QEvent::KeyRelease) && isVisible() && !lifecycleHidden &&
+        !services.suspended() && QApplication::activeModalWidget() == this) {
+        auto *key = static_cast<QKeyEvent *>(event);
+        const int direction = services.pageButtonDirection(key);
+        if (direction) {
+            // Consume both events before a sheet's input barrier handles them.
+            if (type == QEvent::KeyPress) {
+                if (!closing && !book->deviceTransition() && services.remoteKeyActivity)
+                    services.remoteKeyActivity(this, key);
+                if (!key->isAutoRepeat())
+                    pageButton(direction);
+            }
+            event->accept();
+            return true;
+        }
+    }
     // While a panel's changes apply, its controls ignore input. Disabling
     // them instead would repaint the whole visible panel in disabled colors,
     // one more screen update before it closes.
@@ -536,23 +552,6 @@ bool Reader::eventFilter(QObject *watched, QEvent *event) {
     // visible pop-ups back on top whenever another child moves up.
     if ((type == QEvent::ZOrderChange || type == QEvent::Show) && watched->parent() == this && !popup(watched))
         raisePopups();
-    if ((type == QEvent::KeyPress || type == QEvent::KeyRelease) && isVisible() && !lifecycleHidden &&
-        !services.suspended() && QApplication::activeModalWidget() == this) {
-        auto *key = static_cast<QKeyEvent *>(event);
-        const int direction = services.pageButtonDirection(key);
-        if (direction) {
-            // Nickel can deliver either physical keys or mapped arrows.
-            // Consume the pair so it cannot also navigate the library.
-            if (type == QEvent::KeyPress) {
-                if (!closing && !book->deviceTransition() && services.remoteKeyActivity)
-                    services.remoteKeyActivity(this, key);
-                if (!key->isAutoRepeat())
-                    pageButton(direction);
-            }
-            event->accept();
-            return true;
-        }
-    }
     const bool touch = type == QEvent::TouchBegin || type == QEvent::TouchUpdate || type == QEvent::TouchEnd ||
                        type == QEvent::TouchCancel;
     const bool mouse = type == QEvent::MouseButtonPress || type == QEvent::MouseButtonDblClick ||
@@ -1523,43 +1522,31 @@ void Reader::openGraph() {
     refresh();
 }
 
-// A fullscreen list pages with the hardware buttons, as with its own arrows.
-// Returns whether such a list is open; the book behind it never turns.
+// The topmost sheet owns page buttons, even when its current page has no arrows.
 bool Reader::pageList(int direction) {
-    QWidget *list = choices->isVisible() && !choosingTypography ? static_cast<QWidget *>(choices)
-                    : bookmarkList->isVisible()                 ? static_cast<QWidget *>(bookmarkList)
-                    : searchPanel->isVisible()                  ? static_cast<QWidget *>(searchPanel)
-                    : acknowledgments->isVisible()              ? acknowledgments
-                    : fieldChooser->isVisible()                 ? static_cast<QWidget *>(fieldChooser)
-                                                                : nullptr;
-    if (!list)
-        return false;
-    // PagerBar has no meta-object, so qobject_cast cannot select it.
-    for (auto *child : list->findChildren<QWidget *>()) {
-        auto *pager = dynamic_cast<ui::PagerBar *>(child);
-        if (!pager || !pager->isVisible())
+    const auto children = findChildren<QWidget *>(QString(), Qt::FindDirectChildrenOnly);
+    for (int index = children.size() - 1; index >= 0; --index) {
+        auto *view = children[index];
+        if (!view->isVisible())
             continue;
-        auto *button = direction > 0 ? pager->next : pager->previous;
-        if (button->isVisible() && button->isEnabled())
-            button->click();
-        break;
+        const auto *modal = dynamic_cast<ui::ModalOverlay *>(view);
+        if ((modal && modal->inputBarrier()) || view == choices || view == bookmarkList || view == searchPanel ||
+            view == acknowledgments || view == fieldChooser || view == headerFooterView || view == dictionaryPanel ||
+            view == linkPanel || view == chapterGraph || view == general || view == menu) {
+            ui::turnVisiblePageControl(view, direction);
+            return true;
+        }
     }
-    return true;
+    return false;
 }
 
 void Reader::pageButton(int direction) {
     if ((direction != -1 && direction != 1) || !isEnabled() || !isVisible() || lifecycleHidden ||
-        services.suspended() || closing)
+        services.suspended() || closing || appearanceEdit.applying())
         return;
     const auto *modal = QApplication::activeModalWidget();
     if (modal && modal != this)
         return;
-    for (auto *widget : popups()) {
-        auto *overlay = dynamic_cast<ui::ModalOverlay *>(widget);
-        if (overlay && overlay->isVisible() && overlay->inputBarrier()) {
-            return;
-        }
-    }
     if (pageList(direction))
         return;
     if (seekOpen && pageScrubber && pageScrubber->isVisible()) {

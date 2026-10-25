@@ -35,6 +35,7 @@
 #include "platforms/kobo/common/browser_handoff.h"
 #include "interfaces/reader/panels/chapter_graph.h"
 #include "interfaces/reader/panels/choice_screen.h"
+#include "interfaces/library/library_view.h"
 #include <QScrollBar>
 #include <QApplication>
 #include <QVariant>
@@ -2560,6 +2561,93 @@ int main(int argc, char **argv) {
                     DictionaryPanel::definitionLineHeight(120, true) == 132 &&
                     DictionaryPanel::definitionLineHeight(140, true) == 144,
                 "Custom dictionary font did not add twenty percent to its automatic leading");
+    }
+    {
+        QWidget host;
+        host.resize(800, 900);
+        kobalt::ui::PagerBar outer(&host, "outer");
+        QWidget nested(&host);
+        nested.resize(600, 600);
+        kobalt::ui::PagerBar inner(&nested, "inner");
+        outer.setPage(0, 3, {}, true);
+        inner.setPage(1, 2);
+        int outerTurns = 0, innerTurns = 0;
+        QObject::connect(outer.next, &QPushButton::clicked, [&] { ++outerTurns; });
+        QObject::connect(inner.previous, &QPushButton::clicked, [&] { ++innerTurns; });
+        host.show();
+        app.processEvents();
+        require(kobalt::ui::turnVisiblePageControl(&host, 1) && outerTurns == 0,
+                "End of nested text paged the list behind it");
+        require(kobalt::ui::turnVisiblePageControl(&host, -1) && innerTurns == 1,
+                "Hardware paging missed the nested pager");
+        nested.hide();
+        require(kobalt::ui::turnVisiblePageControl(&host, 1) && outerTurns == 1,
+                "Hidden nested pager intercepted a hardware turn");
+    }
+    {
+        kobalt::library::Index index;
+        for (int i = 0; i < 30; ++i)
+            index.folders.append({QString("/books/folder-%1").arg(i), QString("Folder %1").arg(i)});
+        for (int i = 0; i < 30; ++i) {
+            kobalt::library::Book book;
+            book.key = QString::number(i);
+            book.title = QString("Book %1").arg(i);
+            book.opened = 1;
+            book.percent = 20;
+            index.books.insert(book.key, book);
+        }
+        kobalt::library::LibraryView library(index, [](const QString &) { return QString(); });
+        library.resize(1072, 1448);
+        library.show();
+        for (auto view : {kobalt::library::View::Home, kobalt::library::View::List, kobalt::library::View::Grid}) {
+            index.settings.view = view;
+            library.refresh();
+            app.processEvents();
+            auto *counter = library.findChild<QLabel *>("libraryPage");
+            require(counter && counter->isVisible(), "Multi-page Library view has no pager");
+            const auto first = counter->text();
+            library.pageButton(1);
+            require(counter->text() != first, "Hardware buttons did not advance a Library view");
+            library.pageButton(-1);
+            require(counter->text() == first, "Hardware buttons did not return a Library view");
+        }
+        for (const QSize size : {QSize(1072, 1448), QSize(1448, 700)}) {
+            library.resize(size);
+            library.show();
+            library.refresh();
+            library.findChild<QPushButton *>("libraryMore")->click();
+            library.findChild<QPushButton *>("libraryMoreFolders")->click();
+            app.processEvents();
+            auto *counter = library.findChild<QLabel *>("libraryFoldersPage");
+            auto *folderPage = library.findChild<QWidget *>("libraryFolders");
+            require(counter && counter->isVisible(), "Long folder list has no pager");
+            const auto first = counter->text();
+            QSet<QString> reached;
+            int turns = 0;
+            do {
+                for (auto *widget : folderPage->findChildren<QWidget *>()) {
+                    const auto name = widget->objectName();
+                    if (!name.startsWith("libraryFolder") && name != "libraryCheckAtStart")
+                        continue;
+                    const auto center = widget->mapTo(&library, widget->rect().center());
+                    auto *hit = library.childAt(center);
+                    if (hit == widget || (hit && widget->isAncestorOf(hit)))
+                        reached.insert(name);
+                }
+                library.pageButton(1);
+                require(++turns < 100, "Folder paging did not wrap");
+            } while (counter->text() != first);
+            require(turns > 1, "Long folder list stayed on one page");
+            for (int i = 0; i < index.folders.size(); ++i)
+                require(reached.contains(QString("libraryFolder%1").arg(i)), "Folder paging lost a row");
+            require(reached.contains("libraryCheckAtStart") && reached.contains("libraryFoldersAdd") &&
+                        reached.contains("libraryFoldersRescan"), "Folder paging lost the controls after the list");
+            library.pageButton(-1);
+            require(counter->text() != first, "Folder paging did not wrap backwards");
+            library.pageButton(1);
+            require(counter->text() == first, "Folder paging did not return to its first page");
+            library.dismiss();
+        }
     }
     QWidget reader;
     reader.resize(1072, 1448);

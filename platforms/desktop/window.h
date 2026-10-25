@@ -75,6 +75,6 @@ private:
     void chooseBook();
     void chooseFolder();
     void recordProgress();
-    void turnPage(int direction);
+    void turnPage(int direction, bool hardware = false);
 };
 }
