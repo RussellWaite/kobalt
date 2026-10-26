@@ -186,6 +186,9 @@ void KosyncPage::edit(int field) {
     title->style()->polish(title);
     auto *editor = new QLineEdit(card);
     editor->setObjectName("rrKosyncInput");
+    // Native keys have no click focus. Keep their focus fallback on the input
+    // instead of repainting the modal backdrop on every press and release.
+    editorDialog->setFocusProxy(editor);
     editor->setMaxLength(field == 0 ? 2048 : field == 3 ? 128 : 256);
     editor->setText(field == 0 ? server_ : field == 1 ? username_ : field == 2 ? password_ : deviceName_);
     editor->setAccessibleName(titleText);

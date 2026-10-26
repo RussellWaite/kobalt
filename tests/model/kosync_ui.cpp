@@ -82,6 +82,10 @@ int main(int argc, char **argv) {
     require(keyboard->submitText == "OK", "account editor labels native submission as OK rather than Search");
     auto *editor = page->editorDialog->findChild<QLineEdit *>("rrKosyncInput");
     require(editor, "server editor is accessible");
+    // Native keys fall back to their nearest ancestor with click focus.
+    page->editorDialog->setFocus(Qt::MouseFocusReason);
+    QApplication::processEvents();
+    require(editor->hasFocus(), "a native key's ancestor focus fallback keeps the server input focused");
     require(QFontInfo(editor->font()).family() == ui::interfaceFont().family(),
             "input inherits the production UI font rather than the system font");
     ui::ChoiceModal reference(&window, {"A regular alert.", "Alert", {}},
@@ -128,6 +132,9 @@ int main(int argc, char **argv) {
             "server edit commits and releases keyboard after submission");
     password->click();
     editor = page->editorDialog->findChild<QLineEdit *>("rrKosyncInput");
+    page->editorDialog->setFocus(Qt::MouseFocusReason);
+    QApplication::processEvents();
+    require(editor->hasFocus(), "recreated password editor keeps the native keyboard's focus fallback");
     require(editor->echoMode() == QLineEdit::Password && editor->inputMethodHints().testFlag(Qt::ImhSensitiveData),
             "password entry hides characters and disables keyboard learning");
     editor->setText("private-test-password");
