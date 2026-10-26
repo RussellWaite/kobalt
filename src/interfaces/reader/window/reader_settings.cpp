@@ -206,24 +206,19 @@ void Reader::refreshHostPresentation() {
     auto *settings = static_cast<reader::SettingsPanel *>(general);
     const bool devicePreview = services.devicePreview && services.devicePreview();
     settings->showDictionaries(services.downloadableDictionaries && !devicePreview);
-    settings->showNativeUi(services.desktopUi && !devicePreview);
     updateMenuStatus();
     resizeEvent(nullptr);
     refresh();
 }
 
 bool Reader::hideNativeStatus() const {
-    return services.desktopUi && !(services.devicePreview && services.devicePreview()) &&
-           preferences.value("native_hide_status_bar").toBool(true);
+    return services.desktopUi && !(services.devicePreview && services.devicePreview());
 }
 
 void Reader::openSettings() {
     if (model->temporaryTypography())
         return;
     model->cancelPendingTurn();
-    if (services.desktopUi) {
-        hideStatusOption->setChecked(preferences.value("native_hide_status_bar").toBool(true));
-    }
     hideRevealedLinks(false);
     dismissLookup();
     closeSearch();
@@ -380,9 +375,6 @@ void Reader::applySettings() {
     next.remove(pageNavigation::barVisibleKey);
     next["minimal_annotation_mode"] = minimalAnnotationOption->isChecked();
     next["screen_refresh"] = kobalt::screenRefreshValue(screenRefreshMode);
-    if (services.desktopUi) {
-        next["native_hide_status_bar"] = hideStatusOption->isChecked();
-    }
     if (restoringDefaults)
         next[kobalt::headerfooter::presetKey] =
             kobalt::headerfooter::presetValue(kobalt::headerfooter::Preset::Default);

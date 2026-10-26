@@ -114,7 +114,7 @@ int main(int argc, char **argv) {
             "Future book format was changed");
     require(storage::writeJson(paths.preferences(), qt::object({{"bionic_reading", "bold"}, {"smooth_images", true},
             {"last_header_footer", "alternative_b"}, {"inherit_header_footer", true}, {"heavier_interface_text", true},
-            {"pin_stats", true}, {"hide_tab_labels", true}, {"columns", 2}, {"column_spacing", 20},
+            {"native_hide_status_bar", false}, {"pin_stats", true}, {"hide_tab_labels", true}, {"columns", 2}, {"column_spacing", 20},
             {"word_spacing", 17}, {"private_optional", "keep"}})), "Settings fixture");
     const auto clean = storage::readPreferences(paths.preferences());
     require(clean.status == ReadStatus::Ok && clean.object.value("schema") == 1 &&
@@ -122,6 +122,7 @@ int main(int argc, char **argv) {
             clean.object.value("default_menu_view").toString() == "stats" && clean.object.value("hide_tab_labels") == true &&
             clean.object.value("private_optional").toString() == "keep" && !clean.object.contains("word_spacing") &&
             !clean.object.contains("smooth_images") && !clean.object.contains("bionic_reading") &&
+            !clean.object.contains("native_hide_status_bar") &&
             !clean.object.contains("pin_stats") && !clean.object.contains("columns"), "Settings cleanup lost intent");
     require(storage::readJson(paths.preferences()) == clean.object, "Clean settings were not persisted");
     write(paths.preferences(), "{\"schema\":99,\"new_option\":true}");

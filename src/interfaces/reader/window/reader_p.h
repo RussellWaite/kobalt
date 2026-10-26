@@ -239,7 +239,6 @@ private:
     QCheckBox *darkOption, *inheritTextLayoutOption, *animationOption, *edgeLightOption, *denseGraphOption;
     QCheckBox *automaticOpeningOption = nullptr, *minimalAnnotationOption = nullptr, *hideTabLabelsOption = nullptr;
     QPushButton *autoRotateOption;
-    QCheckBox *hideStatusOption = nullptr;
     bool hideNativeStatus() const;
     QJsonObject preferences;
     QLabel *settingsError;

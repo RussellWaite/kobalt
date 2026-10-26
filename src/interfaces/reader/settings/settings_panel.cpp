@@ -606,34 +606,6 @@ SettingsPanel::SettingsPanel(QWidget *parent, const SettingsPanelInputs &inputs)
     restoreDialog->dismissed = [this] {
         dismissRestore();
     };
-    if (inputs.desktopUi) {
-        auto *nativePage = new QWidget(settingsPages);
-        nativePage->setObjectName("rrNativeUiOptions");
-        settingsPages->addWidget(nativePage);
-        auto *rows = new QVBoxLayout(nativePage);
-        rows->setContentsMargins(0, 0, 0, 0);
-        rows->setSpacing(0);
-        hideStatusOption = check(nativePage, "rrHideStatusBar", strings::get("settings.hide_status_bar"),
-                                 strings::get("settings.hide_status_bar_description"));
-        section(nativePage, rows, "rrUiWindowSection", strings::get("settings.section_window"));
-        rows->addWidget(hideStatusOption);
-        rows->addStretch(1);
-        auto *button = makeButton(this, nullptr, "rrSettingsUI", strings::get("settings.ui"), [this] {
-            settingsPages->setCurrentIndex(NativeUiSettings);
-        });
-        button->setProperty("reader_tab_label", strings::get("settings.ui"));
-        button->setProperty("reader_tab_icon", int(ui::ControlIcon::Desktop));
-        button->setCheckable(true);
-        tabGroup->addButton(button);
-        settingsTabButtons.append(button);
-        settingsTabs->insertWidget(StylingSettings + 1, button);
-        readerStyle(button, styles::tab(false));
-        connect(button, &QPushButton::toggled, button, [button](bool on) {
-            button->setProperty("kobalt_selected", on);
-            button->style()->unpolish(button);
-            button->style()->polish(button);
-        });
-    }
     settingsError = new ui::InterfaceLabel(this);
     settingsError->setWordWrap(true);
     settingsError->hide();
@@ -656,8 +628,6 @@ SettingsPanel::SettingsPanel(QWidget *parent, const SettingsPanelInputs &inputs)
                                               hideTabLabelsOption,
                                               automaticOpeningOption,
                                               minimalAnnotationOption};
-    if (inputs.desktopUi)
-        options << hideStatusOption;
     for (auto *option : options) {
         auto presentation = option->presentation();
         presentation.indicator = ui::DescribedOption::Indicator::Square;
@@ -1220,17 +1190,6 @@ void SettingsPanel::showDictionaries(bool visible) {
         settingsPages->setCurrentIndex(DisplaySettings);
     fitRail();
 }
-void SettingsPanel::showNativeUi(bool visible) {
-    if (auto *button = settingsTabButtons.value(NativeUiSettings, nullptr)) {
-        button->setVisible(visible);
-        button->setEnabled(visible);
-        if (!visible && settingsPages->currentIndex() == NativeUiSettings) {
-            settingsPages->setCurrentIndex(DisplaySettings);
-        }
-        fitRail();
-    }
-}
-
 void SettingsPanel::fitRail(int availableHeight) {
     // As wide as the widest visible label, or the icon above it, with the
     // rail's margin on each side. Without Dictionaries the rail narrows.

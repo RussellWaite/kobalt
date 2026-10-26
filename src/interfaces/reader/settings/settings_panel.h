@@ -18,15 +18,14 @@ enum SettingsPage {
     StylingSettings,
     DictionariesSettings,
     SystemSettings,
-    AboutSettings,
-    NativeUiSettings
+    AboutSettings
 };
 struct SettingsPanelInputs {
     QString release, commit;
     int qtMajor = 0;
     bool commitVisible = false;
     bool animationsSupported = false, lightSupported = false, warmthSupported = false;
-    bool debugProgressAvailable = false, desktopUi = false;
+    bool debugProgressAvailable = false;
     bool downloadableDictionaries = true;
     bool sleepScreenSupported = false;
     bool automaticBookOpeningSupported = false;
@@ -52,9 +51,8 @@ public:
     QPointer<ui::ModalOverlay> fontDialog;
     ui::CellButton *closeButton = nullptr;
     void showDictionaries(bool visible);
-    void showNativeUi(bool visible);
     int fitContent(QSize availableSize);
-    ui::DescribedOption *hideStatusOption = nullptr, *hideTabLabelsOption = nullptr;
+    ui::DescribedOption *hideTabLabelsOption = nullptr;
     QStackedWidget *settingsPages = nullptr;
     QVector<QPushButton *> settingsTabButtons;
     ui::DescribedOption *darkOption = nullptr, *inheritTextLayoutOption = nullptr, *animationOption = nullptr;

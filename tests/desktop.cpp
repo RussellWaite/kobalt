@@ -739,6 +739,9 @@ void tour(Fixture &fixture, const QString &name, bool screenshots) {
     const auto scene = [&](const QString &suffix) { return !screenshots || capture(fixture, name + '-' + suffix); };
     QVERIFY(fixture.press("rrPage"));
     QTRY_VERIFY(fixture.visible("rrSettings"));
+    const bool devicePreview = fixture.window.findChild<QComboBox *>("desktopScreenPicker")->currentIndex() != 0;
+    QCOMPARE(fixture.visible("rrMenuClock"), devicePreview);
+    QCOMPARE(fixture.visible("rrMenuBattery"), devicePreview);
     QVERIFY(scene("menu"));
     QVERIFY(fixture.press("rrNavChapters"));
     QTRY_VERIFY(fixture.visible("rrContents"));
@@ -882,7 +885,8 @@ void tour(Fixture &fixture, const QString &name, bool screenshots) {
     QVERIFY(scene("settings"));
     const bool fill = fixture.window.findChild<QComboBox *>("desktopScreenPicker")->currentIndex() == 0;
     QCOMPARE(fixture.visible("rrSettingsDictionaries"), fill);
-    QCOMPARE(fixture.visible("rrSettingsUI"), fill);
+    QVERIFY(!fixture.widget("rrSettingsUI"));
+    QVERIFY(!fixture.widget("rrHideStatusBar"));
     if (fill) {
         QVERIFY(fixture.press("rrSettingsDictionaries"));
         if (screenshots) {
@@ -896,8 +900,6 @@ void tour(Fixture &fixture, const QString &name, bool screenshots) {
         QTRY_VERIFY(fixture.widget("rrDictionaryRow0")->width() == fixture.widget("rrDictionaryRow0")->parentWidget()->width());
         QVERIFY(fixture.widget("rrDictionaryRow0")->width() > 200);
         QVERIFY(scene("dictionaries"));
-        QVERIFY(fixture.press("rrSettingsUI"));
-        QVERIFY(scene("ui"));
         QVERIFY(fixture.press("rrSettingsSystem"));
         QVERIFY(revealSettingsOption(fixture, "rrDictionaryFontSize"));
         QVERIFY(scene("dictionary-ui"));
@@ -3402,6 +3404,9 @@ private slots:
         QFETCH(bool, dark);
         Fixture fixture(dark);
         QVERIFY(fixture.prepared);
+        auto preferences = storage::readJson(fixture.paths.preferences());
+        preferences["native_hide_status_bar"] = false;
+        QVERIFY(storage::writeJson(fixture.paths.preferences(), preferences));
         fixture.window.findChild<QComboBox *>("desktopScreenPicker")->setCurrentIndex(0);
         QSignalSpy opened(&fixture.window, &desktop::Window::bookOpened);
         fixture.window.openBook(book);
@@ -3409,12 +3414,16 @@ private slots:
         QTRY_VERIFY(!fixture.state().value("busy").toBool());
         QVERIFY(fixture.press("rrPage"));
         QTRY_VERIFY(fixture.visible("rrSettings"));
+        QVERIFY(!fixture.visible("rrMenuClock"));
+        QVERIFY(!fixture.visible("rrMenuBattery"));
+        QVERIFY(!storage::readJson(fixture.paths.preferences()).contains("native_hide_status_bar"));
         QVERIFY(fixture.press("rrSettings"));
+        QVERIFY(!fixture.widget("rrSettingsUI"));
+        QVERIFY(!fixture.widget("rrHideStatusBar"));
         struct Option { const char *tab, *name, *key; };
         QJsonObject expected;
         for (const auto &option : {Option{"rrSettingsControls", "rrShowLinkIndicator", "show_link_indicator"},
-                                   Option{"rrSettingsDefaults", "rrInheritTextLayout", "inherit_text_layout"},
-                                   Option{"rrSettingsUI", "rrHideStatusBar", "native_hide_status_bar"}}) {
+                                   Option{"rrSettingsDefaults", "rrInheritTextLayout", "inherit_text_layout"}}) {
             QVERIFY(fixture.press(option.tab));
             QTRY_VERIFY(fixture.visible(option.name));
             auto *box = fixture.window.readerWindow()->findChild<QCheckBox *>(option.name);

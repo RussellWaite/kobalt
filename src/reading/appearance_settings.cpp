@@ -39,6 +39,7 @@ QJsonObject globalPreferences(QJsonObject preferences) {
     preferences.remove(inheritHeaderFooterKey);
     preferences.remove("smooth_images");
     preferences.remove("heavier_interface_text");
+    preferences.remove("native_hide_status_bar");
     preferences.remove("columns");
     preferences.remove("column_spacing");
     preferences.remove(pageNavigation::barVisibleKey);
@@ -69,7 +70,7 @@ QJsonObject cleanPreferences(QJsonObject preferences) {
         preferences.remove(key);
     for (const auto *key : {"dark_mode", "hide_tab_labels", "inherit_text_layout", "two_columns_landscape",
                             "page_animations", "show_link_indicator", "edge_light_gestures", "dense_stats_chart",
-                            "native_hide_status_bar", "hide_nonlinear_fragments", "avoid_wasteful_styling",
+                            "hide_nonlinear_fragments", "avoid_wasteful_styling",
                             "minimal_annotation_mode", "show_header", "show_footer", "show_clock", "auto_rotate"})
         if (preferences.contains(key) && !preferences.value(key).isBool()) preferences.remove(key);
     const auto choice = [&](const char *key, const QStringList &values) {

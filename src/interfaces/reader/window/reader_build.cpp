@@ -987,7 +987,6 @@ void Reader::buildSettings() {
     settingsInputs.commit = QString::fromLatin1(kobaltCommit) + (KOBALT_COMMIT_MODIFIED ? "*" : "");
     settingsInputs.commitVisible = kobaltCommit[0] != '\0';
     settingsInputs.qtMajor = QT_VERSION >> 16;
-    settingsInputs.desktopUi = services.desktopUi;
     settingsInputs.downloadableDictionaries = services.downloadableDictionaries;
     settingsInputs.animationsSupported = services.animationsAvailable();
     settingsInputs.lightSupported = services.lightAvailable();
@@ -1007,7 +1006,6 @@ void Reader::buildSettings() {
     });
     settings->showDictionaries(services.downloadableDictionaries &&
                                !(services.devicePreview && services.devicePreview()));
-    settings->showNativeUi(services.desktopUi && !(services.devicePreview && services.devicePreview()));
     if (services.downloadableDictionaries) {
         auto *manager = static_cast<kobalt::DictionaryManager *>(dictionary.get());
         auto *dictionarySettings = settings->dictionaries;
@@ -1053,10 +1051,6 @@ void Reader::buildSettings() {
         };
         connect(manager, &kobalt::DictionaryManager::changed, this, updateDictionaries);
         updateDictionaries();
-    }
-    hideStatusOption = settings->hideStatusOption;
-    if (services.desktopUi) {
-        hideStatusOption->setChecked(preferences.value("native_hide_status_bar").toBool(true));
     }
     settingsPages = settings->settingsPages;
     darkOption = settings->darkOption;

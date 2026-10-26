@@ -6,6 +6,8 @@ Kobalt separates saved reading data from disposable rendering caches. Storage fo
 
 `reader-settings.json` holds global preferences with `schema: 1`. Unversioned settings are upgraded atomically. Recognized retired settings are converted or removed, invalid known values fall back to their defaults, and unknown keys are preserved. Unsupported future versions block writes. `config.json` remains the small Kobo enable/disable configuration.
 
+The retired `native_hide_status_bar` preference is removed when settings are normalized. The Mac screen preset controls status visibility. This keeps settings schema 1.
+
 `tappable_links` is an optional global setting with values `off`, `footnotes` and `all`. Missing or invalid values use Off. It does not change the settings schema or parsed-book cache format.
 
 `dictionary_font_face` and `dictionary_font_size` are optional global preferences. An empty or missing face follows the current book’s resolved body font, including its normal reading-font fallback. A missing size uses 100 percent. Supported sizes are 80, 100, 120 and 140 percent. Invalid values use these defaults. These settings affect dictionary definition text, not book layout or saved annotations. They keep preference schema 1.

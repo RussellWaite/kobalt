@@ -589,7 +589,6 @@
 "settings.section_reading_menu" = "Reading menu";
 "settings.section_reader" = "Reader";
 "settings.section_sleep" = "Sleep and wake";
-"settings.section_window" = "Window";
 "settings.navigation_taps_and_swipes" = "Swipes and taps";
 "settings.navigation_taps_and_swipes_description" = "Default";
 "settings.navigation_taps_only" = "Taps only";
@@ -621,9 +620,6 @@
 /* Arguments: %1 */
 "sleep.time_left" = "%1 to go";
 "settings.about" = "About";
-"settings.ui" = "UI";
-"settings.hide_status_bar" = "Hide status bar";
-"settings.hide_status_bar_description" = "Hide the clock, battery and menu status row on this Mac.";
 "settings.edge_light_description" = "Swipe up or down along the left edge for brightness, and along the right edge for warmth.";
 "settings.edge_brightness_description" = "Swipe up or down along the left edge for brightness.";
 

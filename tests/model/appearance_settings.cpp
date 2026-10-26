@@ -8,6 +8,11 @@
 using namespace kobalt;
 
 int main() {
+    for (bool hidden : {false, true}) {
+        const auto cleaned = appearance::cleanPreferences({{"native_hide_status_bar", hidden}, {"private_optional", "keep"}});
+        require(!cleaned.contains("native_hide_status_bar") && cleaned.value("private_optional").toString() == "keep",
+                "Retired desktop status preference survived cleanup or removed an unrelated setting");
+    }
     require(!appearance::cleanPreferences({}).contains("tappable_links"), "Older settings enabled direct taps");
     for (const auto *mode : {"off", "footnotes", "all"})
         require(appearance::cleanPreferences({{"tappable_links", mode}}).value("tappable_links").toString() == mode,
