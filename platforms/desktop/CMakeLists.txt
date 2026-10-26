@@ -282,8 +282,8 @@ if(BUILD_TESTING)
             sleepSnapshotMatchesTheDisplayedPage
             sleepSnapshotReplacesEachClockWithoutChangingTheReadingPage sleepTimeLeftUsesHoursAboveTwoHours
             sleepScreenModesKeepTheStockDefaultAndMigrateTheOptIn sleepCoverFitsWithoutCroppingOrDimming
-            sleepCoverDecodingIsBoundedAndHonorsSourceCancellation remoteKeyActivityRequiresActiveReading
-            finishChoiceSurvivesSleepAndRequiresActiveReader kosyncOpening kosyncNetwork kosyncFinal nativeProgressWaitsForSleep positionSavesWaitForQuietInput usbFinalSave
+            sleepCoverDecodingIsBoundedAndHonorsSourceCancellation wifiStatus remoteKeyActivityRequiresActiveReading
+            finishChoiceSurvivesSleepAndRequiresActiveReader kosyncOpening kosyncNetwork kosyncManualConnection kosyncFinal nativeProgressWaitsForSleep positionSavesWaitForQuietInput usbFinalSave
             progressChoiceKeepAndGo finishedSyncWithoutPositionKeepsLocalReading
             progressChoiceForOlderAlert progressChoiceUnavailablePosition
             appearanceOpeningDoesNotRepaintToolbar annotationFramesKeepFirstPaintComplete annotationListResolvesPagesOnDemand)
@@ -373,10 +373,12 @@ if(BUILD_TESTING)
             target_compile_options(kobalt-${name}-tests PRIVATE -Wall -Wextra -Werror)
             if(check STREQUAL "native_sync_network")
                 target_sources(kobalt-${name}-tests PRIVATE "${KOBALT_ROOT}/platforms/kobo/common/native_sync_network.cpp"
-                    "${KOBALT_ROOT}/platforms/kobo/common/native_sync_network.h")
+                    "${KOBALT_ROOT}/platforms/kobo/common/native_sync_network.h"
+                    "${KOBALT_ROOT}/platforms/kobo/common/window_presentation.cpp"
+                    "${KOBALT_ROOT}/platforms/kobo/common/native_wifi.cpp")
                 target_include_directories(kobalt-${name}-tests PRIVATE "${KOBALT_ROOT}" "${source}")
-                target_link_libraries(kobalt-${name}-tests PRIVATE Qt6::Core Qt6::Network)
-                set_target_properties(kobalt-${name}-tests PROPERTIES AUTOMOC ON)
+                target_link_libraries(kobalt-${name}-tests PRIVATE Qt6::Widgets Qt6::Network)
+                set_target_properties(kobalt-${name}-tests PROPERTIES AUTOMOC ON ENABLE_EXPORTS ON)
             elseif(check STREQUAL "native_progress")
                 target_sources(kobalt-${name}-tests PRIVATE "${KOBALT_ROOT}/platforms/kobo/common/native_progress.cpp"
                     "${KOBALT_ROOT}/platforms/kobo/common/native_progress.h")

@@ -206,6 +206,12 @@ Reader::Reader(std::unique_ptr<kobalt::ReadingBook> openedBook, kobalt::ReaderOr
             if (topControls->isVisible() && !lifecycleHidden)
                 syncNavigation();
         });
+    if (services.observeWifi)
+        services.observeWifi(this, [this](WifiStatus state) {
+            if (menuWifi->setStatus(state.enabled, state.connected, state.strength) &&
+                topControls->isVisible() && !lifecycleHidden)
+                syncNavigation();
+        });
     connect(header, &QPushButton::clicked, this, [this] {
         if (topControls->isVisible()) {
             flashAfterMenu = true;
@@ -431,6 +437,9 @@ void Reader::buildToolbar() {
     menuBluetooth = new kobalt::ui::BluetoothIndicator(topControls);
     menuBluetooth->setObjectName("rrMenuBluetooth");
     toolbarComposition.bluetooth = menuBluetooth;
+    menuWifi = new kobalt::ui::WifiIndicator(topControls);
+    menuWifi->setObjectName("rrMenuWifi");
+    toolbarComposition.wifi = menuWifi;
     auto *top = new QHBoxLayout;
     toolbar->addLayout(top);
     top->setSpacing(m::panel::toolbarGap);

@@ -50,7 +50,7 @@ inline constexpr Px exitLabelExtraRight{6};
 inline constexpr PxMargins statusMargins{12, 0, 15, 0};
 inline constexpr Px statusHeight{40}, statusGap{8}, statusText{30}, sessionText{32};
 inline constexpr Px batteryWidth{132}, batteryIconSize{56}, batteryText{24};
-inline constexpr Px bluetoothIconSize{32}, bluetoothGap{12};
+inline constexpr Px bluetoothIconSize{32}, wifiIconWidth{40}, bluetoothGap{12};
 inline constexpr Px batteryTextInset{68}, batteryBodyWidth{46}, batteryBodyHeight{24};
 inline constexpr qreal batteryStroke = 1.5;
 inline QRect toolbar(const QSize &size) {

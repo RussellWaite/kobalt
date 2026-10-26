@@ -61,8 +61,8 @@ void Reader::buildKosync() {
             return;
         }
         kosyncAuthenticating = true;
-        kosyncDeadline.start(10000);
         prepareKosyncNetwork(true, [this, account, server, username, password] {
+            kosyncDeadline.start(10000);
             kosyncClient->login(server, username, password,
                                 [this, account](const QString &error) {
                 kosyncDeadline.stop();
@@ -166,9 +166,12 @@ void Reader::synchronizeKosync(bool interactive) {
     const bool opening = !kosyncStarted && !interactive;
     if (!interactive && !opening && !kosyncProgress.needsSync(model->state().value("position").toString())) return;
     kosyncStarted = true;
-    kosyncDeadline.start(10000);
+    if (!interactive) kosyncDeadline.start(10000);
     if (opening) showKosyncOpening();
-    if (opening || interactive) prepareKosyncNetwork(interactive, [this] { startKosyncExchange(false); });
+    if (opening || interactive) prepareKosyncNetwork(interactive, [this, interactive] {
+        if (interactive) kosyncDeadline.start(10000);
+        startKosyncExchange(false);
+    });
     else if (kosyncNetwork && !kosyncNetwork->connected()) finishKosync(strings::get("kosync.saved_locally"));
     else startKosyncExchange(false);
 }

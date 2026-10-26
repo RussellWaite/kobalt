@@ -137,4 +137,15 @@ protected:
 private:
     bool enabled = false;
 };
+class WifiIndicator final : public QWidget {
+public:
+    explicit WifiIndicator(QWidget *parent);
+    bool active() const { return enabled; }
+    bool setStatus(bool enabled, bool connected, int strength);
+protected:
+    void paintEvent(QPaintEvent *) override;
+private:
+    bool enabled = false, connected = false;
+    int strength = -1;
+};
 }

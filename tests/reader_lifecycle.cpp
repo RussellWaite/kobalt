@@ -2904,6 +2904,86 @@ private slots:
         QVERIFY(cover.isNull());
     }
 
+    void wifiStatus_data() {
+        QTest::addColumn<bool>("dark");
+        QTest::addColumn<int>("ppi");
+        for (const bool dark : {false, true})
+            for (const int ppi : {300, 212})
+                QTest::newRow(qPrintable(QString("%1-%2").arg(dark ? "dark" : "light").arg(ppi))) << dark << ppi;
+    }
+    void wifiStatus() {
+        QFETCH(bool, dark);
+        QFETCH(int, ppi);
+        const int previousDensity = ui::density();
+        struct Restore { int density; ~Restore() { ui::setDensity(density); } } restore{previousDensity};
+        ui::setDensity(ppi);
+        auto paths = testPaths();
+        QVERIFY(storage::writeJson(paths.preferences(), {{"dark_mode", dark}}));
+        ReaderFixture host(paths, testFonts, testPlaceholder);
+        CloseHost cleanup{host};
+        std::function<void(WifiStatus)> wifiChanged;
+        std::function<void(bool)> bluetoothChanged;
+        host.configureServices = [&](ReaderHostServices &services) {
+            services.observeWifi = [&](QObject *, std::function<void(WifiStatus)> changed) {
+                wifiChanged = changed;
+                changed({true, true, 4});
+            };
+            services.observeBluetooth = [&](QObject *, std::function<void(bool)> changed) {
+                bluetoothChanged = changed;
+                changed(true);
+            };
+        };
+        QSignalSpy opened(&host, &ReaderFixture::opened);
+        host.open(fixture(), nativeSize);
+        QTRY_COMPARE_WITH_TIMEOUT(opened.count(), 1, 30000);
+        Canvas canvas(host.window(), nativeSize);
+        canvas.resize(900, 900);
+        canvas.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&canvas));
+        QTRY_VERIFY(!host.session()->busy());
+        QVERIFY(clickAt(canvas, QPoint(nativeSize.width() / 2, nativeSize.height() / 2)));
+        auto *wifi = host.window()->findChild<QWidget *>("rrMenuWifi");
+        auto *bluetooth = host.window()->findChild<QWidget *>("rrMenuBluetooth");
+        auto *battery = host.window()->findChild<QWidget *>("rrMenuBattery");
+        QVERIFY(wifi && bluetooth && battery);
+        QTRY_VERIFY(wifi->isVisible() && bluetooth->isVisible());
+        QVERIFY(wifi->geometry().right() < bluetooth->x());
+        QVERIFY(bluetooth->geometry().right() < battery->x());
+        QVERIFY(wifi->accessibleName().contains("4 of 4"));
+        const auto strong = wifi->grab().toImage();
+        const auto inkBounds = [dark](const QImage &image) {
+            QRect bounds;
+            for (int y = 0; y < image.height(); ++y)
+                for (int x = 0; x < image.width(); ++x) {
+                    const auto color = image.pixelColor(x, y);
+                    const int ink = dark ? qGray(color.rgb()) : 255 - qGray(color.rgb());
+                    if (ink > 0 && color.alpha() > 0) bounds |= QRect(x, y, 1, 1);
+                }
+            return bounds;
+        };
+        const auto wifiInk = inkBounds(strong);
+        const auto bluetoothInk = inkBounds(bluetooth->grab().toImage());
+        QVERIFY(qAbs(wifiInk.height() - 0.9 * bluetoothInk.height()) <= 1);
+        QVERIFY(qAbs(QRectF(wifiInk).center().y() - QRectF(bluetoothInk).center().y() + ui::px(1)) <= 0.5);
+        const auto capture = qEnvironmentVariable("KOBALT_WIFI_CAPTURE_DIR");
+        if (!capture.isEmpty()) {
+            QVERIFY(QDir().mkpath(capture));
+            QVERIFY(host.window()->grab().save(capture + QString("/wifi-%1-%2.png").arg(dark ? "dark" : "light").arg(ppi)));
+            QVERIFY(host.window()->grab(QRect(0, 0, host.window()->width(), ui::px(60))).save(
+                capture + QString("/wifi-statusbar-%1-%2.png").arg(dark ? "dark" : "light").arg(ppi)));
+        }
+        wifiChanged({true, true, 1});
+        QVERIFY(wifi->accessibleName().contains("1 of 4"));
+        QVERIFY(strong != wifi->grab().toImage());
+        const int withBluetooth = wifi->x();
+        bluetoothChanged(false);
+        QTRY_VERIFY(!bluetooth->isVisible());
+        QVERIFY(wifi->x() > withBluetooth);
+        wifiChanged({true, false, -1});
+        QVERIFY(wifi->isVisible() && wifi->accessibleName().contains("not connected"));
+        wifiChanged({false, false, -1});
+        QTRY_VERIFY(!wifi->isVisible());
+    }
     void remoteKeyActivityRequiresActiveReading() {
         ReaderFixture host(testPaths(), testFonts, testPlaceholder);
         CloseHost cleanup{host};
@@ -3095,6 +3175,43 @@ private slots:
         QCOMPARE(host.session()->state().value("position").toString(), before);
         host.window()->pageButton(1);
         QTRY_VERIFY(!host.session()->busy() && host.session()->page() > page);
+    }
+    void kosyncManualConnection() {
+        QTcpServer stalled;
+        QVERIFY(stalled.listen(QHostAddress::LocalHost));
+        QSignalSpy attempts(&stalled, &QTcpServer::newConnection);
+        auto paths = testPaths();
+        QVERIFY(storage::writeJson(paths.syncAccount(), {
+            {"schema", 1}, {"server", QString("https://127.0.0.1:%1").arg(stalled.serverPort())},
+            {"username", "test-reader"}, {"key", QString(32, 'a')},
+            {"device_id", "test-device"}, {"automatic", false}}));
+        auto network = std::make_shared<SyncNetworkState>();
+        ReaderFixture host(paths, testFonts, testPlaceholder);
+        host.configureServices = [network](ReaderHostServices &services) {
+            services.syncNetwork = [network] { return std::make_unique<TestSyncNetwork>(network); };
+        };
+        CloseHost cleanup{host};
+        QSignalSpy opened(&host, &ReaderFixture::opened);
+        host.open(fixture(), nativeSize);
+        QTRY_COMPARE_WITH_TIMEOUT(opened.count(), 1, 30000);
+        Canvas canvas(host.window(), nativeSize);
+        canvas.resize(900, 900);
+        canvas.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&canvas));
+        host.window()->findChild<QPushButton *>("rrKosyncNow")->click();
+        QCOMPARE(network->requests, 1);
+        QVERIFY(network->interactive);
+        QEventLoop permission;
+        QTimer::singleShot(11200, &permission, &QEventLoop::quit);
+        permission.exec();
+        QVERIFY(bool(network->completed));
+        QVERIFY(!host.window()->findChild<QPushButton *>("rrKosyncServer")->isEnabled());
+        QCOMPARE(network->cancellations, 0);
+        QCOMPARE(attempts.count(), 0);
+        auto completed = std::move(network->completed);
+        network->completed = {};
+        completed(false);
+        QVERIFY(host.window()->findChild<QPushButton *>("rrKosyncServer")->isEnabled());
     }
     void kosyncNetwork_data() {
         QTest::addColumn<QString>("scenario");

@@ -1,6 +1,6 @@
 #pragma once
 #include "interfaces/reader_interface.h"
-#include "usb_dialog_overlay.h"
+#include "native_dialog_overlay.h"
 #include "engine/crengine/reader_model.h"
 #include "reading/reading_progress.h"
 #include <QObject>
@@ -54,7 +54,6 @@ public:
     void forgetSleepScreen();
 
 private:
-    bool eventFilter(QObject *object, QEvent *event) override;
     ReaderEnvironment &environment_;
     CoordinatorBindings bindings_;
     kobalt::NativeLifecycle *lifecycle;
@@ -113,7 +112,6 @@ private:
     void load();
 
     void showReader();
-    UsbDialogOverlay usbDialog_;
     std::unique_ptr<HomeSleepScreen> homeSleep;
 };
 

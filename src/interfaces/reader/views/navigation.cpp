@@ -238,7 +238,7 @@ Navigation::Navigation(QWidget *parent, const ToolbarComposition &controls)
     : bar(new BottomNavigation(parent)), toolbar(controls.panel), toolbarRows(controls.rows),
       exitAction(controls.exitAction), settings(controls.settings), bookmarks(controls.bookmarks),
       annotate(controls.annotate), clock(controls.clock), session(controls.session), battery(controls.battery),
-      bluetooth(controls.bluetooth), formattingWarning(controls.formattingWarning), search(controls.search) {
+      bluetooth(controls.bluetooth), wifi(controls.wifi), formattingWarning(controls.formattingWarning), search(controls.search) {
     upperEdge = new ReadingRule(parent);
     upperEdge->setObjectName("rrNavigationUpperEdge");
     lowerEdge = new ReadingRule(parent);
@@ -364,13 +364,21 @@ void Navigation::update(QSize size, const NavigationState &state) {
     clock->setGeometry(c::inset, ui::px(10), ui::px(160), ui::px(40));
     int sessionInset = ui::px(196);
     battery->move(size.width() - c::inset - battery->width(), ui::px(10));
+    int nextStatus = battery->x();
     if (bluetooth) {
         bluetooth->setVisible(statusVisible && bluetooth->active());
         bluetooth->move(battery->x() - int(ui::metrics::panel::bluetoothGap) - bluetooth->width(), ui::px(10));
         if (bluetooth->active()) {
+            nextStatus = bluetooth->x();
             const int rightInset = size.width() - bluetooth->x() + int(c::inset);
             sessionInset = qMax(sessionInset, rightInset);
         }
+    }
+    if (wifi) {
+        wifi->setVisible(statusVisible && wifi->active());
+        wifi->move(nextStatus - int(ui::metrics::panel::bluetoothGap) - wifi->width(), ui::px(10));
+        if (wifi->active())
+            sessionInset = qMax(sessionInset, size.width() - wifi->x() + int(c::inset));
     }
     session->setGeometry(sessionInset, ui::px(10), qMax(0, size.width() - 2 * sessionInset), ui::px(40));
     exitAction->setGeometry(ui::px(24), statusHeight(), exitAction->sizeHint().width(), c::actionHeight);

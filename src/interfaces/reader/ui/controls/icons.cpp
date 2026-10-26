@@ -46,6 +46,11 @@ Geometry geometry(ControlIcon icon, bool sideButtons) {
         result.canvas = 256;
         result.filled = true;
         phosphorGeometry(QStringLiteral("file-zip"), path);
+    } else if (icon >= ControlIcon::WifiNone && icon <= ControlIcon::WifiDisconnected) {
+        static const char *names[] = {"wifi-none", "wifi-low", "wifi-medium", "wifi-high", "wifi-slash"};
+        result.canvas = 256;
+        result.filled = true;
+        phosphorGeometry(QString::fromLatin1(names[int(icon) - int(ControlIcon::WifiNone)]), path);
     } else if (icon == ControlIcon::Sync) {
         result.canvas = 24;
         result.stroke = 1.5;
@@ -371,6 +376,20 @@ private:
 
 void paintOpeningIcon(QPainter &painter, ControlIcon icon, const QRectF &bounds, QColor color) {
     paintGeometry(painter, geometry(icon, false), icon, bounds, color, IconRendition::OriginalAsset);
+}
+void paintWifiStatusIcon(QPainter &painter, ControlIcon icon, const QRectF &bounds, QColor color) {
+    const auto reference = geometry(ControlIcon::Bluetooth, false);
+    const auto shape = geometry(icon, false);
+    const auto full = geometry(icon == ControlIcon::WifiDisconnected ? icon : ControlIcon::WifiHigh, false).inkBounds();
+    const qreal side = qMin(bounds.width(), bounds.height());
+    const qreal scale = 0.9 * side * reference.inkBounds().height() / reference.canvas / full.height();
+    painter.save();
+    painter.setRenderHint(QPainter::Antialiasing);
+    painter.translate(bounds.center());
+    painter.scale(scale, scale);
+    painter.translate(-full.center());
+    painter.fillPath(shape.path, color);
+    painter.restore();
 }
 QIcon controlIcon(ControlIcon icon, QColor color, bool sideButtons) {
     if (int(icon) < 0 ||

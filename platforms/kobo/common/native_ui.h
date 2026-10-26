@@ -32,6 +32,8 @@ NativeBatteryStatus nativeReaderBattery();
 void observeNativeBattery(QObject *context, std::function<void()> changed);
 // Observe power state without synchronous native D-Bus getters.
 void observeNativeBluetooth(QObject *context, std::function<void(bool)> changed);
+struct WifiStatus;
+void observeNativeWifi(QObject *context, std::function<void(WifiStatus)> changed);
 // Report accepted remote page keys; retain Nickel's idle timeout for other input.
 void reportNativeBluetoothActivity(QObject *context, QKeyEvent *event);
 bool nativeReaderHasPageButtons();

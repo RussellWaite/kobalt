@@ -176,6 +176,7 @@ ReaderHostServices readerHostServices() {
     };
     result.observeBattery = observeNativeBattery;
     result.observeBluetooth = observeNativeBluetooth;
+    result.observeWifi = observeNativeWifi;
     result.remoteKeyActivity = reportNativeBluetoothActivity;
     result.pageButtons = nativeReaderHasPageButtons;
     result.reverseLandscapeButtons = nativeReaderReverseLandscapeButtons;

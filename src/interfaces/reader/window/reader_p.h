@@ -262,6 +262,7 @@ private:
     QLabel *menuClock, *menuSession;
     kobalt::ui::BatteryIndicator *menuBattery;
     kobalt::ui::BluetoothIndicator *menuBluetooth;
+    kobalt::ui::WifiIndicator *menuWifi;
     kobalt::ReadingPage *page;
     ChapterHeader *header;
     AppearanceSheet *menu;

@@ -195,6 +195,26 @@
       "sha256": "e6a830c0409f9e101e3695c981eef98427d39fd01f502b9cbd6900930b01f19c"
     },
     {
+      "file": "wifi-high.svg",
+      "sha256": "d11ce9b83f063b6d12d3c8ff93cce7d601fe19ee1d6e5ba828b4a764b100519f"
+    },
+    {
+      "file": "wifi-low.svg",
+      "sha256": "cfd46f02d3e508c728213f6fb36bbee4bc05a05ac862e7fe4b7a671cb0a5f99d"
+    },
+    {
+      "file": "wifi-medium.svg",
+      "sha256": "ae92a3a813e5be912be60ade2be8d5a1b342bc676bfb75f6cf5dabc9fa24a9c7"
+    },
+    {
+      "file": "wifi-none.svg",
+      "sha256": "78ba862e6be9e34f7760b42eb23eae3bc003db95fc38511b76b2aad59cec861d"
+    },
+    {
+      "file": "wifi-slash.svg",
+      "sha256": "39ed62ae822a3917ac70239bbaa2144152049783451f4687456aae8f044152fc"
+    },
+    {
       "file": "wrench.svg",
       "sha256": "690d657aa4a9c99d620583cf6247cfefa5372c10e2bc60e9255a3ce19e3e9c47"
     },

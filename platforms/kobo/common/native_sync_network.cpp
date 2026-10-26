@@ -1,7 +1,6 @@
 #include "native_sync_network.h"
-#include <QAbstractSocket>
-#include <QHostAddress>
-#include <QNetworkInterface>
+#include "native_network_state.h"
+#include "native_dialog_overlay.h"
 #include <dlfcn.h>
 #include <utility>
 
@@ -24,6 +23,7 @@ NativeSyncNetworkBindings nativeBindings() {
     if (!workflow || !wireless) return {};
     NativeSyncNetworkBindings result;
     result.workflow = workflow;
+    result.inputPending = [] { return nickel::NativeDialogOverlay::inputPending(); };
     result.disabled = [workflow, disabled] { return !workflow || disabled(workflow); };
     result.connecting = [workflow, connecting] { return workflow && connecting(workflow); };
     result.ready = [workflow, wireless, up, accessible] {
@@ -33,17 +33,7 @@ NativeSyncNetworkBindings nativeBindings() {
         if (accessible(workflow)) return true;
         // A custom server can be reachable on the LAN even if Nickel's public
         // internet check fails. The HTTPS exchange decides server reachability.
-        for (const auto &interface : QNetworkInterface::allInterfaces()) {
-            const auto flags = interface.flags();
-            if (!(flags & QNetworkInterface::IsUp) || !(flags & QNetworkInterface::IsRunning) ||
-                (flags & QNetworkInterface::IsLoopBack)) continue;
-            for (const auto &entry : interface.addressEntries())
-                if (entry.ip().protocol() == QAbstractSocket::IPv4Protocol &&
-                    !entry.ip().isNull() && !entry.ip().isLoopback() &&
-                    (entry.ip().toIPv4Address() & 0xffff0000u) != 0xa9fe0000u)
-                    return true;
-        }
-        return false;
+        return nickel::usableLocalNetwork();
     };
     result.request = [workflow, request, silent](bool interactive) {
         if (!workflow) return;
@@ -71,20 +61,28 @@ NativeSyncNetwork::NativeSyncNetwork(NativeSyncNetworkBindings api)
 }
 NativeSyncNetwork::~NativeSyncNetwork() { cancel(); }
 bool NativeSyncNetwork::connected() const { return workflow && bindings.valid() && bindings.ready(); }
-void NativeSyncNetwork::prepare(bool interactive, std::function<void(bool)> done) {
+void NativeSyncNetwork::prepare(bool showUi, std::function<void(bool)> done) {
     cancel();
     if (connected()) { done(true); return; }
-    if (!workflow || !bindings.valid() || (!interactive && bindings.disabled())) { done(false); return; }
+    if (!workflow || !bindings.valid() || (!showUi && bindings.disabled())) { done(false); return; }
+    interactive = showUi;
     finished = std::move(done);
     elapsed.start();
+    poll.setInterval(100);
     poll.start();
     if (!bindings.connecting()) {
         requested = true;
-        bindings.request(interactive);
+        bindings.request(showUi);
     }
 }
 void NativeSyncNetwork::check() {
     if (!finished) return;
+    if (interactive && bindings.inputPending && bindings.inputPending()) {
+        elapsed.restart();
+        poll.setInterval(1000);
+        return;
+    }
+    poll.setInterval(100);
     if (connected()) finish(true);
     else if (elapsed.elapsed() >= 10000) {
         auto done = std::move(finished);
@@ -105,6 +103,6 @@ void NativeSyncNetwork::cancel() {
     poll.stop();
     finished = {};
     const bool owned = std::exchange(requested, false);
-    if (owned && workflow && bindings.valid() && bindings.connecting()) bindings.cancel();
+    if (owned && workflow && bindings.valid()) bindings.cancel();
 }
 }

@@ -28,6 +28,7 @@ struct ToolbarComposition {
     QPushButton *exitAction = nullptr, *settings = nullptr, *bookmarks = nullptr, *annotate = nullptr;
     QLabel *clock = nullptr, *session = nullptr, *battery = nullptr;
     ui::BluetoothIndicator *bluetooth = nullptr;
+    ui::WifiIndicator *wifi = nullptr;
     QPushButton *formattingWarning = nullptr;
     QPushButton *search = nullptr;
 };
@@ -124,6 +125,7 @@ private:
     QWidget *exitAction, *rules, *settings, *bookmarks, *annotate, *upperEdge, *lowerEdge;
     QLabel *clock, *session, *battery;
     ui::BluetoothIndicator *bluetooth;
+    ui::WifiIndicator *wifi;
     QPushButton *formattingWarning;
     QPushButton *search;
     QString searchStyle;

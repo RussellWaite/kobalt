@@ -59,23 +59,6 @@ extern "C" __attribute__((visibility("default"))) int kobalt_benchmark_typograph
     return 1;
 }
 
-bool ReaderCoordinator::eventFilter(QObject *object, QEvent *event) {
-    if (event->type() == QEvent::Show && lifecycle->usbPromptExpected() && run.reader && run.reader->isVisible() &&
-        !usbDialog_.active()) {
-        auto *dialog = qobject_cast<QWidget *>(object);
-        if (dialog && QByteArray(dialog->metaObject()->className()) == "ConfirmationDialog") {
-            QPointer<QWidget> candidate(dialog);
-            QPointer<ReaderWindow> reader(run.reader);
-            qt::later(0, this, [this, candidate, reader] {
-                if (candidate && candidate->isVisible() && reader && reader == run.reader && reader->isVisible()) {
-                    usbDialog_.present(candidate, reader);
-                }
-            });
-        }
-    }
-    return false;
-}
-
 ReaderCoordinator::ReadingRun::ReadingRun() = default;
 ReaderCoordinator::ReadingRun::~ReadingRun() = default;
 
@@ -84,7 +67,6 @@ ReaderCoordinator::ReaderCoordinator(ReaderEnvironment &environment, Coordinator
       authorization(new kobalt::NativeAuthorization(this)) {
     activeCoordinator = this;
     homeSleep = std::make_unique<HomeSleepScreen>(environment_.paths, this);
-    qApp->installEventFilter(this);
     authorization->revoked = [this](kobalt::NativeAuthorization::Reason) {
         homeAfterClose = false;
         homeSleep->forget();
@@ -163,17 +145,6 @@ ReaderCoordinator::ReaderCoordinator(ReaderEnvironment &environment, Coordinator
                 disposeForTransition([this] {
                     status("authorization-unavailable");
                 });
-            }
-        }
-    };
-    lifecycle->usbPrompt = [this] {
-        if (!run.reader || !run.reader->isVisible() || usbDialog_.active()) {
-            return;
-        }
-        for (auto *widget : QApplication::allWidgets()) {
-            if (widget->isVisible() && QByteArray(widget->metaObject()->className()) == "ConfirmationDialog") {
-                usbDialog_.present(widget, run.reader);
-                return;
             }
         }
     };
@@ -520,7 +491,6 @@ void ReaderCoordinator::drainReadingJobs(std::function<void()> finished) {
 }
 
 void ReaderCoordinator::disposeForTransition(std::function<void()> finished) {
-    usbDialog_.restore();
     authorization->end();
     if (run.fallbackAlert)
         run.fallbackAlert->reject();
@@ -801,13 +771,12 @@ void ReaderCoordinator::showReader() {
     services.setAutomaticBookOpening = bindings_.setAutomaticBookOpening;
     const auto suspended = services.suspended;
     services.suspended = [this, suspended] {
-        return usbDialog_.active() || suspended();
+        return NativeDialogOverlay::activeFor(run.reader) || suspended();
     };
     run.reader = run.interface->createWindow(std::move(book), run.orientation.get(), std::move(services));
     run.reader->finished = [this](std::unique_ptr<kobalt::ReaderSession> retained) {
         // closeEvent has accepted this close. Do not let the visibility
         // poll show the reader again before Qt processes deleteLater().
-        usbDialog_.restore();
         run.reader.clear();
         if (!retained || lifecycle->blocked() || kobalt::NativeLifecycle::suspended()) {
             disposeForTransition([] {});

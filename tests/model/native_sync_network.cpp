@@ -1,8 +1,18 @@
 #include "platforms/kobo/common/native_sync_network.h"
+#include "platforms/kobo/common/window_presentation.h"
+#include "platforms/kobo/common/native_ui.h"
+#include "platforms/kobo/common/native_dialog_overlay.h"
+#include "platform/api/reader_host_services.h"
 #include "check.h"
-#include <QCoreApplication>
+#include <QApplication>
+#include <QDialog>
+#include <QPushButton>
 #include <QEventLoop>
 #include <QTimer>
+#include <QWindow>
+#include <QLabel>
+#include <limits>
+#include <vector>
 
 class Workflow final : public QObject {
     Q_OBJECT
@@ -12,8 +22,161 @@ signals:
     void connectingFailed();
     void connectionCancelled();
 };
+class MainWindowView final : public QWidget { Q_OBJECT };
+class ConfirmationDialog final : public QWidget {
+    Q_OBJECT
+public:
+    using QWidget::QWidget;
+};
+class ProgressDialog final : public QWidget {
+    Q_OBJECT
+public:
+    using QWidget::QWidget;
+};
+class WirelessStatus final : public QObject {
+    Q_OBJECT
+signals:
+    void wifiEnabled(bool);
+    void networkConnected();
+    void networkDisconnected();
+    void linkQualityForConnectedNetwork(double);
+};
+static WirelessStatus *wirelessStatus = nullptr;
+static bool radioUp = false;
+extern "C" QObject *_ZN15WirelessManager14sharedInstanceEv() { return wirelessStatus; }
+extern "C" bool _ZNK15WirelessManager2upEv(QObject *) { return radioUp; }
+static void wifiNotifications() {
+    WirelessStatus wireless;
+    wirelessStatus = &wireless;
+    std::vector<kobalt::WifiStatus> states;
+    {
+        QObject context;
+        kobalt::observeNativeWifi(&context, [&](kobalt::WifiStatus state) { states.push_back(state); });
+        require(states.size() == 1 && !states.back().enabled, "the Wi-Fi subscription reports initial radio state");
+        radioUp = true;
+        emit wireless.wifiEnabled(true);
+        emit wireless.networkConnected();
+        require(states.back().enabled && states.back().connected && states.back().strength == -1,
+                "a connection without a quality report must not invent full signal strength");
+        emit wireless.linkQualityForConnectedNetwork(0.8);
+        require(states.back().strength == 3, "native normalized link quality maps to four signal levels");
+        const auto before = states.size();
+        emit wireless.linkQualityForConnectedNetwork(std::numeric_limits<double>::quiet_NaN());
+        require(states.size() == before, "invalid link-quality reports do not alter the indicator");
+        radioUp = false;
+        emit wireless.wifiEnabled(false);
+        require(!states.back().enabled && !states.back().connected && states.back().strength == -1,
+                "radio shutdown clears connection and signal strength");
+    }
+    const auto before = states.size();
+    emit wireless.networkConnected();
+    require(states.size() == before, "the Wi-Fi subscription ends with the reader context");
+    wirelessStatus = nullptr;
+}
+static void nativePrompt() {
+    MainWindowView nickel;
+    nickel.setStyleSheet("QLabel { font-size: 17px; color: #135724; }");
+    nickel.resize(600, 800);
+    nickel.show();
+    QDialog reader(&nickel);
+    reader.setStyleSheet("QWidget { background: black; color: white; font-family: monospace; } QLabel { font-size: 42px; }");
+    reader.resize(600, 800);
+    reader.show();
+    auto presentation = kobalt::nickel::makeWindowPresentation(&reader, false);
+    reader.hide();
+    reader.show();
+    QApplication::processEvents();
+    require(reader.parentWidget() == &nickel, "the reader dialog must never be promoted into itself");
+    presentation->pauseBackground();
+    ConfirmationDialog prompt(&nickel, Qt::Widget);
+    prompt.setGeometry(50, 100, 400, 200);
+    QPushButton allow("Enable Wi-Fi", &prompt);
+    QLabel explanation("Native styling", &prompt);
+    prompt.ensurePolished();
+    explanation.ensurePolished();
+    const auto nativeFont = explanation.font();
+    const auto nativePalette = explanation.palette();
+    const auto nativeFlags = prompt.windowFlags();
+    const auto nativePropagation = prompt.testAttribute(Qt::WA_WindowPropagation);
+    Workflow workflow;
+    bool connecting = false;
+    int replies = 0;
+    kobalt::NativeSyncNetworkBindings bindings;
+    bindings.workflow = &workflow;
+    bindings.ready = [] { return false; };
+    bindings.disabled = [] { return true; };
+    bindings.connecting = [&] { return connecting; };
+    bindings.inputPending = [] { return kobalt::nickel::NativeDialogOverlay::inputPending(); };
+    bindings.request = [&](bool) { prompt.show(); };
+    bindings.cancel = [&] { connecting = false; prompt.hide(); emit workflow.connectionCancelled(); };
+    kobalt::NativeSyncNetwork network(bindings);
+    network.prepare(true, [&](bool) { ++replies; });
+    QApplication::processEvents();
+    require(explanation.font() == nativeFont && explanation.palette() == nativePalette,
+            "promoting a native dialog must preserve Nickel fonts and colors instead of inheriting reader styles");
+    reader.setStyleSheet("QWidget { background: white; color: black; } QLabel { font-size: 31px; }");
+    QApplication::processEvents();
+    require(explanation.font() == nativeFont && explanation.palette() == nativePalette,
+            "reader theme changes must not restyle an open native dialog");
+    require(prompt.parentWidget() == &nickel && prompt.isWindow() && prompt.isVisible() &&
+                prompt.windowHandle()->transientParent() == reader.windowHandle(),
+            "the native Wi-Fi permission prompt must appear above the reader");
+    require(prompt.updatesEnabled(), "the native prompt must paint outside Nickel's paused backing store");
+    require(explanation.updatesEnabled() && allow.updatesEnabled(), "native dialog children must remain able to paint");
+    require(kobalt::nickel::NativeDialogOverlay::activeFor(&reader), "native input must block reader shortcuts");
+    QEventLoop permissionWait;
+    QTimer::singleShot(11200, &permissionWait, &QEventLoop::quit);
+    permissionWait.exec();
+    require(replies == 0 && prompt.isVisible(), "a native permission prompt must not time out while the user is answering");
+    network.cancel();
+    QApplication::processEvents();
+    require(prompt.parentWidget() == &nickel && !prompt.isVisible() && replies == 0,
+            "cancelling sync restores the native prompt without completing a stale wait");
+    require(prompt.windowFlags() == nativeFlags && prompt.testAttribute(Qt::WA_WindowPropagation) == nativePropagation &&
+                explanation.font() == nativeFont && explanation.palette() == nativePalette,
+            "closing the overlay restores native window flags and leaves Nickel styling intact");
+    require(!kobalt::nickel::NativeDialogOverlay::activeFor(&reader), "closing the prompt releases reader input");
+    QDialog bluetooth(&nickel, Qt::Widget);
+    bluetooth.setGeometry(20, 50, 300, 150);
+    bluetooth.show();
+    QApplication::processEvents();
+    require(bluetooth.parentWidget() == &nickel && bluetooth.isWindow() &&
+                bluetooth.windowHandle()->transientParent() == reader.windowHandle(), "other native modal dialogs also appear above Kobalt");
+    auto *error = new ConfirmationDialog(&nickel, Qt::Widget);
+    error->show();
+    QApplication::processEvents();
+    delete error;
+    require(kobalt::nickel::NativeDialogOverlay::activeFor(&reader), "a nested dialog does not release another modal's guard");
+    ProgressDialog progress(&nickel);
+    progress.show();
+    QApplication::processEvents();
+    require(progress.parentWidget() == &nickel && progress.isWindow() &&
+                progress.windowHandle()->transientParent() == reader.windowHandle(), "native progress widgets need the same presentation as confirmation dialogs");
+    progress.hide();
+    QDialog password(&nickel, Qt::Widget);
+    QLineEdit input(&password);
+    password.show();
+    QApplication::processEvents();
+    require(password.parentWidget() == &nickel && password.isWindow() && kobalt::nickel::NativeDialogOverlay::inputPending(),
+            "native password entry remains above the reader and counts as user interaction");
+    password.hide();
+    QDialog browser(&nickel, Qt::Widget);
+    browser.setObjectName("N3Dialog");
+    QWidget browserView(&browser);
+    browserView.setObjectName("N3BrowserView");
+    browser.show();
+    QApplication::processEvents();
+    require(browser.parentWidget() == &nickel, "the native browser keeps its separate handoff workflow");
+    browser.hide();
+    reader.hide();
+    require(bluetooth.parentWidget() == &nickel && !bluetooth.isVisible() &&
+                !kobalt::nickel::NativeDialogOverlay::activeFor(&reader),
+            "sleeping or closing the reader restores all native modal ownership");
+}
 int main(int argc, char **argv) {
-    QCoreApplication app(argc, argv);
+    QApplication app(argc, argv);
+    wifiNotifications();
+    nativePrompt();
     Workflow workflow;
     bool ready = true, disabled = false, connecting = false, interactive = false;
     int requests = 0, cancelled = 0, replies = 0;

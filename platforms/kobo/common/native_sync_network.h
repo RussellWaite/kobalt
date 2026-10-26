@@ -11,6 +11,7 @@ namespace kobalt {
 struct NativeSyncNetworkBindings {
     QObject *workflow = nullptr;
     std::function<bool()> ready, disabled, connecting;
+    std::function<bool()> inputPending;
     std::function<void(bool)> request;
     std::function<void()> cancel;
     bool valid() const { return workflow && ready && disabled && connecting && request && cancel; }
@@ -38,5 +39,6 @@ private:
     QElapsedTimer elapsed;
     std::function<void(bool)> finished;
     bool requested = false;
+    bool interactive = false;
 };
 }

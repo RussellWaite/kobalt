@@ -168,6 +168,34 @@ BluetoothIndicator::BluetoothIndicator(QWidget *parent) : QWidget(parent) {
     setAccessibleName(strings::get("components.bluetooth_enabled"));
     hide();
 }
+WifiIndicator::WifiIndicator(QWidget *parent) : QWidget(parent) {
+    setFixedSize(m::panel::wifiIconWidth, m::panel::statusHeight);
+    setAttribute(Qt::WA_TransparentForMouseEvents);
+    hide();
+}
+bool WifiIndicator::setStatus(bool radio, bool online, int bars) {
+    online = radio && online;
+    bars = online && bars >= 0 ? qBound(0, bars, 4) : -1;
+    if (enabled == radio && connected == online && strength == bars) return false;
+    enabled = radio;
+    connected = online;
+    strength = bars;
+    setAccessibleName(online && bars >= 0 ? strings::get("components.wifi_signal").arg(bars) :
+        strings::get(!radio ? "components.wifi_off" : !online ? "components.wifi_disconnected" : "components.wifi_connected"));
+    update();
+    return true;
+}
+void WifiIndicator::paintEvent(QPaintEvent *) {
+    QPainter painter(this);
+    const int side = m::panel::bluetoothIconSize;
+    const ControlIcon levels[] = {ControlIcon::WifiNone, ControlIcon::WifiLow,
+                                  ControlIcon::WifiMedium, ControlIcon::WifiHigh};
+    // Map Nickel's 0..4 reports to Phosphor's four signal silhouettes.
+    const auto icon = !connected ? ControlIcon::WifiDisconnected :
+        strength < 0 ? ControlIcon::WifiNone : levels[(strength * 3 + 2) / 4];
+    paintWifiStatusIcon(painter, icon, QRectF(0, (height() - side) / 2. - px(1), width(), side),
+                     palette().color(QPalette::WindowText));
+}
 void BluetoothIndicator::paintEvent(QPaintEvent *) {
     QPainter painter(this);
     const int side = m::panel::bluetoothIconSize;

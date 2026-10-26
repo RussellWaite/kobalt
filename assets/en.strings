@@ -185,6 +185,10 @@
 "components.battery_unknown" = "--%";
 "components.charging" = ", charging";
 "components.bluetooth_enabled" = "Bluetooth enabled";
+"components.wifi_off" = "Wi-Fi off";
+"components.wifi_disconnected" = "Wi-Fi on, not connected";
+"components.wifi_connected" = "Wi-Fi connected";
+"components.wifi_signal" = "Wi-Fi signal: %1 of 4";
 
 /* controls */
 "controls.currently" = "Currently:";

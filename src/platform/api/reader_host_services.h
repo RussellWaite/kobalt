@@ -21,11 +21,17 @@ struct BatteryStatus {
     bool charging = false;
     bool fullyCharged = false;
 };
+struct WifiStatus {
+    bool enabled = false;
+    bool connected = false;
+    // Nickel reports four signal levels. -1 means no quality report yet.
+    int strength = -1;
+};
 // Constructed by the host and moved into one reader window. Queries stay live
 // across sleep and capability changes. Factories return independently owned
 // non-null controllers; they never return a borrowed native handle. Every
 // callback except automaticBookOpening, setAutomaticBookOpening,
-// debugProgressAction, observeBattery, observeBluetooth, remoteKeyActivity and syncNetwork is required,
+// debugProgressAction, observeBattery, observeBluetooth, observeWifi, remoteKeyActivity and syncNetwork is required,
 // including unsupported hosts.
 struct ReaderHostServices {
     // Human-readable model used for the default sync device name.
@@ -56,6 +62,7 @@ struct ReaderHostServices {
     // Optional on unsupported hosts. The host owns the subscription under
     // context and reports cached state without blocking the reader thread.
     std::function<void(QObject *context, std::function<void(bool)> changed)> observeBluetooth;
+    std::function<void(QObject *context, std::function<void(WifiStatus)> changed)> observeWifi;
     // Report consumed key activity to the host. The host identifies remote
     // input and retains its own radio inactivity policy.
     std::function<void(QObject *context, QKeyEvent *event)> remoteKeyActivity;
