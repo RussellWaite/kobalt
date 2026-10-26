@@ -29,6 +29,37 @@ QByteArray read(const QString &path) {
 int main() {
     // These cases obstruct legacy JSON files; SQLite behavior has its own database regressions.
     qputenv("KOBALT_ANNOTATIONS_SQLITE", "0");
+    // Reject the complete list instead of silently keeping only valid rows.
+    {
+        const auto valid = kobalt::bookmarkJson(mark("preserved", "2026-09-20T10:00:00Z"));
+        QJsonArray excess;
+        for (int i = 0; i <= BookmarkStore::maxBookmarks; ++i)
+            excess.append(valid);
+        for (const auto &rows : {kobalt::qt::array({valid, QJsonObject{}}),
+                                 kobalt::qt::array({valid, 42}), excess}) {
+            QTemporaryDir damagedRoot;
+            BookmarkStore store(damagedRoot.path(), "file:///malformed.epub", fingerprint, "Damaged");
+            store.setBookmarks({mark("preserved", "2026-09-20T10:00:00Z")});
+            require(store.save(), "Cannot create malformed bookmark fixture");
+            const auto path = store.folder() + "/bookmarks.json";
+            const auto original = QJsonDocument(kobalt::qt::object({{"version", 1}, {"bookmarks", rows}})).toJson();
+            QFile file(path);
+            require(file.open(QIODevice::WriteOnly) && file.write(original) == original.size(),
+                    "Cannot write malformed bookmark rows");
+            file.close();
+            QString error;
+            require(!store.load(&error) && error == "invalid" && store.bookmarks().isEmpty(),
+                    "Malformed or excess bookmark rows were silently dropped");
+            store.setBookmarks({mark("replacement", "2026-09-20T10:00:00Z")});
+            require(!store.save(&error) && error == "load-failed" && read(path) == original,
+                    "Editing malformed bookmarks replaced the original bytes");
+            BookmarkStore adopted(damagedRoot.path(), "file:///malformed.epub", QByteArray(64, 'b'), "Edited");
+            require(!adopted.load(&error), "An edited book adopted only part of a malformed list");
+            adopted.setBookmarks({mark("replacement", "2026-09-20T10:00:00Z")});
+            require(!adopted.save(&error) && error == "load-failed" && read(path) == original,
+                    "A failed adoption made a malformed bookmark list writable");
+        }
+    }
     // Keep legacy UUID keys, hash other server IDs, and fingerprint files.
     require(BookmarkStore::bookKey("3F2A1B4C-0000-4000-8000-00000000ABCD", {}) ==
                 "kobo-3f2a1b4c-0000-4000-8000-00000000abcd",

@@ -26,6 +26,8 @@ An optional `note` string holds plain text for a future note editor. Missing not
 
 Each book supports up to 2,000 bookmarks and 2,000 annotations. Bookmark files are limited to 1 MiB and highlight files to 8 MiB. An annotation excerpt is limited to 262,144 UTF-16 code units. Malformed or unsupported annotation files block subsequent saves rather than replacing the original data with an empty list.
 
+The diagnostic JSON bookmark backend rejects the complete list when any row has an invalid position or the list exceeds its count limit. It does not keep a partial list. A failed load or changed-file adoption blocks saves and preserves the original bytes. SQLite imports retain their version, schema and full-list checks.
+
 Add compatible optional fields within version 1. A change to required fields, their meaning or location needs an explicit format version and migration. Do not tie data versions to release names. This is the current format contract, not a promise that older builds preserve arbitrary unknown fields. Book-state imports reject unsupported schemas without replacing the source. Database record formats are versioned separately and unsupported formats block updates.
 
 ## SQLite profile database

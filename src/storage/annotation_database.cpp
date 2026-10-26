@@ -891,8 +891,7 @@ bool AnnotationDatabase::legacy(const QString &folder, QVector<Bookmark> *rows, 
     }
     BookmarkStore store({}, "migration", {}, {});
     if (!store.readFolder(folder, error)) return false;
-    // The legacy reader tolerates invalid records by dropping them. Migration
-    // must not make that loss permanent, including records above the count cap.
+    // Verify the complete list before publishing an import to SQLite.
     if (store.bookmarks().size() != read.object.value("bookmarks").toArray().size()) {
         if (error) *error = "invalid-bookmark";
         return false;
