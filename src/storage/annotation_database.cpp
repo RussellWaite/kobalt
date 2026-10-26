@@ -14,6 +14,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QLockFile>
+#include <QMap>
 #include <QSet>
 #include <QSqlDatabase>
 #include <QSqlError>
@@ -63,6 +64,43 @@ QVariant scalar(QSqlDatabase &db, const QString &statement) {
     q.setForwardOnly(true);
     check(q.exec(statement) && q.next(), "invalid-database");
     return q.value(0);
+}
+void validateSchema(QSqlDatabase &db) {
+    // Names alone accept partial tables and CREATE TABLE AS copies whose
+    // primary keys are gone. Reject both before changing the journal mode.
+    struct Table { const char *name, *columns, *types, *primary; };
+    for (const auto &table : {
+             Table{"books", "book,identity,fingerprint,title", "TEXT,TEXT,TEXT,TEXT", "book"},
+             Table{"lists", "book,kind,revision,updated,source_key,row_count,bytes", "TEXT,INTEGER,INTEGER,INTEGER,TEXT,INTEGER,INTEGER", "book,kind"},
+             Table{"entries", "book,kind,id,ordinal,start,end,text,chapter,created,color,style,note,chosen_start,chosen_end,start_policy,end_policy,bytes",
+                   "TEXT,INTEGER,TEXT,INTEGER,TEXT,TEXT,TEXT,TEXT,TEXT,TEXT,TEXT,TEXT,TEXT,TEXT,INTEGER,INTEGER,INTEGER", "book,kind,id"},
+             Table{"imports", "source,digest,record", "TEXT,BLOB,TEXT", "source"},
+             Table{"book_state", "identity,format,revision,payload", "TEXT,INTEGER,INTEGER,TEXT", "identity"},
+             Table{"profile_state", "name,format,revision,payload", "TEXT,INTEGER,INTEGER,TEXT", "name"},
+             Table{"library_books", "key,folder,name,title,author,cover,series,series_index,size,modified,added,opened,metadata,percent,finished,mark,hidden",
+                   "TEXT,TEXT,TEXT,TEXT,TEXT,TEXT,TEXT,REAL,INTEGER,INTEGER,INTEGER,INTEGER,INTEGER,INTEGER,INTEGER,TEXT,INTEGER", "key"},
+             Table{"library_folders", "key,label,ordinal", "TEXT,TEXT,INTEGER", "key"}}) {
+        QSqlQuery query(db);
+        const auto name = QString::fromLatin1(table.name);
+        check(query.exec("PRAGMA table_info(" + name + ')'), "invalid-database");
+        QMap<int, QString> primary;
+        QStringList columns, types;
+        while (query.next()) {
+            columns.append(query.value(1).toString());
+            types.append(query.value(2).toString().toUpper());
+            const int ordinal = query.value(5).toInt();
+            if (ordinal > 0) primary.insert(ordinal, query.value(1).toString());
+        }
+        // Positional INSERTs also require the declared column order and types.
+        check(!query.lastError().isValid() && columns == QString::fromLatin1(table.columns).split(',') &&
+                  types == QString::fromLatin1(table.types).split(',') &&
+                  primary.values() == QString::fromLatin1(table.primary).split(','),
+              "invalid-database");
+    }
+    check(scalar(db, "PRAGMA quick_check(1)").toString() == QStringLiteral("ok"), "invalid-database");
+    QSqlQuery references(db);
+    check(references.exec("PRAGMA foreign_key_check"), "invalid-database");
+    check(!references.next() && !references.lastError().isValid(), "invalid-database");
 }
 void profileSchema(QSqlDatabase &db) {
     run(db, "CREATE TABLE book_state(identity TEXT PRIMARY KEY NOT NULL,format INTEGER NOT NULL CHECK(format>0),"
@@ -288,6 +326,7 @@ private:
             const int tables = scalar(db, "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND "
                 "name IN ('books','lists','entries','imports','library_books','library_folders','book_state','profile_state')").toInt();
             check(tables == 8, "invalid-database");
+            validateSchema(db);
             // The journal mode is the first change to the file. Every check
             // above only reads. A rejected file keeps its content; only a log
             // left by a crash is folded into it when the connection closes.

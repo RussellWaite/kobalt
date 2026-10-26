@@ -140,6 +140,52 @@ void atomicMigration() {
     require(sql(root.path(), "SELECT count(*) FROM lists").toInt() == 2, "Import did not cover both lists");
     require(bytes(path + "/highlights.json") == original, "Successful import changed JSON");
 }
+void malformedProfile() {
+    for (const auto *table : {"books", "lists", "entries", "imports", "library_books", "library_folders",
+                              "book_state", "profile_state"}) {
+        for (const bool keepColumns : {false, true}) {
+            QTemporaryDir root;
+            require(AnnotationDatabase::transaction(root.path(), [](QSqlDatabase &) { return true; }),
+                    "Cannot initialize malformed-schema fixture");
+            const auto name = QString::fromLatin1(table);
+            sql(root.path(), "CREATE TABLE damaged AS SELECT * FROM " + name);
+            sql(root.path(), "DROP TABLE " + name);
+            sql(root.path(), keepColumns ? "CREATE TABLE " + name + " AS SELECT * FROM damaged"
+                                        : "CREATE TABLE " + name + "(bogus TEXT)");
+            sql(root.path(), "DROP TABLE damaged");
+            const auto path = AnnotationDatabase::path(root.path());
+            const auto before = bytes(path);
+            QString error;
+            require(!AnnotationDatabase::transaction(root.path(), [](QSqlDatabase &) { return true; }, &error) &&
+                        error == "invalid-database", "Malformed columns or missing primary key were accepted");
+            require(bytes(path) == before && !QFile::exists(path + "-wal") && !QFile::exists(path + "-shm"),
+                    "Rejecting a malformed schema changed its bytes or created sidecars");
+            require(QSqlDatabase::connectionNames().isEmpty(), "Rejected schema retained a connection");
+        }
+    }
+    for (const auto *definition : {
+             "identity TEXT NOT NULL,book TEXT PRIMARY KEY,fingerprint TEXT NOT NULL,title TEXT NOT NULL",
+             "book INTEGER PRIMARY KEY,identity TEXT NOT NULL,fingerprint TEXT NOT NULL,title TEXT NOT NULL"}) {
+        QTemporaryDir root;
+        require(AnnotationDatabase::transaction(root.path(), [](QSqlDatabase &) { return true; }),
+                "Cannot initialize reordered-schema fixture");
+        sql(root.path(), "DROP TABLE books");
+        sql(root.path(), "CREATE TABLE books(" + QString::fromLatin1(definition) + ')');
+        const auto path = AnnotationDatabase::path(root.path());
+        const auto before = bytes(path);
+        require(!AnnotationDatabase::transaction(root.path(), [](QSqlDatabase &) { return true; }) &&
+                    bytes(path) == before && !QFile::exists(path + "-wal"),
+                "Reordered or mistyped columns were accepted");
+    }
+    QTemporaryDir root;
+    require(AnnotationDatabase::transaction(root.path(), [](QSqlDatabase &) { return true; }),
+            "Cannot initialize orphaned-list fixture");
+    sql(root.path(), "INSERT INTO lists VALUES('missing-book',0,0,0,'',0,0)");
+    const auto path = AnnotationDatabase::path(root.path());
+    const auto before = bytes(path);
+    require(!AnnotationDatabase::transaction(root.path(), [](QSqlDatabase &) { return true; }) && bytes(path) == before &&
+                !QFile::exists(path + "-wal"), "Opening an orphaned list changed the profile");
+}
 void versionsAndCorruption() {
     for (const QByteArray &bad : {QByteArray("{broken"), QByteArray("{\"version\":2,\"bookmarks\":[]}"),
                                QByteArray("{\"version\":1,\"bookmarks\":[{\"position\":\"\"}]}"),
@@ -882,7 +928,7 @@ int main(int argc, char **argv) {
         std::_Exit(0); // End without closing the profile, like a crash.
     }
     defaultBackend(); profileDatabaseLocation();
-    beta3(); atomicMigration(); versionsAndCorruption(); editsAndFailures(); adoption(); quotas(); tamperedQuota();
+    beta3(); atomicMigration(); malformedProfile(); versionsAndCorruption(); editsAndFailures(); adoption(); quotas(); tamperedQuota();
     compactHighlights(); compactBounds(); compactCapacity();
     deletionPreservesRows(); orderChangesAndLimits();
     embeddedNulText(); unsupportedDatabaseEncoding();
