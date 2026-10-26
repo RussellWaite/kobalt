@@ -419,6 +419,67 @@ private slots:
         engineActivity().pause(false);
         directory.reset();
     }
+    void teardownRemovesApplicationFilter() {
+        class Probe : public QWidget {
+        public:
+            using QWidget::QWidget;
+            bool received = false;
+            bool event(QEvent *event) override {
+                if (event->type() == QEvent::HoverEnter) {
+                    received = true;
+                    return true;
+                }
+                return QWidget::event(event);
+            }
+        };
+        bool delivered = false;
+        ReaderFixture host(testPaths(), testFonts, testPlaceholder);
+        CloseHost cleanup{host};
+        host.configureServices = [&](ReaderHostServices &services) {
+            services.presentation = [&](QWidget *reader) {
+                auto *probe = new Probe(reader);
+                auto presentation = std::make_unique<test::HostPresentation>();
+                presentation->resumed = [&, probe] {
+                    QEvent event(QEvent::HoverEnter);
+                    QCoreApplication::sendEvent(probe, &event);
+                    delivered = probe->received;
+                };
+                return presentation;
+            };
+        };
+        QSignalSpy opened(&host, &ReaderFixture::opened);
+        host.open(fixture(), nativeSize);
+        QTRY_COMPARE_WITH_TIMEOUT(opened.count(), 1, 30000);
+        host.shutdown();
+        QTRY_VERIFY(host.idle());
+        QVERIFY2(delivered, "The reader's application filter still consumed events during teardown");
+    }
+    void shutdownFinalSaveTimesOut() {
+        ReaderFixture host(testPaths(), testFonts, testPlaceholder);
+        CloseHost cleanup{host};
+        host.progress = std::make_shared<test::HostProgress>();
+        const auto identity = QUrl::fromLocalFile(QFileInfo(textBook).absoluteFilePath()).toString();
+        host.progress->current = {identity, "OEBPS/c1.xhtml", 100, 1, true};
+        host.positions = nickel::positionCodec();
+        QSignalSpy opened(&host, &ReaderFixture::opened);
+        host.open(textBook, nativeSize);
+        QTRY_COMPARE_WITH_TIMEOUT(opened.count(), 1, 30000);
+        QTRY_VERIFY(!host.session()->busy());
+        const int writes = host.progress->writes;
+        int completed = 0;
+        engineActivity().pause(true);
+        host.window()->prepareShutdown([&] { ++completed; });
+        const bool timedOut = QTest::qWaitFor([&] { return completed == 1; }, 4000);
+        // Always release the worker before an assertion or fixture cleanup.
+        engineActivity().pause(false);
+        QVERIFY(timedOut);
+        bool drained = false;
+        ReaderSession::drain([&] { drained = true; });
+        QTRY_VERIFY(drained);
+        QCOMPARE(completed, 1);
+        QCOMPARE(host.progress->writes, writes);
+        QVERIFY(!storage::readBookState(testPaths(), identity).object.value("position").toString().isEmpty());
+    }
     void clockStopsWhileReaderIsHidden_data() {
         QTest::addColumn<bool>("browser");
         QTest::newRow("ordinary-hide") << false;

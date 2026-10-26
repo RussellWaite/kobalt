@@ -394,7 +394,7 @@ Nickel's USB confirmation appears above the open Kobalt page. Cancel keeps the b
 
 A confirmed USB connection saves the local position and attempts to save native progress before Nickel starts its USB workflow. The native save keeps newer Nickel progress, allows two seconds for position conversion and does not wait for another database writer. A failed or timed-out save does not cancel USB. Kobalt then closes the book and releases every file on user storage before Nickel exports the storage. If access to the book is revoked during the save, Kobalt still completes this cleanup and USB handoff. Reopen the book from the library afterwards.
 
-Power-off and reboot wait for Kobalt to save reading time and progress before Nickel closes its database. When the application exits, Kobalt stops its engine worker before releasing any remaining cached book models.
+Power-off and reboot save the local reading checkpoint first. Native-position conversion has a two-second deadline. A three-second deadline lets Nickel's shutdown continue if asynchronous reader preparation or the engine drain is stuck. The shared profile writer finishes waiting writes and closes the database before that handoff. Late native-position replies cannot write progress after their deadline. These deadlines do not interrupt synchronous storage or interface-thread calls. When the application exits, Kobalt stops its engine worker before releasing any remaining cached book models.
 
 ## Limits
 

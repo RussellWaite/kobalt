@@ -20,7 +20,11 @@ class HostPresentation final : public WindowPresentation {
 public:
     explicit HostPresentation(std::shared_ptr<SleepPresentationState> sleep = {}) : sleep(std::move(sleep)) {}
     void pauseBackground(bool) override {}
-    void resumeBackground() override {}
+    void resumeBackground() override {
+        if (resumed)
+            resumed();
+    }
+    std::function<void()> resumed;
     std::function<void()> repaint;
     void resumeAndRepaintBackground() override {
         if (repaint) {

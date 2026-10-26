@@ -93,7 +93,7 @@ protected:
 
 private:
     void observeReading();
-    void prepareTransition(std::function<void()> finished, int timeoutMs);
+    void prepareTransition(std::function<void()> finished, bool usb);
     // Construction, in this order. Each step builds one group of widgets and
     // connects its signals.
     void saveNativeProgress();

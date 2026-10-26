@@ -250,18 +250,25 @@ bool NativeLifecycle::interceptShutdown(QObject *manager, Shutdown mode) {
     // Callback copies share one completion. Consume it before calling Nickel,
     // whose shutdown path can reenter this hook while the manager still lives.
     const auto completed = std::make_shared<bool>(false);
-    active->prepareShutdown([guard, mode, completed] {
-        if (!guard || *completed)
+    const auto lifecycle = active;
+    const auto finish = [guard, lifecycle, mode, completed](bool timedOut) {
+        if (!guard || !lifecycle || lifecycle != active || *completed)
             return;
         *completed = true;
         // Nickel stops EventEngine and closes its databases in powerOff().
-        // Save the reader and drain its resource requests before entering it.
-        diagnostic("shutdown-release-complete");
+        // Prefer a drained worker, but never let stuck engine work prevent
+        // battery-low power-off. Reader save replies have their own deadline.
+        diagnostic(timedOut ? "shutdown-release-timeout" : "shutdown-release-complete");
+        // A stalled engine drain must not leave the shared profile open when
+        // Nickel freezes its threads. Late saves must keep failing afterward.
+        storage::closeProfile(true);
         if (mode == Shutdown::Reboot)
             nativeReboot(guard.data());
         else
             nativePowerOff(guard.data(), mode == Shutdown::BatteryLow);
-    });
+    };
+    qt::later(3000, active.data(), [finish] { finish(true); });
+    active->prepareShutdown([finish] { finish(false); });
     return true;
 }
 bool NativeLifecycle::interceptUsbWorkflow(QObject *manager) {

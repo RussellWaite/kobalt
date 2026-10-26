@@ -260,7 +260,8 @@ if(BUILD_TESTING)
         KOBALT_TEST_ZIP="${KOBALT_TEST_ZIP}"
         KOBALT_FONT_DIRECTORY="${KOBALT_ASSETS}/fonts" KOBALT_INSTALLED_FONTS)
     add_dependencies(kobalt-tests kobalt-reader-lifecycle-tests)
-    foreach(check backgroundWriteFailureRetriesWithoutCountingPause backgroundCheckpointStopsBeforeOtherCallbacks standaloneReadingHistory uneditedPanelTransitions lightReplacesDefaultMenu appearanceApplyOnNavigation appearanceRelayoutPreservesPassage
+    foreach(check teardownRemovesApplicationFilter shutdownFinalSaveTimesOut
+            backgroundWriteFailureRetriesWithoutCountingPause backgroundCheckpointStopsBeforeOtherCallbacks standaloneReadingHistory uneditedPanelTransitions lightReplacesDefaultMenu appearanceApplyOnNavigation appearanceRelayoutPreservesPassage
             overflowClosesCurrentPanel appearanceSettingsRetainsDraft appearanceWriteFailureRetainsDraft
             appearanceSleepRetainsDraft appearanceFailedPreviewDismisses appearanceApplyFailureCanExit
             appearanceCloseDuringPreview appearanceSleepDuringFirstEdit appearanceDragsDuringPreview
@@ -287,6 +288,19 @@ if(BUILD_TESTING)
         set_tests_properties(lifecycle.${check} PROPERTIES ENVIRONMENT "${headless_environment}"
             LABELS "lifecycle;integration" TIMEOUT 35)
     endforeach()
+    add_executable(kobalt-shutdown-tests "${KOBALT_ROOT}/tests/kobo_shutdown.cpp"
+        "${KOBALT_ROOT}/platforms/kobo/common/native_lifecycle.cpp")
+    set_target_properties(kobalt-shutdown-tests PROPERTIES ENABLE_EXPORTS ON)
+    target_compile_definitions(kobalt-shutdown-tests PRIVATE KOBALT_CONFIG_DIR="." KOBALT_SYSTEM_FONT_DIRECTORY="")
+    target_link_libraries(kobalt-shutdown-tests PRIVATE kobalt-regression-runtime Qt6::Test)
+    target_compile_options(kobalt-shutdown-tests PRIVATE -Wall -Wextra -Werror)
+    add_dependencies(kobalt-tests kobalt-shutdown-tests)
+    add_test(NAME platform.shutdown COMMAND "${CMAKE_COMMAND}"
+        "-DTEST_EXECUTABLE=$<TARGET_FILE:kobalt-shutdown-tests>"
+        "-DTEST_TMP_ROOT=${CMAKE_CURRENT_BINARY_DIR}/test-tmp"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/run-test.cmake")
+    set_tests_properties(platform.shutdown PROPERTIES ENVIRONMENT "${headless_environment}"
+        LABELS "platform;integration" TIMEOUT 35)
     add_executable(kobalt-power-screen-tests "${KOBALT_ROOT}/tests/kobo_power_screen.cpp"
         "${KOBALT_ROOT}/platforms/kobo/common/home_sleep_screen.cpp"
         "${KOBALT_ROOT}/platforms/kobo/common/window_presentation.cpp")

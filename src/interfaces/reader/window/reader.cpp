@@ -44,6 +44,10 @@ using kobalt::platform::textRefresh;
 using kobalt::Choice;
 
 Reader::~Reader() {
+    // Member destruction can send events before QObject removes our filters.
+    qApp->removeEventFilter(this);
+    for (auto *widget : findChildren<QWidget *>())
+        widget->removeEventFilter(this);
     // Qt drops these connections only in ~QObject, after the members, the book
     // among them, are gone. Hiding the window in ~QWidget can change the
     // application state and would call back into a half-destroyed reader.
@@ -98,15 +102,17 @@ void Reader::observeReading() {
 }
 
 void Reader::prepareShutdown(std::function<void()> finished) {
-    prepareTransition(std::move(finished), 0);
+    prepareTransition(std::move(finished), false);
 }
 void Reader::prepareUsb(std::function<void()> finished) {
-    prepareTransition(std::move(finished), 2000);
+    prepareTransition(std::move(finished), true);
 }
-void Reader::prepareTransition(std::function<void()> finished, int timeoutMs) {
+void Reader::prepareTransition(std::function<void()> finished, bool usb) {
+    constexpr int timeoutMs = 2000;
+    const auto timeoutEvent = usb ? "usb-save-timeout" : "shutdown-save-timeout";
     if (pageScrubber)
         pageScrubber->cancel();
-    auto backdrop = timeoutMs ? powerScreenSnapshot() : sleep::Snapshot{};
+    auto backdrop = usb ? powerScreenSnapshot() : sleep::Snapshot{};
     sleepImage = {};
     presentation->clearSleepScreen();
     auto elapsed = std::make_shared<QElapsedTimer>();
@@ -123,29 +129,27 @@ void Reader::prepareTransition(std::function<void()> finished, int timeoutMs) {
     highlights->flush();
     save(true);
     auto completed = std::make_shared<bool>(false);
-    if (timeoutMs) {
-        kobalt::qt::later(qMax(0, timeoutMs - int(elapsed->elapsed())), this, [completed, finished] {
-            if (std::exchange(*completed, true)) {
-                return;
-            }
-            kobalt::diagnostic("usb-save-timeout");
-            finished();
-        });
-    }
+    kobalt::qt::later(qMax(0, timeoutMs - int(elapsed->elapsed())), this, [completed, finished, timeoutEvent] {
+        if (std::exchange(*completed, true)) {
+            return;
+        }
+        kobalt::diagnostic(timeoutEvent);
+        finished();
+    });
     model->nativePosition(
-        [this, completed, elapsed, timeoutMs, finished, backdrop = std::move(backdrop)](const QString &location, const QString &error) {
+        [this, completed, elapsed, usb, timeoutEvent, finished, backdrop = std::move(backdrop)](const QString &location, const QString &error) {
             if (std::exchange(*completed, true)) {
                 return;
             }
-            if (timeoutMs && elapsed->elapsed() >= timeoutMs) {
-                kobalt::diagnostic("usb-save-timeout");
+            if (elapsed->elapsed() >= timeoutMs) {
+                kobalt::diagnostic(timeoutEvent);
             } else {
                 // Keep a newer Nickel bookmark if reconciliation or the locked
                 // comparison rejects this save. Device transitions cannot ask
                 // the reader to resolve a conflict before they continue.
                 book->writeNative(location, error);
                 save(true);
-                if (timeoutMs)
+                if (usb)
                     presentation->saveSleepScreen(backdrop);
             }
             finished();
