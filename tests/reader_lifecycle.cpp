@@ -589,6 +589,80 @@ private slots:
         }
     }
 
+    void lightReplacesDefaultMenu_data() {
+        QTest::addColumn<bool>("dark");
+        QTest::addColumn<QString>("menuView");
+        for (bool dark : {false, true})
+            for (const auto *view : {"none", "seek", "stats"})
+                QTest::newRow(qPrintable(QString("%1-%2").arg(view, dark ? "dark" : "light")))
+                    << dark << QString::fromLatin1(view);
+    }
+    void lightReplacesDefaultMenu() {
+        QFETCH(bool, dark);
+        QFETCH(QString, menuView);
+        class Light final : public LightControls {
+        public:
+            bool initialize() override { return true; }
+            bool hasWarmth() const override { return false; }
+            int warmth() const override { return 0; }
+            int warmthMinimum() const override { return 0; }
+            int warmthMaximum() const override { return 0; }
+            int warmthStep() const override { return 1; }
+            bool automaticWarmth() const override { return false; }
+            int setWarmth(int) override { return -1; }
+            bool saveWarmth() override { return false; }
+            bool setAutomaticWarmth(bool) override { return false; }
+            bool beginGesture() override { return false; }
+            int setGestureLevel(int) override { return -1; }
+            void finishGesture(bool) override {}
+            int brightness() const override { return 50; }
+            bool gesturing() const override { return false; }
+        };
+        const auto paths = testPaths();
+        QVERIFY(storage::writeJson(paths.preferences(), {{"dark_mode", dark}, {"default_menu_view", menuView}}));
+        ReaderFixture host(paths, testFonts, testPlaceholder);
+        CloseHost cleanup{host};
+        host.configureServices = [](ReaderHostServices &services) {
+            services.lightAvailable = [] { return true; };
+            services.light = [](QWidget *) { return std::make_unique<Light>(); };
+        };
+        QSignalSpy opened(&host, &ReaderFixture::opened);
+        host.open(fixture(), nativeSize);
+        QTRY_COMPARE_WITH_TIMEOUT(opened.count(), 1, 30000);
+        Canvas canvas(host.window(), nativeSize);
+        canvas.resize(900, 900);
+        canvas.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&canvas));
+        QTRY_VERIFY(!host.session()->busy());
+        auto *page = static_cast<ReadingPage *>(host.window()->findChild<QWidget *>("rrPage"));
+        auto *toolbar = host.window()->findChild<QWidget *>("rrControlsTop");
+        auto *stats = host.window()->findChild<QWidget *>("rrChapterGraph");
+        auto *seek = dynamic_cast<ui::PageScrubber *>(host.window()->findChild<QWidget *>("rrPageScrubber"));
+        auto *light = host.window()->findChild<QWidget *>("rrLightPanel");
+        auto *tab = host.window()->findChild<QPushButton *>("rrNavLight");
+        QVERIFY(page && toolbar && stats && seek && light && tab);
+        const auto position = host.session()->state().value("position");
+        const auto image = page->image.cacheKey();
+        const QPoint paper(nativeSize.width() / 2, nativeSize.height() / 4);
+        QVERIFY(clickAt(canvas, paper));
+        QTRY_VERIFY(toolbar->isVisible());
+        QCOMPARE(stats->isVisible(), menuView == "stats");
+        if (menuView == "seek")
+            QTRY_VERIFY(seek->previewReady());
+        QVERIFY(click(canvas, tab));
+        QTRY_VERIFY(light->isVisible());
+        QVERIFY(!stats->isVisible());
+        QVERIFY(!seek->isVisible());
+        QVERIFY(tab->isChecked());
+        QVERIFY(toolbar->isVisible());
+        QVERIFY(click(canvas, tab));
+        QTRY_VERIFY(!light->isVisible());
+        QVERIFY(!tab->isChecked());
+        QCOMPARE(host.session()->state().value("position"), position);
+        QCOMPARE(page->image.cacheKey(), image);
+        QCOMPARE(storage::readJson(paths.preferences()).value("default_menu_view").toString(), menuView);
+    }
+
     void appearanceApplyOnNavigation_data() {
         QTest::addColumn<QString>("action");
         QTest::addColumn<QString>("panel");

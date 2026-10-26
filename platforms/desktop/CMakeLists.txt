@@ -259,7 +259,7 @@ if(BUILD_TESTING)
         KOBALT_TEST_ZIP="${KOBALT_TEST_ZIP}"
         KOBALT_FONT_DIRECTORY="${KOBALT_ASSETS}/fonts" KOBALT_INSTALLED_FONTS)
     add_dependencies(kobalt-tests kobalt-reader-lifecycle-tests)
-    foreach(check uneditedPanelTransitions appearanceApplyOnNavigation appearanceRelayoutPreservesPassage
+    foreach(check uneditedPanelTransitions lightReplacesDefaultMenu appearanceApplyOnNavigation appearanceRelayoutPreservesPassage
             overflowClosesCurrentPanel appearanceSettingsRetainsDraft appearanceWriteFailureRetainsDraft
             appearanceSleepRetainsDraft appearanceFailedPreviewDismisses appearanceApplyFailureCanExit
             appearanceCloseDuringPreview appearanceSleepDuringFirstEdit appearanceDragsDuringPreview

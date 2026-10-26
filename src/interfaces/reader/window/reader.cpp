@@ -1459,9 +1459,10 @@ void Reader::toggleLight() {
     else if (appearanceEdit.panelOpen())
         finishPreview();
     else {
-        appearanceEdit.clearDestination();
         menu->hide();
+        // Keep Light pending so the controls do not reopen the default view.
         showControls();
+        appearanceEdit.clearDestination();
         lightPopup->open();
     }
 }
