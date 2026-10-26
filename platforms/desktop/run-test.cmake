@@ -5,8 +5,8 @@ if(NOT EXISTS "${TEST_EXECUTABLE}" OR NOT IS_DIRECTORY "${TEST_TMP_ROOT}")
 endif()
 string(RANDOM LENGTH 16 ALPHABET 0123456789abcdef run)
 set(work "${TEST_TMP_ROOT}/kobalt-regression-${run}")
-# Checks get 30 seconds. The screenshot run, which captures every scene in one
-# process, passes a longer limit.
+# Fast checks default to 30 seconds. Integration matrices and the screenshot
+# run pass longer limits. CTest leaves a cleanup margin outside this guard.
 if(NOT DEFINED TEST_TIMEOUT)
     set(TEST_TIMEOUT 30)
 endif()

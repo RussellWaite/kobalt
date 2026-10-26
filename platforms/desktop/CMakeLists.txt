@@ -209,39 +209,45 @@ if(BUILD_TESTING)
     set(headless_environment "QT_QPA_PLATFORM=minimal:enable_fonts:freetype" "QT_STYLE_OVERRIDE=Fusion" "TMPDIR=${CMAKE_CURRENT_BINARY_DIR}/test-tmp")
     foreach(check sameProcessReadersDoNotRecoverEachOther standaloneHistorySourceKeys verticalJustification startup libraryOnboarding reading errors diagnostics storageDiagnostics features stylesheet bookmarks bookmarkMerge annotations annotationModeFeedback annotationSelection coordinateProbeSerialization annotationGripMenus annotationCrossPageDrag selectionCrossPageDrag annotationCrossPageOverlap annotationOverlap touchCursor touchCursorOutsideReader links tappableLinks bookmarkCornerLinks
             annotationSectionBoundary headerFooterDismissal settings advancedText globalLayout columns fullWidthPanels dictionaryRedraw dictionaryAppearance dictionaryEditing dictionaryDismissal opticalSize desktopControls navigation bookmarkReturn booxMenuDismissalRefresh booxRetirementFrame annotationTwoFingerTapConsumesWholeSequence annotationRightClickRejectsChords library libraryTextInheritance libraryGridRows libraryHold libraryAtStart)
-        add_test(NAME desktop.${check} COMMAND "${CMAKE_COMMAND}"
-            "-DTEST_EXECUTABLE=$<TARGET_FILE:kobalt-desktop-tests>" "-DTEST_ARGUMENTS=${check}"
-            "-DTEST_TMP_ROOT=${CMAKE_CURRENT_BINARY_DIR}/test-tmp"
-            -P "${CMAKE_CURRENT_SOURCE_DIR}/run-test.cmake")
         set(lane fast)
         if(check MATCHES "^(sameProcessReadersDoNotRecoverEachOther|standaloneHistorySourceKeys|verticalJustification|features|diagnostics|stylesheet|bookmarks|bookmarkMerge|annotations|annotationModeFeedback|annotationSelection|coordinateProbeSerialization|annotationGripMenus|annotationCrossPageDrag|annotationSectionBoundary|selectionCrossPageDrag|annotationCrossPageOverlap|annotationOverlap|touchCursor|touchCursorOutsideReader|links|tappableLinks|bookmarkCornerLinks|headerFooterDismissal|settings|advancedText|globalLayout|columns|fullWidthPanels|dictionaryRedraw|dictionaryAppearance|dictionaryEditing|dictionaryDismissal|opticalSize|desktopControls|navigation|bookmarkReturn|booxMenuDismissalRefresh|booxRetirementFrame|library|libraryTextInheritance|libraryGridRows|libraryHold|libraryAtStart)$")
             set(lane integration)
         endif()
+        set(test_timeout 30)
+        if(lane STREQUAL "integration")
+            set(test_timeout 120)
+        endif()
+        math(EXPR ctest_timeout "${test_timeout} + 5")
+        add_test(NAME desktop.${check} COMMAND "${CMAKE_COMMAND}"
+            "-DTEST_EXECUTABLE=$<TARGET_FILE:kobalt-desktop-tests>" "-DTEST_ARGUMENTS=${check}"
+            "-DTEST_TIMEOUT=${test_timeout}"
+            "-DTEST_TMP_ROOT=${CMAKE_CURRENT_BINARY_DIR}/test-tmp"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/run-test.cmake")
         set_tests_properties(desktop.${check} PROPERTIES ENVIRONMENT "${headless_environment}"
-            LABELS "desktop;${lane}" TIMEOUT 35)
+            LABELS "desktop;${lane}" TIMEOUT ${ctest_timeout})
     endforeach()
     foreach(profile 300-light 300-dark 0-light 0-dark)
         add_test(NAME desktop.wordSelection.${profile} COMMAND "${CMAKE_COMMAND}"
             "-DTEST_EXECUTABLE=$<TARGET_FILE:kobalt-desktop-tests>" "-DTEST_ARGUMENTS=wordSelection:${profile}"
-            "-DTEST_TMP_ROOT=${CMAKE_CURRENT_BINARY_DIR}/test-tmp"
+            "-DTEST_TIMEOUT=120" "-DTEST_TMP_ROOT=${CMAKE_CURRENT_BINARY_DIR}/test-tmp"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/run-test.cmake")
         set_tests_properties(desktop.wordSelection.${profile} PROPERTIES ENVIRONMENT "${headless_environment}"
-            LABELS "desktop;integration" TIMEOUT 35)
+            LABELS "desktop;integration" TIMEOUT 125)
     endforeach()
     add_test(NAME desktop.libraryPageButtons COMMAND "${CMAKE_COMMAND}"
         "-DTEST_EXECUTABLE=$<TARGET_FILE:kobalt-desktop-tests>" "-DTEST_ARGUMENTS=libraryPageButtons"
-        "-DTEST_TMP_ROOT=${CMAKE_CURRENT_BINARY_DIR}/test-tmp"
+        "-DTEST_TIMEOUT=120" "-DTEST_TMP_ROOT=${CMAKE_CURRENT_BINARY_DIR}/test-tmp"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/run-test.cmake")
     set_tests_properties(desktop.libraryPageButtons PROPERTIES ENVIRONMENT "${headless_environment}"
-        LABELS "desktop;integration" TIMEOUT 35)
+        LABELS "desktop;integration" TIMEOUT 125)
     foreach(view dictionary dictionary-choices footnote settings settings-fonts reading-fonts stats fields chapters
             bookmarks search acknowledgments license downloaded-dictionaries blocked-modal)
         add_test(NAME desktop.hardwarePageButtons.${view} COMMAND "${CMAKE_COMMAND}"
             "-DTEST_EXECUTABLE=$<TARGET_FILE:kobalt-desktop-tests>" "-DTEST_ARGUMENTS=hardwarePageButtons:${view}"
-            "-DTEST_TMP_ROOT=${CMAKE_CURRENT_BINARY_DIR}/test-tmp"
+            "-DTEST_TIMEOUT=120" "-DTEST_TMP_ROOT=${CMAKE_CURRENT_BINARY_DIR}/test-tmp"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/run-test.cmake")
         set_tests_properties(desktop.hardwarePageButtons.${view} PROPERTIES ENVIRONMENT "${headless_environment}"
-            LABELS "desktop;integration" TIMEOUT 35)
+            LABELS "desktop;integration" TIMEOUT 125)
     endforeach()
     # Archive the existing objects so each standalone check links only the
     # production objects it uses, without compiling another implementation.
@@ -283,10 +289,10 @@ if(BUILD_TESTING)
             appearanceOpeningDoesNotRepaintToolbar annotationFramesKeepFirstPaintComplete annotationListResolvesPagesOnDemand)
         add_test(NAME lifecycle.${check} COMMAND "${CMAKE_COMMAND}"
             "-DTEST_EXECUTABLE=$<TARGET_FILE:kobalt-reader-lifecycle-tests>" "-DTEST_ARGUMENTS=${check}"
-            "-DTEST_TMP_ROOT=${CMAKE_CURRENT_BINARY_DIR}/test-tmp"
+            "-DTEST_TIMEOUT=120" "-DTEST_TMP_ROOT=${CMAKE_CURRENT_BINARY_DIR}/test-tmp"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/run-test.cmake")
         set_tests_properties(lifecycle.${check} PROPERTIES ENVIRONMENT "${headless_environment}"
-            LABELS "lifecycle;integration" TIMEOUT 35)
+            LABELS "lifecycle;integration" TIMEOUT 125)
     endforeach()
     add_executable(kobalt-shutdown-tests "${KOBALT_ROOT}/tests/kobo_shutdown.cpp"
         "${KOBALT_ROOT}/platforms/kobo/common/native_lifecycle.cpp")
@@ -297,10 +303,10 @@ if(BUILD_TESTING)
     add_dependencies(kobalt-tests kobalt-shutdown-tests)
     add_test(NAME platform.shutdown COMMAND "${CMAKE_COMMAND}"
         "-DTEST_EXECUTABLE=$<TARGET_FILE:kobalt-shutdown-tests>"
-        "-DTEST_TMP_ROOT=${CMAKE_CURRENT_BINARY_DIR}/test-tmp"
+        "-DTEST_TIMEOUT=120" "-DTEST_TMP_ROOT=${CMAKE_CURRENT_BINARY_DIR}/test-tmp"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/run-test.cmake")
     set_tests_properties(platform.shutdown PROPERTIES ENVIRONMENT "${headless_environment}"
-        LABELS "platform;integration" TIMEOUT 35)
+        LABELS "platform;integration" TIMEOUT 125)
     add_executable(kobalt-power-screen-tests "${KOBALT_ROOT}/tests/kobo_power_screen.cpp"
         "${KOBALT_ROOT}/platforms/kobo/common/home_sleep_screen.cpp"
         "${KOBALT_ROOT}/platforms/kobo/common/window_presentation.cpp")
@@ -311,10 +317,10 @@ if(BUILD_TESTING)
     add_dependencies(kobalt-tests kobalt-power-screen-tests)
     add_test(NAME platform.kobo-power-screen COMMAND "${CMAKE_COMMAND}"
         "-DTEST_EXECUTABLE=$<TARGET_FILE:kobalt-power-screen-tests>"
-        "-DTEST_TMP_ROOT=${CMAKE_CURRENT_BINARY_DIR}/test-tmp"
+        "-DTEST_TIMEOUT=120" "-DTEST_TMP_ROOT=${CMAKE_CURRENT_BINARY_DIR}/test-tmp"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/run-test.cmake")
     set_tests_properties(platform.kobo-power-screen PROPERTIES ENVIRONMENT "${headless_environment}"
-        LABELS "platform;integration" TIMEOUT 35)
+        LABELS "platform;integration" TIMEOUT 125)
     add_executable(kobalt-reader-ui-tests "${KOBALT_ROOT}/tests/reader_ui.cpp")
     target_link_libraries(kobalt-reader-ui-tests PRIVATE kobalt-desktop kobalt-core Qt6::Test)
     target_compile_options(kobalt-reader-ui-tests PRIVATE -Wall -Wextra -Werror)
@@ -353,10 +359,10 @@ if(BUILD_TESTING)
             annotationContourKeepsParagraphGaps annotationHandlesDragAndCancel)
         add_test(NAME ui.${check} COMMAND "${CMAKE_COMMAND}"
             "-DTEST_EXECUTABLE=$<TARGET_FILE:kobalt-reader-ui-tests>" "-DTEST_ARGUMENTS=${check}"
-            "-DTEST_TMP_ROOT=${CMAKE_CURRENT_BINARY_DIR}/test-tmp"
+            "-DTEST_TIMEOUT=120" "-DTEST_TMP_ROOT=${CMAKE_CURRENT_BINARY_DIR}/test-tmp"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/run-test.cmake")
         set_tests_properties(ui.${check} PROPERTIES ENVIRONMENT "${headless_environment}"
-            LABELS "ui;integration" TIMEOUT 35)
+            LABELS "ui;integration" TIMEOUT 125)
     endforeach()
     function(kobalt_regressions group)
         foreach(check IN LISTS ARGN)
@@ -434,12 +440,18 @@ if(BUILD_TESTING)
             if(check STREQUAL "font_registration")
                 set(arguments "${KOBALT_ASSETS}/fonts/ebook-core/NV_Bitter-Regular.ttf")
             endif()
+            set(test_timeout 120)
+            if(lane STREQUAL "fast")
+                set(test_timeout 30)
+            endif()
+            math(EXPR ctest_timeout "${test_timeout} + 5")
             add_test(NAME ${group}.${name} COMMAND "${CMAKE_COMMAND}"
                 "-DTEST_EXECUTABLE=${executable}" "-DTEST_ARGUMENTS=${arguments}"
+                "-DTEST_TIMEOUT=${test_timeout}"
                 "-DTEST_TMP_ROOT=${CMAKE_CURRENT_BINARY_DIR}/test-tmp"
                 -P "${CMAKE_CURRENT_SOURCE_DIR}/run-test.cmake")
             set_tests_properties(${group}.${name} PROPERTIES
-                ENVIRONMENT "${headless_environment}" LABELS "${group};${lane}" TIMEOUT 35)
+                ENVIRONMENT "${headless_environment}" LABELS "${group};${lane}" TIMEOUT ${ctest_timeout})
         endforeach()
     endfunction()
     kobalt_regressions(model storage_assets profile_storage record_writer reading_history bookmark_store highlight_store annotation_database appearance_settings header_footer

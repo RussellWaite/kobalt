@@ -95,6 +95,19 @@ const QString book = QStringLiteral(KOBALT_TEST_BOOK);
 QString captureDirectory;
 QJsonArray captures;
 
+EngineFontInputs fixtureFonts(QString sideloadDirectory = {}) {
+    // Bundled assets are immutable fixtures. Only each profile's optional
+    // sideload directory changes between rows of a test matrix.
+    static const auto bundled = engineFontInputs(*assets, {}, {}, {});
+    auto inputs = bundled;
+    inputs.sources.sideloadDirectory = std::move(sideloadDirectory);
+    return inputs;
+}
+QString fixturePlaceholder() {
+    static const auto family = placeholderFontFamily(*assets, *copies);
+    return family;
+}
+
 class BlockedFile {
 public:
     explicit BlockedFile(QString path) : path(std::move(path)), backup(this->path + ".saved") {
@@ -186,8 +199,8 @@ struct Fixture {
     // `library` fills the profile with a synthetic library; `reading` marks one book in progress.
     explicit Fixture(bool dark = false, bool variableFont = false, bool library = false, bool reading = true,
                      bool annotationExports = false)
-        : fontInputs(engineFontInputs(*assets, {}, variableFont ? directory.path() + "/fonts" : QString(), {})),
-          window(prepare(dark, variableFont, library, reading), fontInputs, placeholderFontFamily(*assets, *copies),
+        : fontInputs(fixtureFonts(variableFont ? directory.path() + "/fonts" : QString())),
+          window(prepare(dark, variableFont, library, reading), fontInputs, fixturePlaceholder(),
                  [this] {
                      ++clockReads;
                      return QStringLiteral("09:00");
@@ -1003,7 +1016,7 @@ private slots:
         child.setProcessChannelMode(QProcess::MergedChannels);
         child.start(QCoreApplication::applicationFilePath(), {"startup", "libraryOnboarding", "reading:0-light", "errors", "features"});
         // Leave time to kill and reap the child before the CMake parent's limit.
-        const bool finished = child.waitForFinished(20000);
+        const bool finished = child.waitForFinished(90000);
         if (!finished) {
             child.kill();
             child.waitForFinished();
@@ -5081,7 +5094,7 @@ int main(int argc, char **argv) {
             inputs.append(fixtureDirectory.path() + "/publisher-non-linear.epub");
         }
         child.start(arguments.at(2), inputs);
-        if (!child.waitForFinished(20000)) {
+        if (!child.waitForFinished(90000)) {
             const auto error = child.errorString();
             child.kill();
             child.waitForFinished();

@@ -72,6 +72,9 @@ int main(int argc, char **argv) {
     auto book = test::engineBook(false, 3, 5);
     book["OEBPS/c1.xhtml"].replace("</body>", "<p style=\"display:none\">Invisible marker.</p></body>");
     open(model, book);
+    for (const bool normalized : {false, true})
+        require(Probe::positionLookupPreservesNames(model, normalized),
+                "Invalid position lookup added a name to the document");
     require(model.pages() > 8, "Fixture does not span enough pages");
     Ranges marks;
     for (int page = 0; page < model.pages(); ++page) {

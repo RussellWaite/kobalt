@@ -28,11 +28,15 @@ inline FontCopies &readerFontCopies() {
     return copies;
 }
 inline EngineFontInputs readerFonts() {
+    // The staged fixture is immutable for this process. Reuse its verified
+    // paths instead of checking the full bundle for every model in a matrix.
+    // Tests of asset changes use their own bundles and production verification.
 #ifdef KOBALT_TEST_VARIABLE_FONT_DIRECTORY
-    return engineFontInputs(readerAssets(), {}, QStringLiteral(KOBALT_TEST_VARIABLE_FONT_DIRECTORY), {});
+    static const auto inputs = engineFontInputs(readerAssets(), {}, QStringLiteral(KOBALT_TEST_VARIABLE_FONT_DIRECTORY), {});
 #else
-    return engineFontInputs(readerAssets(), {}, {}, {});
+    static const auto inputs = engineFontInputs(readerAssets(), {}, {}, {});
 #endif
+    return inputs;
 }
 inline QString readerPlaceholder() {
     static const QString family = placeholderFontFamily(readerAssets(), readerFontCopies());

@@ -12,6 +12,19 @@ struct ReaderSourceIndexProbe {
     static void clear(ReaderModel &model) { model.sourceIndex_.reset(); }
     static QPair<int, qint64> usage(const ReaderModel &model) { return model.sourceIndexUsage(); }
     static bool cached(const ReaderModel &model) { return bool(model.sourceIndex_); }
+    static bool positionLookupPreservesNames(const ReaderModel &model, bool normalized) {
+        auto *doc = model.engine_->getDocument();
+        const char *name = normalized ? "unknown_position_v2" : "unknown_position_v1";
+        if (doc->findElementNameIndex(name))
+            return false;
+        const auto path = cre('/' + QString::fromLatin1(name) + "[1]");
+        const auto version = doc->getDOMVersionRequested();
+        doc->setDOMVersionRequested(normalized ? DOM_VERSION_WITH_NORMALIZED_XPOINTERS
+                                              : DOM_VERSION_WITH_NORMALIZED_XPOINTERS - 1);
+        const auto pointer = doc->createXPointer(doc->getRootNode(), path);
+        doc->setDOMVersionRequested(version);
+        return pointer.isNull() && !doc->findElementNameIndex(name);
+    }
     static QVector<int> visible(const ReaderModel &model, const Ranges &ranges) {
         QVector<int> result;
         if (ranges.isEmpty() || ranges.size() > 2001 || !model.engine_ || model.pages() <= 0)
