@@ -1,6 +1,7 @@
 #include "reading_history.h"
 #include "annotation_database.h"
 #include "bookmark_store.h"
+#include "support/diagnostics.h"
 #include <QDateTime>
 #include <QDir>
 #include <QHash>
@@ -11,6 +12,9 @@
 #include <QSqlQuery>
 #include <QUuid>
 #include <QVariant>
+#include <QSet>
+#include <algorithm>
+#include <mutex>
 #include <utility>
 #include <cerrno>
 #include <fcntl.h>
@@ -30,13 +34,21 @@ QByteArray utf8(const QString &text) {
     return text.isEmpty() ? QByteArray("") : text.toUtf8();
 }
 }
+struct ReadingHistory::Saved {
+    std::mutex mutex;
+    quint64 successful = 0, finished = 0;
+    bool ok = true;
+    QVector<Interval> intervals;
+};
 ReadingHistory::ReadingHistory(QString directory, QString identity, QByteArray fingerprint, QString sourceKey,
                                QString title, QString author, UtcClock utc)
     : directory(std::move(directory)), identity(std::move(identity)),
       book(BookmarkStore::bookKey(this->identity, fingerprint)),
       sourceKey(sourceKey.isEmpty() ? this->identity : std::move(sourceKey)),
       title(bounded(std::move(title))), author(bounded(std::move(author))), fingerprint(std::move(fingerprint)),
-      utc(utc ? std::move(utc) : UtcClock([] { return QDateTime::currentMSecsSinceEpoch(); })) {}
+      utc(utc ? std::move(utc) : UtcClock([] { return QDateTime::currentMSecsSinceEpoch(); })),
+      saved(std::make_shared<Saved>()) {}
+ReadingHistory::~ReadingHistory() = default;
 void ReadingHistory::start(qint64 activeMilliseconds, const QString &position) {
     if (!pending.isEmpty() && pending.last().status == "active")
         return;
@@ -44,6 +56,7 @@ void ReadingHistory::start(qint64 activeMilliseconds, const QString &position) {
     const auto now = qMax<qint64>(0, utc());
     pending.append({QUuid::createUuid().toString(), bounded(position), bounded(position), "active", now, now, 0});
     dirty = true;
+    ++generation;
 }
 void ReadingHistory::update(qint64 activeMilliseconds, const QString &position) {
     if (pending.isEmpty() || pending.last().status != "active")
@@ -53,61 +66,107 @@ void ReadingHistory::update(qint64 activeMilliseconds, const QString &position) 
     interval.observed = qMax(interval.observed, utc());
     interval.endPosition = bounded(position);
     dirty = true;
+    ++generation;
 }
 void ReadingHistory::stop(qint64 activeMilliseconds, const QString &position) {
     update(activeMilliseconds, position);
     if (!pending.isEmpty() && pending.last().status == "active") {
         pending.last().status = "completed";
         dirty = true;
+        ++generation;
     }
 }
-bool ReadingHistory::save() {
+bool ReadingHistory::saving() const {
+    return writer && !writer->idle();
+}
+void ReadingHistory::acknowledge() {
+    std::lock_guard<std::mutex> lock(saved->mutex);
+    if (saved->successful > acknowledged) {
+        QSet<QString> completed;
+        for (const auto &interval : saved->intervals)
+            if (interval.status != "active") completed.insert(interval.id);
+        pending.erase(std::remove_if(pending.begin(), pending.end(), [&](const Interval &interval) {
+            return completed.contains(interval.id);
+        }), pending.end());
+        acknowledged = saved->successful;
+        if (saved->successful == generation) dirty = false;
+    }
+    if (saved->finished == posted && !saved->ok) posted = 0;
+}
+bool ReadingHistory::save(bool background) {
+    acknowledge();
     if (!dirty)
         return true;
     if (book.isEmpty())
         return false;
-    const bool saved = AnnotationDatabase::transaction(directory, [&](QSqlDatabase &db) {
-        for (const auto &interval : pending) {
-            QSqlQuery insert(db);
-            insert.prepare("INSERT OR IGNORE INTO reading_sessions "
-                "(id,book,identity,fingerprint,source_key,title,author,started,observed,active_ms,start_position,end_position,status) "
-                "VALUES(CAST(? AS TEXT),CAST(? AS TEXT),CAST(? AS TEXT),CAST(? AS TEXT),CAST(? AS TEXT),"
-                "CAST(? AS TEXT),CAST(? AS TEXT),?,?,?,CAST(? AS TEXT),CAST(? AS TEXT),CAST(? AS TEXT))");
-            for (const auto &text : {interval.id, book, identity, QString::fromLatin1(fingerprint), sourceKey, title, author})
-                insert.addBindValue(utf8(text));
-            insert.addBindValue(interval.started);
-            insert.addBindValue(interval.observed);
-            insert.addBindValue(interval.milliseconds);
-            insert.addBindValue(utf8(interval.startPosition));
-            insert.addBindValue(utf8(interval.endPosition));
-            insert.addBindValue(utf8(interval.status));
-            if (!insert.exec())
-                return false;
-            QSqlQuery update(db);
-            update.prepare("UPDATE reading_sessions SET observed=?,active_ms=?,end_position=CAST(? AS TEXT),status=CAST(? AS TEXT) "
-                "WHERE id=CAST(? AS TEXT) AND book=CAST(? AS TEXT) AND started=? AND active_ms<=? AND observed<=? "
-                "AND (status='active' OR status=CAST(? AS TEXT))");
-            update.addBindValue(interval.observed);
-            update.addBindValue(interval.milliseconds);
-            update.addBindValue(utf8(interval.endPosition));
-            update.addBindValue(utf8(interval.status));
-            update.addBindValue(utf8(interval.id));
-            update.addBindValue(utf8(book));
-            update.addBindValue(interval.started);
-            update.addBindValue(interval.milliseconds);
-            update.addBindValue(interval.observed);
-            update.addBindValue(utf8(interval.status));
-            if (!update.exec() || update.numRowsAffected() != 1)
-                return false;
-        }
+    if (background && posted == generation)
         return true;
-    });
-    if (saved) {
-        while (!pending.isEmpty() && pending.first().status != "active")
-            pending.remove(0);
-        dirty = false;
+    if (!writer) writer = std::make_unique<storage::RecordWriter>();
+    posted = generation;
+    auto write = [directory = directory, book = book, identity = identity, fingerprint = fingerprint,
+                  sourceKey = sourceKey, title = title, author = author, snapshot = pending,
+                  generation = generation, result = saved] {
+        bool ok = false;
+        try {
+            ok = AnnotationDatabase::transaction(directory, [&](QSqlDatabase &db) {
+                for (const auto &interval : snapshot) {
+                    QSqlQuery insert(db);
+                    insert.prepare("INSERT OR IGNORE INTO reading_sessions "
+                        "(id,book,identity,fingerprint,source_key,title,author,started,observed,active_ms,start_position,end_position,status) "
+                        "VALUES(CAST(? AS TEXT),CAST(? AS TEXT),CAST(? AS TEXT),CAST(? AS TEXT),CAST(? AS TEXT),"
+                        "CAST(? AS TEXT),CAST(? AS TEXT),?,?,?,CAST(? AS TEXT),CAST(? AS TEXT),CAST(? AS TEXT))");
+                    for (const auto &text : {interval.id, book, identity, QString::fromLatin1(fingerprint), sourceKey, title, author})
+                        insert.addBindValue(utf8(text));
+                    insert.addBindValue(interval.started);
+                    insert.addBindValue(interval.observed);
+                    insert.addBindValue(interval.milliseconds);
+                    insert.addBindValue(utf8(interval.startPosition));
+                    insert.addBindValue(utf8(interval.endPosition));
+                    insert.addBindValue(utf8(interval.status));
+                    if (!insert.exec())
+                        return false;
+                    QSqlQuery update(db);
+                    update.prepare("UPDATE reading_sessions SET observed=?,active_ms=?,end_position=CAST(? AS TEXT),status=CAST(? AS TEXT) "
+                        "WHERE id=CAST(? AS TEXT) AND book=CAST(? AS TEXT) AND started=? AND active_ms<=? AND observed<=? "
+                        "AND (status='active' OR status=CAST(? AS TEXT))");
+                    update.addBindValue(interval.observed);
+                    update.addBindValue(interval.milliseconds);
+                    update.addBindValue(utf8(interval.endPosition));
+                    update.addBindValue(utf8(interval.status));
+                    update.addBindValue(utf8(interval.id));
+                    update.addBindValue(utf8(book));
+                    update.addBindValue(interval.started);
+                    update.addBindValue(interval.milliseconds);
+                    update.addBindValue(interval.observed);
+                    update.addBindValue(utf8(interval.status));
+                    if (!update.exec() || update.numRowsAffected() != 1)
+                        return false;
+                }
+                return true;
+            });
+        } catch (...) {
+            // Record failure even if a queued operation throws, so the same
+            // generation can be posted again. Its intervals stay pending.
+        }
+        {
+            std::lock_guard<std::mutex> lock(result->mutex);
+            result->finished = generation;
+            result->ok = ok;
+            if (ok) {
+                result->successful = generation;
+                result->intervals = snapshot;
+            }
+        }
+        if (!ok) diagnostic("reading-history-unsaved", {}, false);
+        return ok;
+    };
+    if (background) {
+        writer->post(std::move(write), {});
+        return true;
     }
-    return saved;
+    const bool ok = writer->writeNow(std::move(write));
+    acknowledge();
+    return ok;
 }
 class ReadingHistory::Profile {
 public:

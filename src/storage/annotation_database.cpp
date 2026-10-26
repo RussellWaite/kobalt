@@ -107,15 +107,15 @@ void validateSchema(QSqlDatabase &db, bool sessions = false) {
     check(!references.next() && !references.lastError().isValid(), "invalid-database");
 }
 void sessionSchema(QSqlDatabase &db) {
-        run(db, "CREATE TABLE reading_sessions(id TEXT PRIMARY KEY NOT NULL,book TEXT NOT NULL,"
-                "identity TEXT NOT NULL,fingerprint TEXT NOT NULL,source_key TEXT NOT NULL,title TEXT NOT NULL,"
-                "author TEXT NOT NULL,started INTEGER NOT NULL CHECK(started>=0),"
-                "observed INTEGER NOT NULL CHECK(observed>=started),"
-                "active_ms INTEGER NOT NULL CHECK(active_ms>=0),start_position TEXT NOT NULL,end_position TEXT NOT NULL,"
-                "status TEXT NOT NULL CHECK(status IN ('active','completed','interrupted')))");
-        run(db, "CREATE INDEX reading_sessions_book ON reading_sessions(book,started)");
-        run(db, "CREATE INDEX reading_sessions_started ON reading_sessions(started)");
-    }
+    run(db, "CREATE TABLE reading_sessions(id TEXT PRIMARY KEY NOT NULL,book TEXT NOT NULL,"
+            "identity TEXT NOT NULL,fingerprint TEXT NOT NULL,source_key TEXT NOT NULL,title TEXT NOT NULL,"
+            "author TEXT NOT NULL,started INTEGER NOT NULL CHECK(started>=0),"
+            "observed INTEGER NOT NULL CHECK(observed>=started),"
+            "active_ms INTEGER NOT NULL CHECK(active_ms>=0),start_position TEXT NOT NULL,end_position TEXT NOT NULL,"
+            "status TEXT NOT NULL CHECK(status IN ('active','completed','interrupted')))");
+    run(db, "CREATE INDEX reading_sessions_book ON reading_sessions(book,started)");
+    run(db, "CREATE INDEX reading_sessions_started ON reading_sessions(started)");
+}
 void profileSchema(QSqlDatabase &db) {
     run(db, "CREATE TABLE book_state(identity TEXT PRIMARY KEY NOT NULL,format INTEGER NOT NULL CHECK(format>0),"
             "revision INTEGER NOT NULL DEFAULT 0 CHECK(revision>=0),payload TEXT NOT NULL "
@@ -358,9 +358,9 @@ private:
                 check(db.commit(), "database-commit");
                 validateSchema(db, true);
             }
-            // The journal mode is the first change to the file. Every check
-            // above only reads. A rejected file keeps its content; only a log
-            // left by a crash is folded into it when the connection closes.
+            // Validate and, if needed, migrate before changing journal mode.
+            // A rejected file keeps its content; only a log left by a crash
+            // is folded into it when the connection closes.
             wal = scalar(db, "PRAGMA journal_mode=WAL").toString().compare("wal", Qt::CaseInsensitive) == 0;
             if (wal) {
                 run(db, "PRAGMA synchronous=FULL");

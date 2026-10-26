@@ -6,6 +6,7 @@
 #include "reading/reader_session.h"
 #include "storage/reader_storage.h"
 #include "storage/annotation_database.h"
+#include "storage/record_writer.h"
 #include <QSqlQuery>
 #include "publication/native_resources.h"
 #include "support/qt_compat.h"
@@ -322,6 +323,12 @@ int main(int argc, char **argv) {
         require(local.checkpoint(&unchangedCheckpoint) &&
                 historyValue("SELECT COUNT(*) FROM history_write_audit").toInt() == 0,
                 "Unchanged checkpoint rewrote reading history");
+        require(local.session()->turn(1), "Cannot turn before routine checkpoint");
+        waitUntil([&] { return !local.session()->busy(); });
+        require(local.checkpoint(&unchangedCheckpoint, true), "Cannot queue routine position checkpoint");
+        storage::drainWriterThread();
+        require(historyValue("SELECT COUNT(*) FROM history_write_audit").toInt() == 0,
+                "Routine position checkpoint added a synced history write");
         require(local.checkpointReadingHistory() &&
                 historyValue("SELECT COUNT(*) FROM history_write_audit").toInt() == 1,
                 "Periodic checkpoint skipped time without a page turn");

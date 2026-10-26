@@ -47,7 +47,7 @@ public:
     void releaseNative();
     void observeReading(bool learnPace = true);
     void stopReading();
-    bool checkpointReadingHistory();
+    bool checkpointReadingHistory(bool background = false);
     bool tracksReadingHistory() const { return bool(history); }
     bool usesLocalPace() const {
         return bool(speed);

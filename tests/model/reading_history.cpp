@@ -1,4 +1,8 @@
 #include "storage/reading_history.h"
+#include "storage/profile_database.h"
+#include <condition_variable>
+#include <mutex>
+#include <thread>
 #include "storage/annotation_database.h"
 #include "storage/reader_storage.h"
 #include "storage/bookmark_store.h"
@@ -32,6 +36,7 @@ QVariant sql(const QString &directory, const QString &statement) {
     return value;
 }
 QVariant raw(const QString &directory, const QString &statement) {
+    storage::closeProfile();
     const QString name = "history-schema-probe";
     auto db = QSqlDatabase::addDatabase("QSQLITE", name);
     db.setDatabaseName(directory + "/kobalt.sqlite");
@@ -150,6 +155,7 @@ void crashRecoveryDoesNotStealLiveProfileOwnership() {
             "Refusing another process changed the live session");
     live.stop(100, "/body/p[2]"); require(live.save(), "Complete live profile fixture");
     owner.reset(); same.reset();
+    storage::closeProfile();
     QProcess child;
     child.start(QCoreApplication::applicationFilePath(), {"--hold-active-profile", root.path()});
     require(child.waitForStarted(5000) && child.waitForReadyRead(5000) && child.readLine() == "ready\n",
@@ -191,6 +197,7 @@ void failedRecoveryReleasesOwnershipForRetry() {
     sql(root.path(), "CREATE TRIGGER fail_recovery BEFORE UPDATE ON reading_sessions BEGIN SELECT RAISE(ABORT,'test'); END");
     require(!ReadingHistory::openProfile(root.path()), "Failed recovery returned a usable owner");
     sql(root.path(), "DROP TRIGGER fail_recovery");
+    storage::closeProfile();
     require(QProcess::execute(QCoreApplication::applicationFilePath(), {"--claim-profile", root.path()}) == 0,
             "Failed recovery leaked its OS lock into a later process");
     require(sql(root.path(), "SELECT status FROM reading_sessions").toString() == "interrupted",
@@ -204,22 +211,16 @@ void commitFailureRetainsPendingDuration() {
     require(bool(owner), "Commit fixture profile ownership");
     ReadingHistory history(root.path(), "commit-book", {}, {}, "Commit", "Author");
     history.start(0, "/body"); require(history.save(), "Commit fixture initial save");
-    const QString name = "history-commit-blocker";
-    auto blocker = QSqlDatabase::addDatabase("QSQLITE", name);
-    blocker.setDatabaseName(root.path() + "/kobalt.sqlite");
-    require(blocker.open(), "Open commit blocker");
-    {
-        QSqlQuery query(blocker);
-        require(query.exec("BEGIN") && query.exec("SELECT active_ms FROM reading_sessions") && query.next(), "Hold reader snapshot");
-        query.finish();
-        history.update(500, "/body/p[2]");
-        require(!history.save(), "A blocked commit reported success");
-        require(query.exec("SELECT active_ms FROM reading_sessions") && query.next() && query.value(0).toLongLong() == 0,
-                "Failed commit changed the stored duration");
-        query.finish();
-        require(query.exec("ROLLBACK"), "Release commit blocker");
-    }
-    blocker.close(); blocker = QSqlDatabase(); QSqlDatabase::removeDatabase(name);
+    // A deferred constraint fails COMMIT after the interval UPDATE succeeds.
+    // A reader on another connection cannot block commits in WAL mode.
+    sql(root.path(), "CREATE TABLE commit_guard(book TEXT REFERENCES books(book) DEFERRABLE INITIALLY DEFERRED)");
+    sql(root.path(), "CREATE TRIGGER fail_commit AFTER UPDATE ON reading_sessions BEGIN INSERT INTO commit_guard VALUES('missing-book'); END");
+    history.update(500, "/body/p[2]");
+    require(!history.save(), "A failed commit reported success");
+    require(sql(root.path(), "SELECT active_ms FROM reading_sessions").toLongLong() == 0 &&
+            sql(root.path(), "SELECT COUNT(*) FROM commit_guard").toInt() == 0,
+            "Failed commit published its interval or trigger writes");
+    sql(root.path(), "DROP TRIGGER fail_commit");
     require(history.save() && sql(root.path(), "SELECT active_ms FROM reading_sessions").toLongLong() == 500 &&
             sql(root.path(), "SELECT COUNT(*) FROM reading_sessions").toInt() == 1,
             "Commit retry lost duration or duplicated the interval");
@@ -249,6 +250,27 @@ void migrationCommitFailureLeavesVersionTwoRetryable() {
             raw(root.path(), "SELECT payload FROM book_state WHERE identity='preserved-book'").toString() == "{\"position\":\"/body/p[2]\"}",
             "Migration could not retry without changing saved data");
 }
+void killedMigrationLeavesOldDataRecoverable() {
+    QTemporaryDir root;
+    versionTwo(root.path());
+    raw(root.path(), "INSERT INTO book_state VALUES('preserved-book',1,7,'{\"position\":\"/body/p[2]\"}')");
+    QProcess child;
+    child.start(QCoreApplication::applicationFilePath(), {"--hold-migration", root.path()});
+    require(child.waitForStarted(5000) && child.waitForReadyRead(5000) && child.readLine() == "ready\n",
+            "Migration crash fixture did not reach its uncommitted schema change");
+    child.kill();
+    require(child.waitForFinished(5000) && child.exitStatus() == QProcess::CrashExit, "Migration writer did not stop");
+    QFile journal(root.path() + "/kobalt.sqlite-journal");
+    require(journal.open(QIODevice::ReadOnly) && journal.read(8) == QByteArray::fromHex("d9d505f920a163d7"),
+            "Killed migration did not leave a hot rollback journal");
+    journal.close();
+    require(recoverProfile(root.path()), "Production open did not recover an interrupted migration");
+    require(sql(root.path(), "PRAGMA user_version").toInt() == 3 &&
+            sql(root.path(), "SELECT revision FROM book_state WHERE identity='preserved-book'").toInt() == 7 &&
+            sql(root.path(), "SELECT payload FROM book_state WHERE identity='preserved-book'").toString() == "{\"position\":\"/body/p[2]\"}" &&
+            sql(root.path(), "SELECT COUNT(*) FROM reading_sessions").toInt() == 0,
+            "Interrupted migration lost saved data or published a partial schema");
+}
 void batchFailureDoesNotPublishEarlierIntervals() {
 
     QTemporaryDir root;
@@ -262,6 +284,74 @@ void batchFailureDoesNotPublishEarlierIntervals() {
     require(history.save() && sql(root.path(), "SELECT COUNT(*) FROM reading_sessions").toInt() == 2 &&
             sql(root.path(), "SELECT SUM(active_ms) FROM reading_sessions").toLongLong() == 300,
             "Batch retry lost or duplicated intervals");
+}
+// Keep the shared writer occupied so session snapshots are replaced before
+// they can run. No scheduler timing is needed to exercise coalescing.
+class Gate {
+public:
+    void wait() {
+        std::unique_lock<std::mutex> lock(mutex);
+        entered = true;
+        changed.notify_all();
+        changed.wait(lock, [&] { return open; });
+    }
+    void awaitEntered() {
+        std::unique_lock<std::mutex> lock(mutex);
+        changed.wait(lock, [&] { return entered; });
+    }
+    void release() {
+        std::lock_guard<std::mutex> lock(mutex);
+        open = true;
+        changed.notify_all();
+    }
+private:
+    std::mutex mutex;
+    std::condition_variable changed;
+    bool entered = false, open = false;
+};
+void coalescedFailureRetainsEveryInterval() {
+    QTemporaryDir root;
+    sql(root.path(), "CREATE TRIGGER fail_second BEFORE INSERT ON reading_sessions WHEN NEW.start_position='/second' BEGIN SELECT RAISE(ABORT,'test'); END");
+    ReadingHistory history(root.path(), "queued-book", {}, {}, "Queued", "Author");
+    Gate gate;
+    storage::RecordWriter busy;
+    busy.post([&] { gate.wait(); return true; }, {});
+    gate.awaitEntered();
+    history.start(0, "/first"); history.stop(100, "/first-end");
+    require(history.save(true) && history.saving(), "Queued save waited for the occupied writer");
+    history.start(100, "/second"); history.stop(300, "/second-end");
+    require(history.save(true), "Replacement snapshot was rejected");
+    gate.release();
+    storage::drainWriterThread();
+    require(sql(root.path(), "SELECT COUNT(*) FROM reading_sessions").toInt() == 0,
+            "Failed coalesced snapshot published a partial interval batch");
+    sql(root.path(), "DROP TRIGGER fail_second");
+    require(history.save(true), "Retry of the same generation was suppressed");
+    storage::drainWriterThread();
+    // The successful snapshot is not acknowledged until after this new
+    // interval is added. Acknowledgement must keep that newer interval.
+    history.start(300, "/third"); history.stop(600, "/third-end");
+    require(history.save(true), "Async retry was rejected");
+    storage::drainWriterThread();
+    require(history.save() && sql(root.path(), "SELECT COUNT(*) FROM reading_sessions").toInt() == 3 &&
+            sql(root.path(), "SELECT SUM(active_ms) FROM reading_sessions").toLongLong() == 600,
+            "Async retry lost or duplicated completed intervals");
+}
+void destructionDrainsLatestSnapshot() {
+    QTemporaryDir root;
+    auto history = std::make_unique<ReadingHistory>(root.path(), "closing-book", QByteArray(), QString(), "Closing", "Author");
+    Gate gate;
+    storage::RecordWriter busy;
+    busy.post([&] { gate.wait(); return true; }, {});
+    gate.awaitEntered();
+    history->start(0, "/body"); require(history->save(true), "Queue initial snapshot");
+    history->stop(700, "/end"); require(history->save(true), "Queue final snapshot");
+    std::thread release([&] { gate.release(); });
+    history.reset();
+    release.join();
+    require(sql(root.path(), "SELECT active_ms FROM reading_sessions").toLongLong() == 700 &&
+            sql(root.path(), "SELECT status FROM reading_sessions").toString() == "completed",
+            "Destruction lost the latest queued boundary");
 }
 void intervals() {
 
@@ -346,6 +436,25 @@ int main(int argc, char **argv) {
         const auto owner = ReadingHistory::openProfile(app.arguments()[2], &error);
         return owner ? 0 : error == "profile-in-use" ? 23 : 24;
     }
+    if (app.arguments().size() == 3 && app.arguments()[1] == "--hold-migration") {
+        auto db = QSqlDatabase::addDatabase("QSQLITE", "interrupted-migration");
+        db.setDatabaseName(app.arguments()[2] + "/kobalt.sqlite");
+        require(db.open(), "Open interrupted migration fixture");
+        QSqlQuery query(db);
+        // Force dirty pages out before COMMIT, leaving a rollback journal for
+        // the production connection to recover after the process is killed.
+        for (const auto *statement : {"PRAGMA cache_size=1", "BEGIN IMMEDIATE",
+                 "CREATE TABLE reading_sessions(partial TEXT)", "PRAGMA user_version=3",
+                 "INSERT INTO reading_sessions VALUES(zeroblob(65536))"})
+            require(query.exec(statement), "Uncommitted migration fixture");
+        QSocketNotifier parentInput(STDIN_FILENO, QSocketNotifier::Read);
+        QObject::connect(&parentInput, &QSocketNotifier::activated, &app, [&] {
+            char byte;
+            if (::read(STDIN_FILENO, &byte, 1) <= 0) app.quit();
+        });
+        std::puts("ready"); std::fflush(stdout);
+        return app.exec();
+    }
     if (app.arguments().size() == 3 && app.arguments()[1] == "--hold-active-profile") {
         const auto owner = ReadingHistory::openProfile(app.arguments()[2]);
         require(bool(owner), "Child profile ownership");
@@ -368,12 +477,16 @@ int main(int argc, char **argv) {
     rejectsVersionTwoWithoutBookIdentityUniqueness();
     migrationRejectsOrphanedAnnotations();
     intervals();
+    coalescedFailureRetainsEveryInterval();
+    destructionDrainsLatestSnapshot();
     crashRecoveryDoesNotStealLiveProfileOwnership();
     interruptedOwnershipMarkerCreationDoesNotBlockProfile();
     unsafeOwnershipMarkersAreRefused();
     failedRecoveryReleasesOwnershipForRetry();
     commitFailureRetainsPendingDuration();
     migrationCommitFailureLeavesVersionTwoRetryable();
+    killedMigrationLeavesOldDataRecoverable();
     batchFailureDoesNotPublishEarlierIntervals();
+    storage::closeProfile();
     require(QSqlDatabase::connectionNames().isEmpty(), "History checks left SQL connections open");
 }

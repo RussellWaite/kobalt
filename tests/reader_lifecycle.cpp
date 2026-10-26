@@ -1,6 +1,7 @@
 #include <QVariant>
 #include <QSqlQuery>
 #include "storage/annotation_database.h"
+#include "storage/record_writer.h"
 #include "storage/highlight_store.h"
 #include "storage/sleep_snapshot.h"
 #include "platforms/kobo/common/last_read_book.h"
@@ -521,6 +522,7 @@ private slots:
         canvas.show();
         QVERIFY(QTest::qWaitForWindowExposed(&canvas));
         QTRY_VERIFY(host.window()->readyForPresentation());
+        storage::drainWriterThread();
         bool active = false;
         QVERIFY(AnnotationDatabase::transaction(profile, [&](QSqlDatabase &db) {
             QSqlQuery query(db);
@@ -573,7 +575,7 @@ private slots:
         value("DROP TRIGGER fail_background");
         suspended = false;
         qApp->applicationStateChanged(Qt::ApplicationActive);
-        QCOMPARE(value("SELECT SUM(active_ms) FROM reading_sessions WHERE status='completed'").toLongLong(), paused);
+        QTRY_COMPARE(value("SELECT SUM(active_ms) FROM reading_sessions WHERE status='completed'").toLongLong(), paused);
         QCOMPARE(value("SELECT COUNT(*) FROM reading_sessions").toInt(), 2);
         qApp->applicationStateChanged(Qt::ApplicationActive);
         QCOMPARE(value("SELECT COUNT(*) FROM reading_sessions").toInt(), 2);

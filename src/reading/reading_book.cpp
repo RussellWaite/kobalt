@@ -46,7 +46,7 @@ ReadingBook::~ReadingBook() {
     speedWriter.reset();
 }
 bool ReadingBook::savesPending() const {
-    return writer && !writer->idle();
+    return (writer && !writer->idle()) || (history && history->saving());
 }
 bool ReadingBook::deviceTransition() const {
     return bridge && bridge->deviceTransition();
@@ -77,7 +77,7 @@ void ReadingBook::observeReading(bool learnPace) {
         activeReading.start();
         if (history) {
             history->start(completedReadingMilliseconds, model->state().value("position").toString());
-            checkpointReadingHistory();
+            checkpointReadingHistory(true);
         }
     }
     if (speed) {
@@ -130,15 +130,12 @@ void ReadingBook::stopReading() {
         saveSpeed(true);
     }
 }
-bool ReadingBook::checkpointReadingHistory() {
+bool ReadingBook::checkpointReadingHistory(bool background) {
     if (!history)
         return true;
     if (activeReading.isValid())
         history->update(readingMilliseconds(), model->state().value("position").toString());
-    const bool saved = history->save();
-    if (!saved)
-        diagnostic("reading-history-unsaved", {}, false);
-    return saved;
+    return history->save(background);
 }
 void ReadingBook::saveSpeed(bool force) {
     if (!speed || !speed->dirty() || (!force && speedSaved.isValid() && speedSaved.elapsed() < 60000)) {
@@ -284,7 +281,7 @@ bool ReadingBook::checkpoint(QJsonObject *snapshot, bool background) {
     // Unchanged checkpoints need no disk write. The interval timer and pause
     // boundaries save time even when the position has not changed. A history
     // failure must not block an independently saved position or dictionary.
-    checkpointReadingHistory();
+    if (!background) checkpointReadingHistory();
     auto persisted = checkpoint;
     for (const auto *key : appearance::layoutKeys)
         persisted.remove(key);

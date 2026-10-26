@@ -244,14 +244,14 @@ Reader::Reader(std::unique_ptr<kobalt::ReadingBook> openedBook, kobalt::ReaderOr
         historyTimer->setInterval(60000);
         connect(historyTimer, &QTimer::timeout, this, [this] {
             if (!closing && !lifecycleHidden && isVisible() && !services.suspended())
-                book->checkpointReadingHistory();
+                book->checkpointReadingHistory(true);
         });
         historyTimer->start();
     }
     // Android can suspend the app without hiding the embedded reader widget.
     connect(qApp, &QGuiApplication::applicationStateChanged, this, [this] {
         observeReading();
-        book->checkpointReadingHistory();
+        book->checkpointReadingHistory(!services.suspended());
     });
 }
 
