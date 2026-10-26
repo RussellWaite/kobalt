@@ -196,6 +196,7 @@ private:
     void prepareAnnotationPresentation(std::function<void(bool)> finished);
     void showKosyncChoice();
     void startKosyncExchange(bool finishing);
+    void prepareKosyncNetwork(bool interactive, std::function<void()> ready);
     void flushKosync(std::function<void()> finished);
     void finishKosync(const QString &message);
     void cancelKosync();
@@ -203,6 +204,7 @@ private:
     void hideKosyncOpening();
     void kosyncStatus(const QString &message);
     std::unique_ptr<kosync::Client> kosyncClient;
+    std::unique_ptr<SyncNetwork> kosyncNetwork;
     KosyncPage *kosyncPage = nullptr;
     static constexpr int kosyncFinishBudget = 2000;
     QTimer kosyncTimer, kosyncDeadline, kosyncOpeningGrace;
@@ -210,6 +212,7 @@ private:
     std::function<void()> kosyncFinished;
     std::function<void(bool)> kosyncPresentationReady;
     bool kosyncFinishing = false, kosyncOpening = false, kosyncFlushWaiting = false;
+    bool kosyncConnecting = false, kosyncAuthenticating = false;
     QPointer<ui::ModalOverlay> kosyncDialog;
     kosync::Reconciler kosyncProgress;
     QString kosyncMessage;

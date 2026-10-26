@@ -1,6 +1,7 @@
 #pragma once
 #include "dictionary_service.h"
 #include "keyboard_controller.h"
+#include "sync_network.h"
 #include "light_controls.h"
 #include "window_presentation.h"
 #include <QFont>
@@ -24,7 +25,7 @@ struct BatteryStatus {
 // across sleep and capability changes. Factories return independently owned
 // non-null controllers; they never return a borrowed native handle. Every
 // callback except automaticBookOpening, setAutomaticBookOpening,
-// debugProgressAction, observeBattery, observeBluetooth and remoteKeyActivity is required,
+// debugProgressAction, observeBattery, observeBluetooth, remoteKeyActivity and syncNetwork is required,
 // including unsupported hosts.
 struct ReaderHostServices {
     // Human-readable model used for the default sync device name.
@@ -67,6 +68,8 @@ struct ReaderHostServices {
     std::function<std::unique_ptr<LightControls>(QWidget *)> light;
     std::function<std::unique_ptr<DictionaryService>()> dictionary;
     KeyboardFactory keyboard;
+    // Optional on hosts whose operating system already supplies connectivity.
+    SyncNetworkFactory syncNetwork;
     PresentationFactory presentation;
     // Empty in hardware builds. Keep the value layout independent of the
     // diagnostic macro used by the constructing and consuming targets.

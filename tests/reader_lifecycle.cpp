@@ -116,6 +116,27 @@ using namespace kobalt;
 using test::PaintRegions;
 
 namespace {
+struct SyncNetworkState {
+    bool connected = false, interactive = false;
+    int requests = 0, cancellations = 0;
+    std::function<void(bool)> completed;
+};
+class TestSyncNetwork final : public SyncNetwork {
+public:
+    explicit TestSyncNetwork(std::shared_ptr<SyncNetworkState> state) : state(std::move(state)) {}
+    bool connected() const override { return state->connected; }
+    void prepare(bool interactive, std::function<void(bool)> done) override {
+        ++state->requests;
+        state->interactive = interactive;
+        state->completed = std::move(done);
+    }
+    void cancel() override {
+        if (state->completed) ++state->cancellations;
+        state->completed = {};
+    }
+private:
+    std::shared_ptr<SyncNetworkState> state;
+};
 // Observe queued reply delivery without delaying the worker or sleeping.
 class NativeTestApplication final : public QApplication {
 public:
@@ -3075,6 +3096,15 @@ private slots:
         host.window()->pageButton(1);
         QTRY_VERIFY(!host.session()->busy() && host.session()->page() > page);
     }
+    void kosyncNetwork_data() {
+        QTest::addColumn<QString>("scenario");
+        for (const auto *scenario : {"cancel", "deadline", "ready", "sleep", "login"})
+            QTest::newRow(scenario) << QString::fromLatin1(scenario);
+    }
+    void kosyncNetwork() {
+        QFETCH(QString, scenario);
+        verifyKosyncNetwork(scenario);
+    }
     void kosyncFinal_data() {
         QTest::addColumn<QString>("transition");
         QTest::addColumn<bool>("inFlight");
@@ -4076,6 +4106,109 @@ private slots:
     }
 
 private:
+    void verifyKosyncNetwork(const QString &scenario) {
+        QTcpServer stalled;
+        QVERIFY(stalled.listen(QHostAddress::LocalHost));
+        QSignalSpy attempts(&stalled, &QTcpServer::newConnection);
+        auto paths = testPaths();
+        QVERIFY(storage::writeJson(paths.syncAccount(), {
+            {"schema", 1}, {"server", QString("https://127.0.0.1:%1").arg(stalled.serverPort())},
+            {"username", "test-reader"}, {"key", QString(32, 'a')},
+            {"device_id", "test-device"}, {"automatic", true}}));
+        auto network = std::make_shared<SyncNetworkState>();
+        ReaderFixture host(paths, testFonts, testPlaceholder);
+        host.configureServices = [network](ReaderHostServices &services) {
+            services.syncNetwork = [network] { return std::make_unique<TestSyncNetwork>(network); };
+        };
+        CloseHost cleanup{host};
+        QSignalSpy opened(&host, &ReaderFixture::opened);
+        host.open(textBook, nativeSize);
+        QTRY_COMPARE_WITH_TIMEOUT(opened.count(), 1, 30000);
+        bool prepared = false;
+        host.window()->preparePresentation([&](bool ready) { prepared = ready; });
+        QCOMPARE(network->requests, 1);
+        QVERIFY(!network->interactive);
+        QCOMPARE(attempts.count(), 0);
+        QTRY_VERIFY_WITH_TIMEOUT(prepared, 1500);
+        Canvas canvas(host.window(), nativeSize);
+        canvas.resize(900, 900);
+        canvas.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&canvas));
+        QPointer<QWidget> popup;
+        QTRY_VERIFY((popup = host.window()->findChild<QWidget *>("rrKosyncOpening")) && popup->isVisible());
+        const auto lateReady = network->completed;
+        QVERIFY(bool(lateReady));
+        if (scenario == "ready") {
+            network->connected = true;
+            auto completed = std::move(network->completed);
+            network->completed = {};
+            completed(true);
+            QTRY_VERIFY(attempts.count() > 0);
+            QVERIFY(click(canvas, popup->findChild<QPushButton *>("rrKosyncCancel")));
+        } else if (scenario == "sleep") {
+            const auto position = host.session()->state().value("position").toString();
+            host.window()->sleepReader();
+            QTRY_COMPARE(network->cancellations, 1);
+            QTRY_VERIFY(!host.window()->pendingNetworkSync());
+            QCOMPARE(network->requests, 1);
+            QCOMPARE(attempts.count(), 0);
+            const auto identity = QUrl::fromLocalFile(QFileInfo(textBook).absoluteFilePath()).toString();
+            QCOMPARE(storage::readBookState(paths, identity).object.value("position").toString(), position);
+        } else if (scenario == "deadline") {
+            QTRY_VERIFY_WITH_TIMEOUT(!popup || !popup->isVisible(), 12000);
+            QCOMPARE(network->cancellations, 1);
+            QCOMPARE(attempts.count(), 0);
+        } else {
+            QVERIFY(click(canvas, popup->findChild<QPushButton *>("rrKosyncCancel")));
+            QCOMPARE(network->cancellations, 1);
+            network->connected = true;
+            lateReady(true);
+            QCoreApplication::processEvents();
+            QCOMPARE(attempts.count(), 0);
+            network->connected = false;
+            auto *timer = host.window()->findChild<QTimer *>("rrKosyncTimer");
+            QVERIFY(timer && QMetaObject::invokeMethod(timer, "timeout", Qt::DirectConnection));
+            QCOMPARE(network->requests, 1);
+            QCOMPARE(attempts.count(), 0);
+            if (scenario == "login") {
+                // Editing credentials exposes Sign in even for the saved account.
+                auto *username = host.window()->findChild<QPushButton *>("rrKosyncUsername");
+                QVERIFY(username);
+                username->click();
+                auto *input = host.window()->findChild<QLineEdit *>("rrKosyncInput");
+                QVERIFY(input);
+                input->setText("another-reader");
+                host.window()->findChild<QPushButton *>("rrKosyncEditSave")->click();
+                QTRY_VERIFY(!host.window()->findChild<QLineEdit *>("rrKosyncInput"));
+                host.window()->findChild<QPushButton *>("rrKosyncPassword")->click();
+                input = host.window()->findChild<QLineEdit *>("rrKosyncInput");
+                QVERIFY(input);
+                input->setText("fixture-password");
+                host.window()->findChild<QPushButton *>("rrKosyncEditSave")->click();
+                QTRY_VERIFY(!host.window()->findChild<QLineEdit *>("rrKosyncInput"));
+                host.window()->findChild<QPushButton *>("rrKosyncLogin")->click();
+            } else {
+                auto *sync = host.window()->findChild<QPushButton *>("rrKosyncNow");
+                QVERIFY(sync);
+                sync->click();
+            }
+            QCOMPARE(network->requests, 2);
+            QVERIFY(network->interactive);
+            QVERIFY(!host.window()->findChild<QPushButton *>("rrKosyncServer")->isEnabled());
+            const auto failed = std::move(network->completed);
+            network->completed = {};
+            failed(false);
+            QCOMPARE(attempts.count(), 0);
+            QVERIFY(host.window()->findChild<QPushButton *>("rrKosyncServer")->isEnabled());
+            if (scenario == "login") {
+                // Password consumption makes the next sign-in invalid. It must
+                // report that locally without opening another networking dialog.
+                host.window()->findChild<QPushButton *>("rrKosyncLogin")->click();
+                QCOMPARE(network->requests, 2);
+            }
+        }
+        QVERIFY(!kosync::Client(paths.syncAccount()).lastSync().isValid());
+    }
     void verifyKosyncWakeRecovery() {
         const QUrl destination(qEnvironmentVariable("KOBALT_KOSYNC_TEST_SERVER"));
         QTcpServer relay;

@@ -283,11 +283,13 @@ void Client::requestAttempt(const QByteArray &method, const QString &path, const
         done(status, document.object(), {});
     });
 }
+bool validLogin(const QString &server, const QString &username, const QString &password) {
+    return !serverUrl(server).isEmpty() && !username.trimmed().isEmpty() && !username.contains('\r') &&
+           !username.contains('\n') && !username.contains(QChar::Null) && username.size() <= 256 && !password.isEmpty();
+}
 void Client::login(const QString &server, const QString &username, const QString &password, Done done) {
+    if (!validLogin(server, username, password)) { done(message("kosync.invalid_account")); return; }
     const auto url = serverUrl(server);
-    if (url.isEmpty() || username.trimmed().isEmpty() || username.contains('\r') || username.contains('\n') ||
-        username.contains(QChar::Null) ||
-        username.size() > 256 || password.isEmpty()) { done(message("kosync.invalid_account")); return; }
     const auto key = QCryptographicHash::hash(password.toUtf8(), QCryptographicHash::Md5).toHex();
     request("GET", "/users/auth", url, username, key, {},
             [this, url, username, key, done](int status, QJsonObject object, QString error) {

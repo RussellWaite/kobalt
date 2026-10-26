@@ -41,6 +41,7 @@
 "kosync.storage_error" = "Could not read or save the sync account. Existing account data was kept.";
 "kosync.auth_error" = "Sign-in failed. Check your username and password.";
 "kosync.network_error" = "Could not reach the sync server. Check Wi-Fi or your internet connection and the server URL.";
+"kosync.connecting" = "Connecting to Wi-Fi…";
 "kosync.invalid_response" = "The sync server returned invalid progress. Your reading position was kept.";
 "kosync.invalid_account" = "Enter an HTTPS server URL, username and password. The URL cannot contain credentials, a query or a fragment.";
 "kosync.native_sync" = "This book uses Kobo’s built-in sync system. KOsync is unavailable for this copy.";

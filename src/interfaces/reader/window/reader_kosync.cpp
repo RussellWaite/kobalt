@@ -14,7 +14,7 @@ QByteArray Reader::kosyncDocument() const {
 void Reader::kosyncStatus(const QString &message) {
     kosyncMessage = message;
     kosyncPage->setLastSync(kosyncClient->lastSync());
-    kosyncPage->setStatus(message, kosyncClient->busy());
+    kosyncPage->setStatus(message, kosyncClient->busy() || kosyncConnecting || kosyncAuthenticating);
     if (general->isVisible() && !lifecycleHidden && !closing && !exportRunning) {
         fitSettings();
         refresh();
@@ -22,6 +22,7 @@ void Reader::kosyncStatus(const QString &message) {
 }
 void Reader::buildKosync() {
     kosyncClient = std::make_unique<kosync::Client>(book->paths().syncAccount());
+    if (services.syncNetwork) kosyncNetwork = services.syncNetwork();
     kosyncClient->setDefaultDeviceName(services.deviceName.isEmpty() ? QStringLiteral("Kobalt")
                                                                  : services.deviceName + QStringLiteral(" (Kobalt)"));
     kosyncPage->setNativeCloudSync(book->usesNativeCloudSync());
@@ -52,20 +53,32 @@ void Reader::buildKosync() {
         kosyncStatus(strings::get(saved ? "kosync.device_name_saved" : "kosync.storage_error"));
     };
     kosyncPage->loginRequested = [this, account] {
-        if (kosyncClient->busy()) return;
-        kosyncClient->login(kosyncPage->server(), kosyncPage->username(), kosyncPage->takePassword(),
-                            [this, account](const QString &error) {
-            if (error.isEmpty()) {
-                ++kosyncEpoch;
-                kosyncProgress = {};
-                kosyncPositionFailed = false;
-                kosyncPromptDeferred = false;
-                kosyncStarted = false;
-                account();
-            }
-            kosyncStatus(error.isEmpty() ? strings::get("kosync.signed_in") : error);
+        if (kosyncClient->busy() || kosyncConnecting || kosyncAuthenticating) return;
+        const auto server = kosyncPage->server(), username = kosyncPage->username();
+        const auto password = kosyncPage->takePassword();
+        if (!kosync::validLogin(server, username, password)) {
+            kosyncStatus(strings::get("kosync.invalid_account"));
+            return;
+        }
+        kosyncAuthenticating = true;
+        kosyncDeadline.start(10000);
+        prepareKosyncNetwork(true, [this, account, server, username, password] {
+            kosyncClient->login(server, username, password,
+                                [this, account](const QString &error) {
+                kosyncDeadline.stop();
+                kosyncAuthenticating = false;
+                if (error.isEmpty()) {
+                    ++kosyncEpoch;
+                    kosyncProgress = {};
+                    kosyncPositionFailed = false;
+                    kosyncPromptDeferred = false;
+                    kosyncStarted = false;
+                    account();
+                }
+                kosyncStatus(error.isEmpty() ? strings::get("kosync.signed_in") : error);
+            });
+            if (kosyncClient->busy()) kosyncStatus(strings::get("kosync.signing_in"));
         });
-        if (kosyncClient->busy()) kosyncStatus(strings::get("kosync.signing_in"));
     };
     kosyncPage->logoutRequested = [this, account] {
         ++kosyncEpoch;
@@ -91,9 +104,12 @@ void Reader::buildKosync() {
     kosyncDeadline.setSingleShot(true);
     connect(&kosyncDeadline, &QTimer::timeout, this, [this] {
         ++kosyncEpoch;
+        if (kosyncNetwork) kosyncNetwork->cancel();
+        kosyncConnecting = false;
+        const bool authenticating = std::exchange(kosyncAuthenticating, false);
         kosyncClient->cancel();
         kosyncFlushWaiting = false;
-        finishKosync(strings::get("kosync.saved_locally"));
+        finishKosync(strings::get(authenticating ? "kosync.network_error" : "kosync.saved_locally"));
     });
     kosyncOpeningGrace.setSingleShot(true);
     connect(&kosyncOpeningGrace, &QTimer::timeout, this, [this] {
@@ -119,7 +135,7 @@ void Reader::prepareKosyncPresentation(std::function<void(bool)> finished) {
     kosyncOpening = true;
     kosyncOpeningGrace.start(500);
     kosyncDeadline.start(10000);
-    startKosyncExchange(false);
+    prepareKosyncNetwork(false, [this] { startKosyncExchange(false); });
 }
 void Reader::finishKosyncPresentation() {
     kosyncOpeningGrace.stop();
@@ -143,6 +159,7 @@ void Reader::synchronizeKosync(bool interactive) {
         return;
     }
     if (!kosyncClient->signedIn() || (!interactive && !kosyncClient->automatic()) || kosyncClient->busy() ||
+        kosyncConnecting || kosyncAuthenticating ||
         kosyncDialog || closing || lifecycleHidden || exportRunning ||
         services.suspended() || book->deviceTransition() || book->pendingProgress() || model->busy() || model->temporaryTypography() ||
         !isVisible() || model->pages() <= 0 || (!interactive && topControls->isVisible())) return;
@@ -151,7 +168,21 @@ void Reader::synchronizeKosync(bool interactive) {
     kosyncStarted = true;
     kosyncDeadline.start(10000);
     if (opening) showKosyncOpening();
-    startKosyncExchange(false);
+    if (opening || interactive) prepareKosyncNetwork(interactive, [this] { startKosyncExchange(false); });
+    else if (kosyncNetwork && !kosyncNetwork->connected()) finishKosync(strings::get("kosync.saved_locally"));
+    else startKosyncExchange(false);
+}
+void Reader::prepareKosyncNetwork(bool interactive, std::function<void()> ready) {
+    if (!kosyncNetwork) { ready(); return; }
+    const auto epoch = kosyncEpoch;
+    kosyncConnecting = true;
+    kosyncStatus(strings::get("kosync.connecting"));
+    kosyncNetwork->prepare(interactive, [this, epoch, ready](bool connected) {
+        if (epoch != kosyncEpoch) return;
+        kosyncConnecting = false;
+        if (!connected) { finishKosync(strings::get("kosync.network_error")); return; }
+        ready();
+    });
 }
 void Reader::hideKosyncOpening() {
     if (!kosyncOpening) return;
@@ -214,6 +245,8 @@ void Reader::showKosyncOpening() {
 }
 void Reader::cancelKosync() {
     ++kosyncEpoch;
+    if (kosyncNetwork) kosyncNetwork->cancel();
+    kosyncConnecting = kosyncAuthenticating = false;
     kosyncClient->cancel();
     kosyncDeadline.stop();
     kosyncOpeningGrace.stop();
@@ -230,6 +263,8 @@ void Reader::finishKosync(const QString &message) {
         return;
     }
     kosyncPage->setLastSync(kosyncClient->lastSync());
+    if (kosyncNetwork) kosyncNetwork->cancel();
+    kosyncConnecting = kosyncAuthenticating = false;
     const bool finishing = kosyncFinishing;
     const bool opening = kosyncOpening;
     hideKosyncOpening();
@@ -251,7 +286,9 @@ void Reader::finishKosync(const QString &message) {
 void Reader::flushKosync(std::function<void()> finished) {
     // A local checkpoint is already durable. Final uploads use only an existing
     // connection and never resolve a remote conflict while closing or asleep.
-    if (book->usesNativeCloudSync() || !kosyncClient->signedIn() || !kosyncClient->automatic() ||
+    if (kosyncConnecting || kosyncAuthenticating) cancelKosync();
+    if ((kosyncNetwork && !kosyncNetwork->connected()) ||
+        book->usesNativeCloudSync() || !kosyncClient->signedIn() || !kosyncClient->automatic() ||
         kosyncProgress.pending() || book->pendingProgress() || model->temporaryTypography() ||
         model->pages() <= 0 || kosyncDocument().isEmpty() ||
         model->state().value("position").toString().isEmpty()) {

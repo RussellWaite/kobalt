@@ -16,6 +16,7 @@ namespace kobalt::kosync {
 QByteArray documentDigest(QIODevice &file);
 QByteArray filenameDigest(const QString &path);
 QUrl serverUrl(const QString &text);
+bool validLogin(const QString &server, const QString &username, const QString &password);
 struct Progress {
     QString position, device, deviceId;
     double percentage = 0;

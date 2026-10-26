@@ -283,7 +283,7 @@ if(BUILD_TESTING)
             sleepSnapshotReplacesEachClockWithoutChangingTheReadingPage sleepTimeLeftUsesHoursAboveTwoHours
             sleepScreenModesKeepTheStockDefaultAndMigrateTheOptIn sleepCoverFitsWithoutCroppingOrDimming
             sleepCoverDecodingIsBoundedAndHonorsSourceCancellation remoteKeyActivityRequiresActiveReading
-            finishChoiceSurvivesSleepAndRequiresActiveReader kosyncOpening kosyncFinal nativeProgressWaitsForSleep positionSavesWaitForQuietInput usbFinalSave
+            finishChoiceSurvivesSleepAndRequiresActiveReader kosyncOpening kosyncNetwork kosyncFinal nativeProgressWaitsForSleep positionSavesWaitForQuietInput usbFinalSave
             progressChoiceKeepAndGo finishedSyncWithoutPositionKeepsLocalReading
             progressChoiceForOlderAlert progressChoiceUnavailablePosition
             appearanceOpeningDoesNotRepaintToolbar annotationFramesKeepFirstPaintComplete annotationListResolvesPagesOnDemand)
@@ -371,7 +371,13 @@ if(BUILD_TESTING)
             set_target_properties(kobalt-${name}-tests PROPERTIES AUTOMOC OFF)
             target_include_directories(kobalt-${name}-tests PRIVATE "${KOBALT_ROOT}/tests/support")
             target_compile_options(kobalt-${name}-tests PRIVATE -Wall -Wextra -Werror)
-            if(check STREQUAL "native_progress")
+            if(check STREQUAL "native_sync_network")
+                target_sources(kobalt-${name}-tests PRIVATE "${KOBALT_ROOT}/platforms/kobo/common/native_sync_network.cpp"
+                    "${KOBALT_ROOT}/platforms/kobo/common/native_sync_network.h")
+                target_include_directories(kobalt-${name}-tests PRIVATE "${KOBALT_ROOT}" "${source}")
+                target_link_libraries(kobalt-${name}-tests PRIVATE Qt6::Core Qt6::Network)
+                set_target_properties(kobalt-${name}-tests PROPERTIES AUTOMOC ON)
+            elseif(check STREQUAL "native_progress")
                 target_sources(kobalt-${name}-tests PRIVATE "${KOBALT_ROOT}/platforms/kobo/common/native_progress.cpp"
                     "${KOBALT_ROOT}/platforms/kobo/common/native_progress.h")
                 target_include_directories(kobalt-${name}-tests PRIVATE "${KOBALT_ROOT}" "${source}")
@@ -461,7 +467,7 @@ if(BUILD_TESTING)
         library kosync)
     kobalt_regressions(model font_axes touch_rotation)
     kobalt_regressions(platform reader_orientation font_sources system_fonts nickel_dictionary_selection
-        nickel_reading_pace_cache nickel_session_calls nickel_book_menu native_progress native_lifecycle usb_removal page_transition_native)
+        nickel_reading_pace_cache nickel_session_calls nickel_book_menu native_progress native_sync_network native_lifecycle usb_removal page_transition_native)
     kobalt_regressions(engine vertical_spacing source_index columns advanced_text alignment indentation page_layout vertical_writing mathml line_breaking
         fallback_styles svg_limits whitespace links search word_selection reader publisher_markup local_reader document_word_count document_cache)
     kobalt_regressions(component ui acknowledgments font_data font_registration kosync_ui)

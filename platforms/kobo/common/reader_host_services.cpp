@@ -1,6 +1,7 @@
 #include "reader_host_services.h"
 #include "native_dictionary.h"
 #include "native_keyboard.h"
+#include "native_sync_network.h"
 #include "native_lifecycle.h"
 #include "native_light.h"
 #include "native_progress.h"
@@ -200,6 +201,7 @@ ReaderHostServices readerHostServices() {
     result.keyboard = [](QWidget *parent, QLineEdit *editor) {
         return std::make_unique<Keyboard>(parent, editor);
     };
+    result.syncNetwork = [] { return std::make_unique<NativeSyncNetwork>(); };
     result.presentation = [](QWidget *reader) {
         return makeWindowPresentation(reader, nativeReaderSleepScreenAvailable());
     };
