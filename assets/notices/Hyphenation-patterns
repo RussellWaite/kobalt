@@ -6,6 +6,7 @@ English_US.pattern
 Patterns from hyph-en-us.tex (https://github.com/hyphenation/tex-hyphen). Copyright (C) 1990, 2004, 2005 Gerard D.C. Kuiken.
 Copying and distribution of this file, with or without modification, are permitted in any medium without royalty provided the copyright notice and this notice are preserved.
 Exceptions from ushyphex.tex (https://ctan.org/tex-archive/info/digests/tugboat/hyphenex). Copyright 2021 TeX Users Group. You may freely use, modify and/or distribute this file.
+Kobalt corrected the exception conversion to block breaks not listed in the original exceptions. The general patterns are unchanged.
 
 English_GB.pattern
 From hyph-en-gb.tex (https://github.com/hyphenation/tex-hyphen). Copyright (C) 1992, 1996, 2005, 2016 Dominik Wujastyk, Graham Toal. MIT license, below.

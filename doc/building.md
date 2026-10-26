@@ -51,6 +51,8 @@ The additional native integration groups reuse the same production objects. Run 
 
 Each platform uses `assets/CMakeLists.txt` to verify and stage the selected files under its own output directory. CMake tracks these inputs and removes retired files from the staging directory. The Mac app copies the runtime bundle into its Resources directory; Kobo packages it under `.adds/kobalt/assets`; Android embeds it as Qt resources. Artwork and notices are compiled from root `assets/`. Source metadata and unused font files are not copied into the runtime bundle.
 
+To regenerate the US English whole-word exceptions, run `cmake -P assets/convert-english-exceptions.cmake` from the repository root. It uses the checked-in upstream corpus under `tests/fixtures/hyphenation/` and preserves the general patterns and exceptions outside that corpus. Update the dictionary's size and SHA-256 in `assets/manifest.json` after a change. The `engine.publisher-markup` check compares the compiled engine's permitted breaks with all 1,753 corpus entries, including words with no permitted break. It also keeps the existing `seagull` result unchanged.
+
 CMake generates the English string table from `assets/en.strings` and rejects missing keys in literal `strings::get` and `strings::key` calls under `src/`. Ordinary builds reconfigure when that file changes, so edits appear without updating a separate snapshot. Icon geometry and the dictionary catalogue still use checked-in C++ snapshots. Their maintenance workflow has not been restored.
 
 ## Kobo

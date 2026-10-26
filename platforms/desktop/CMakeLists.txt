@@ -434,6 +434,8 @@ if(BUILD_TESTING)
     kobalt_regressions(session reading_book bookmark_session highlight_session reader_session)
     kobalt_regressions(resource image_policy resource_provider)
     kobalt_regressions(corpus multilingual)
+    target_compile_definitions(kobalt-publisher-markup-tests PRIVATE
+        KOBALT_TEST_HYPHENATION_CORPUS="${KOBALT_ROOT}/tests/fixtures/hyphenation/ushyphex.tex")
     target_compile_definitions(kobalt-multilingual-tests PRIVATE
         KOBALT_TEST_ZIP="${KOBALT_TEST_ZIP}" KOBALT_TEST_CORPUS="${KOBALT_ROOT}/tests/fixtures/public-domain")
     add_custom_target(screenshots

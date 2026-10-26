@@ -9,6 +9,8 @@
 #include <QFileInfo>
 #include <QDir>
 #include <QGuiApplication>
+#include <QCryptographicHash>
+#include <QRegularExpression>
 #include <cstdio>
 #include "check.h"
 
@@ -35,6 +37,52 @@ QString hyphenated(HyphMethod *method, const lString32 &word) {
             result << U'-';
     }
     return text(result);
+}
+void checkEnglishExceptions() {
+    const auto bytes = read(KOBALT_TEST_HYPHENATION_CORPUS);
+    require(QCryptographicHash::hash(bytes, QCryptographicHash::Sha256).toHex() ==
+                "9392bd6e14b2f34ebc31d2ba4eddb7d1266bf563bfd89c6161f63cfd7f00ef5c",
+            "The upstream US English exception corpus changed");
+    auto source = QString::fromUtf8(bytes);
+    source.remove(QRegularExpression("%[^\\n]*"));
+    const auto body = QRegularExpression("\\\\hyphenation\\{([^}]+)\\}").match(source);
+    require(body.hasMatch(), "The exception corpus has no hyphenation list");
+    const auto entries = body.captured(1).split(QRegularExpression("\\s+"), Qt::SkipEmptyParts);
+    require(entries.size() == 1753, "The US English exception corpus lost entries");
+    auto *method = TextLangMan::getTextLangCfg(lString32("en-US"))->getHyphMethod();
+    require(text(method->getId()) == "English_US.pattern", "Corpus selected the wrong dictionary");
+    require(method->getLeftHyphenMin() == 2 && method->getRightHyphenMin() == 3,
+            "US English hyphenation limits changed");
+    int failures = 0;
+    for (const auto &entry : entries) {
+        require(QRegularExpression("^[A-Za-z]+(?:-[A-Za-z]+)*$").match(entry).hasMatch(),
+                "The exception corpus contains an unsupported entry");
+        auto word = entry;
+        word.remove('-');
+        QString expected;
+        int letters = 0;
+        // TeX exceptions replace the general patterns. Apply only the language's
+        // two-letter prefix and three-letter suffix limits to their break list.
+        for (const auto character : entry.toLower()) {
+            if (character == '-') {
+                if (letters >= method->getLeftHyphenMin() && word.size() - letters >= method->getRightHyphenMin())
+                    expected += '-';
+            } else {
+                expected += character;
+                ++letters;
+            }
+        }
+        const auto actual = hyphenated(method, Utf8ToUnicode(word.toUtf8().constData())).toLower();
+        if (actual != expected) {
+            if (failures < 5)
+                std::fprintf(stderr, "%s: expected %s, got %s\n", qPrintable(word), qPrintable(expected), qPrintable(actual));
+            ++failures;
+        }
+    }
+    // This general-pattern result is deliberately outside the exception repair.
+    require(hyphenated(method, lString32(U"seagull")) == "seag-ull", "The exception repair changed seagull");
+    require(failures == 0, qPrintable(QString("%1 of 1753 US English exceptions disagree with the corpus").arg(failures)));
+    std::puts("PASS: all 1753 upstream US English exceptions and unchanged seagull");
 }
 // Every match of `query` in the book, in reading order.
 QVector<kobalt::SearchHit> find(kobalt::ReaderModel &model, const QString &query) {
@@ -295,6 +343,7 @@ int main(int argc, char **argv) {
         require(text(TextLangMan::getMainLang()) == "en", "The package language was not applied");
         require(text(TextLangMan::getTextLangCfg()->getHyphMethod()->getId()) == "English_US.pattern",
                 "English does not use its dictionary");
+        checkEnglishExceptions();
 
         // A note without a container keeps its later paragraphs, up to the next note.
         model.go(0);
