@@ -17,6 +17,7 @@
 #include "library/library_store.h"
 #include "reading/reading_density.h"
 #include "reading/appearance_settings.h"
+#include "storage/profile_database.h"
 #include "storage/reader_storage.h"
 #include "storage/bookmark_store.h"
 #include "storage/highlight_store.h"
@@ -93,6 +94,9 @@ QJsonArray captures;
 class BlockedFile {
 public:
     explicit BlockedFile(QString path) : path(std::move(path)), backup(this->path + ".saved") {
+        // Kobalt keeps the profile database open. Close it so the next
+        // operation meets the blocked path, as it would after USB export.
+        storage::closeProfile();
         moved = QFile::rename(this->path, backup);
         blocked = moved && QDir().mkdir(this->path);
     }
@@ -1343,8 +1347,9 @@ private slots:
         QVERIFY(page);
         QVERIFY(fixture.click(page, page->bookmarkCorner().center()));
         QTRY_COMPARE(fixture.state().value("bookmark_count").toInt(), 1);
+        // The list shows the bookmark at once; its save follows on a writer thread.
+        QTRY_COMPARE(fixture.stored("bookmarks.json", "bookmarks").size(), 1);
         const auto original = fixture.stored("bookmarks.json", "bookmarks");
-        QCOMPARE(original.size(), 1);
         QVERIFY(fixture.press("rrPage"));
         QTRY_VERIFY(fixture.visible("rrBookmarks"));
         QVERIFY(fixture.press("rrBookmarks"));
@@ -1361,7 +1366,7 @@ private slots:
         QVERIFY(fixture.press("rrConfirmRemoveBookmark"));
         QTRY_VERIFY(!fixture.visible("rrRemoveBookmark"));
         QTRY_COMPARE(fixture.state().value("bookmark_count").toInt(), 0);
-        QVERIFY(fixture.stored("bookmarks.json", "bookmarks").isEmpty());
+        QTRY_VERIFY(fixture.stored("bookmarks.json", "bookmarks").isEmpty());
         QVERIFY(!page->bookmarked);
         QVERIFY(fixture.visible("rrBookmarkListEmpty"));
         QVERIFY(fixture.press("rrBookmarkListClose"));
@@ -1417,12 +1422,12 @@ private slots:
         QTRY_VERIFY(!fixture.state().value("busy").toBool());
         QTRY_VERIFY(fixture.state().value("font_pixels").toInt() < originalSize);
         QTRY_COMPARE(fixture.state().value("bookmark_count").toInt(), 1);
-        QCOMPARE(fixture.stored("bookmarks.json", "bookmarks").size(), 1);
+        QTRY_COMPARE(fixture.stored("bookmarks.json", "bookmarks").size(), 1);
         QTRY_VERIFY(fixture.state().value("bookmarked").toBool());
         QTRY_VERIFY(!fixture.visible("rrControlsTop") && fixture.widget("rrGraph")->isEnabled());
         QVERIFY(fixture.click(page, page->bookmarkCorner().center()));
         QTRY_COMPARE(fixture.state().value("bookmark_count").toInt(), 0);
-        QVERIFY(fixture.stored("bookmarks.json", "bookmarks").isEmpty());
+        QTRY_VERIFY(fixture.stored("bookmarks.json", "bookmarks").isEmpty());
     }
     void touchCursor() {
         Fixture fixture(false);
@@ -2666,12 +2671,18 @@ private slots:
         {
             BlockedFile blocked(fixture.storedPath("highlights.json"));
             QVERIFY(blocked.active());
+            // The change shows at once. A failed save returns to the saved
+            // highlight and says so.
             QVERIFY(fixture.press("rrAnnotationApply"));
-            QTRY_VERIFY(fixture.visible("rrAnnotationStyleError"));
-            QVERIFY(!fixture.window.readerWindow()->findChild<QLabel *>("rrAnnotationStyleError")->text().isEmpty());
+            QTRY_VERIFY(fixture.visible("rrHighlightError"));
             QVERIFY(blocked.restore());
         }
         QCOMPARE(fixture.stored("highlights.json", "highlights").first().toObject(), saved);
+        QVERIFY(fixture.press("rrHighlightErrorConfirm"));
+        QTRY_VERIFY(!fixture.visible("rrHighlightError"));
+        QVERIFY(fixture.selectWord(page, word));
+        QTRY_VERIFY(fixture.visible("rrAnnotationColor_blue"));
+        QVERIFY(fixture.press("rrAnnotationColor_blue"));
         QVERIFY(fixture.press("rrAnnotationApply"));
         QTRY_COMPARE(fixture.stored("highlights.json", "highlights").first().toObject().value("color").toString(), QString("blue"));
         QCOMPARE(fixture.stored("highlights.json", "highlights").first().toObject().value("id"), saved.value("id"));

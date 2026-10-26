@@ -26,8 +26,9 @@ struct AnnotationDatabaseState {
     QVector<qint64> ordinals;
     QString adoptedFrom;
 };
-// Connections belong to one operation and thread. No database handle survives
-// load/save, so disposing a reading session never leaves a USB volume open.
+// Every operation runs on the profile writer thread, which keeps one connection
+// open until closeProfile() (profile_database.h). Callers on other threads wait
+// for the operation.
 class AnnotationDatabase {
 public:
     // Shared profile tables use the same ownership, version and durability checks.

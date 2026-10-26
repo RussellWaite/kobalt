@@ -496,13 +496,15 @@ private:
     void finishMarksExport(AnnotationExportFormat format, bool saved, const QString &location = {});
     QPointer<QDialog> annotationExportPicker;
     QPointer<kobalt::ui::ModalOverlay> customReplaceDialog;
-    QPointer<kobalt::ui::ModalOverlay> bookmarkErrorDialog, settingsWriteErrorDialog;
+    QPointer<kobalt::ui::ModalOverlay> annotationErrorDialog, settingsWriteErrorDialog;
     QPointer<kobalt::ui::ModalOverlay> formattingWarningDialog;
     QVector<kobalt::BookmarkRow> bookmarkRows() const;
     void openBookmarks();
     void askRemoveBookmark(const QString &position);
     void toggleBookmark();
     void showBookmarkError();
+    void showHighlightError();
+    void showAnnotationError(const QString &message, const QString &title, const QString &name);
     void showFormattingWarning();
     bool flashAfterMenu = false, flashAfterPagePreview = false;
     void requestFlash(const char *reason);

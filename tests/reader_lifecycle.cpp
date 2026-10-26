@@ -27,6 +27,7 @@
 #include "reading/sleep_screen.h"
 #include "reading/reader_session.h"
 #include "engine/crengine/engine_activity.h"
+#include "storage/profile_database.h"
 #include "storage/reader_storage.h"
 #include "support/reader_inputs.h"
 #include "support/book_fixtures.h"
@@ -2936,6 +2937,9 @@ private slots:
             ++failures;
         });
         const auto database = paths.database();
+        // Kobalt keeps the profile open; close it so the next save opens the
+        // read-only file.
+        storage::closeProfile();
         QVERIFY(QFile::setPermissions(database, QFileDevice::ReadOwner));
         turn();
         QVERIFY(!host.window()->flushBeforeStandby());
@@ -3508,8 +3512,8 @@ private slots:
                 QVERIFY(host.window()->findChild<QWidget *>("rrAnnotationPopover")->isVisible());
                 host.window()->findChild<QPushButton *>("rrAnnotationApply")->click();
                 QTRY_VERIFY(!host.window()->findChild<QWidget *>("rrAnnotationPopover")->isVisible());
-                QVERIFY(store.load());
-                QCOMPARE(store.highlights().first().style, QString(style));
+                // The save follows on the highlight session's writer thread.
+                QTRY_VERIFY(store.load() && store.highlights().first().style == QString(style));
                 QCOMPARE(store.highlights().first().color, QString("blue"));
                 QVERIFY(barrier());
             }

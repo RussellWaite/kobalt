@@ -1,5 +1,7 @@
 #pragma once
 #include "storage/bookmark_store.h"
+#include "storage/record_writer.h"
+#include <QHash>
 #include <QJsonObject>
 #include <QObject>
 #include <QSet>
@@ -22,6 +24,11 @@ QString bookmarkLayoutKey(int pages, const QJsonObject &state, const QSize &page
 // from the engine are dropped after destruction or a layout change. A page
 // lookup is also repeated when the list changed meanwhile, because its pages
 // pair with the old list.
+//
+// An edit changes the list at once. Its save runs on a writer thread, because
+// each save syncs storage several times. When the newest save fails, the list
+// returns to the last saved one and `failed` runs. Destruction waits for a
+// running save.
 class BookmarkSession final : public QObject {
 public:
     BookmarkSession(ReaderSession &model, std::function<QString()> layout, const QString &annotations,
@@ -53,6 +60,12 @@ public:
     const QVector<int> &pages() const {
         return pages_;
     }
+    // True until the newest save has reported back.
+    bool saving() const {
+        return reported < posted;
+    }
+    // Waits for the running and pending save, for example before USB export.
+    void flush();
     // One validity check for callers rendering an entire bookmark list.
     QVector<int> resolvedPages() const { return resolved() ? pages_ : QVector<int>{}; }
     // The known pages changed: a lookup finished, needs repeating, or merged
@@ -66,6 +79,9 @@ public:
 private:
     void merge();
     bool save(QVector<Bookmark> bookmarks, QVector<int> pages, const char *reason);
+    // `before` is the error count when the save was posted.
+    void finishSave(quint64 save, bool ok, const QString &error, quint64 before,
+                    const QVector<Bookmark> &bookmarks, const char *reason);
     ReaderSession &model;
     std::function<QString()> layout;
     std::unique_ptr<BookmarkStore> store;
@@ -80,5 +96,17 @@ private:
     quint64 generation = 0;
     // Pages with an add waiting for the engine. A second tap there waits too.
     QSet<int> adding;
+    // The writer thread owns `saver`, a copy of the store that tracks what
+    // is on storage. `saved` is the newest list known to be there. Pages of
+    // lists replaced since then, in `restore`'s layout, let a failed save
+    // return to `saved` without a new lookup.
+    std::unique_ptr<storage::RecordWriter> writer;
+    std::shared_ptr<BookmarkStore> saver;
+    QVector<Bookmark> saved;
+    QHash<QString, int> restore;
+    QString restoreLayout;
+    quint64 restoreRevision = 0, posted = 0, reported = 0;
+    // Counts errors, so a save clears only errors set before it was posted.
+    quint64 errors = 0;
 };
 }

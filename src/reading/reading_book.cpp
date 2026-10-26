@@ -2,6 +2,7 @@
 #include "reading_book.h"
 #include "appearance_settings.h"
 #include "reader_session.h"
+#include "storage/profile_database.h"
 #include "storage/reader_storage.h"
 #include "support/diagnostics.h"
 #include "support/qt_compat.h"
@@ -36,6 +37,7 @@ ReadingBook::~ReadingBook() {
     saveSpeed(true);
     // Finish the last queued position before the profile can be released.
     writer.reset();
+    speedWriter.reset();
 }
 bool ReadingBook::savesPending() const {
     return writer && !writer->idle();
@@ -118,7 +120,15 @@ void ReadingBook::saveSpeed(bool force) {
         return;
     }
     speedSaved.start();
-    if (storage::writeRecord(paths_.directory, "reading-speed", paths_.readingSpeed(), speed->state())) {
+    if (!speedWriter)
+        speedWriter = std::make_unique<storage::RecordWriter>();
+    const bool saved = speedWriter->writeNow([directory = paths_.directory, path = paths_.readingSpeed(),
+                                         state = speed->state()] {
+        // Rewritten every minute while reading; a checkpoint syncs it.
+        storage::RoutineWrites routine;
+        return storage::writeRecord(directory, "reading-speed", path, state);
+    });
+    if (saved) {
         speed->saved();
     } else {
         diagnostic("reading-speed-unsaved", {}, false);
@@ -271,6 +281,9 @@ bool ReadingBook::checkpoint(QJsonObject *snapshot, bool background) {
         const std::weak_ptr<ReadingBook *> guard = alive;
         writer->post(
             [paths = paths_, identity = identity_, persisted, path = statePath] {
+                // Reading checkpoints follow each other closely. The next synced
+                // commit, sleep, standby or close puts this one on storage.
+                storage::RoutineWrites routine;
                 return storage::writeBookState(paths, identity, persisted, path);
             },
             [guard, checkpoint](bool saved) {
@@ -284,10 +297,14 @@ bool ReadingBook::checkpoint(QJsonObject *snapshot, bool background) {
             });
         return true;
     }
-    if (writer)
-        writer->cancel();
+    // The profile database has one writer thread. A synchronous checkpoint
+    // replaces a queued one there and waits for its result.
+    if (!writer)
+        writer = std::make_unique<storage::RecordWriter>();
     pendingCheckpoint = {};
-    const bool saved = storage::writeBookState(paths_, identity_, persisted, statePath);
+    const bool saved = writer->writeNow([paths = paths_, identity = identity_, persisted, path = statePath] {
+        return storage::writeBookState(paths, identity, persisted, path);
+    });
     if (saved) {
         if (!model->temporaryTypography()) {
             const auto settings = storage::readPreferences(paths_.preferences());

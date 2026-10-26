@@ -9,6 +9,7 @@
 #include "browser_handoff.h"
 #include "interfaces/reader_window.h"
 #include "reading/reading_book.h"
+#include "storage/profile_database.h"
 #include "storage/reader_storage.h"
 #include "reading/reader_session.h"
 #include "engine/crengine/engine_activity.h"
@@ -186,6 +187,10 @@ ReaderCoordinator::ReaderCoordinator(ReaderEnvironment &environment, Coordinator
             },
             [this, ready = std::move(ready)] {
                 environment_.assets.invalidate();
+                // Nickel unmounts the partition lazily and hands it to the
+                // computer; no Kobalt file may stay open, and none opens again
+                // until the partition is mounted again.
+                kobalt::storage::closeProfile(true);
                 ready();
             });
     };
@@ -204,7 +209,11 @@ ReaderCoordinator::ReaderCoordinator(ReaderEnvironment &environment, Coordinator
         timer.stop();
         // Revocation can dispose the reader while its bookmark is being
         // exported. Keep the shutdown continuation with the shared drain.
-        cleanupCallbacks.append(std::move(ready));
+        // Nickel only freezes Kobalt at power-off, so close the profile first.
+        cleanupCallbacks.append([ready = std::move(ready)] {
+            kobalt::storage::closeProfile(true);
+            ready();
+        });
         if (run.reader && !busy)
             run.reader->prepareShutdown([this] {
                 homeSleep->persistPowerOff(run.identity);
@@ -547,6 +556,8 @@ void ReaderCoordinator::disposeForTransition(std::function<void()> finished) {
             lifecycle->draining = false;
             if (lifecycle->blocked() && !lifecycle->storageBlocked())
                 kobalt::engineActivity().pause(true);
+            // The reader and its savers are gone; leave one closed file.
+            kobalt::storage::closeProfile();
             const auto callbacks = std::exchange(cleanupCallbacks, {});
             for (const auto &callback : callbacks)
                 callback();
@@ -819,6 +830,9 @@ void ReaderCoordinator::showReader() {
             kobalt::releaseResourceConnections([this] {
                 lifecycle->draining = false;
                 QFile::remove(activePath);
+                // The reader and its savers are gone; leave one closed file
+                // while Nickel shows Home.
+                kobalt::storage::closeProfile();
                 status("closed");
                 finishHomeNavigation();
                 // USB or revocation may have arrived during the barrier.

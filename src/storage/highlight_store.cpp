@@ -223,6 +223,13 @@ bool HighlightStore::excerpts(const QStringList &ids, QVector<HighlightExcerpt> 
     *rows = std::move(result);
     return true;
 }
+void HighlightStore::dropDetails() {
+    if (!compact_)
+        return;
+    for (auto &h : highlights_) {
+        h.text.clear(); h.chapter.clear(); h.note.clear(); h.detailsLoaded = false;
+    }
+}
 bool HighlightStore::save(QString *error) {
     if (loadFailed_) {
         return problem(error, "load-failed");
@@ -237,11 +244,7 @@ bool HighlightStore::save(QString *error) {
             return false;
         if (!AnnotationDatabase::save(book, highlights_, persistedHighlights_, &databaseState_, error))
             return false;
-        if (compact_) {
-            for (auto &h : highlights_) {
-                h.text.clear(); h.chapter.clear(); h.note.clear(); h.detailsLoaded = false;
-            }
-        }
+        dropDetails();
         persistedHighlights_ = highlights_;
         return true;
     }

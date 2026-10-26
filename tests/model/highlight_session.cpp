@@ -210,7 +210,7 @@ int main(int argc, char **argv) {
                 futureDone = true;
             });
             waitUntil([&] {
-                return futureDone;
+                return futureDone && !futureSession.saving();
             });
             require(futureSession.highlights().first().color == "orange" &&
                         highlightDisplayColor(futureSession.highlights().first().color) == "gray" &&
@@ -220,11 +220,14 @@ int main(int argc, char **argv) {
             require(detail(futureSession, future.id).note == future.note &&
                         futureStore.highlights().first().note == future.note,
                     "Editing a passage lost its attached note");
-            require(futureSession.recolor(future.id, "gray") && futureSession.highlights().first().color == "gray" &&
-                        futureStore.load() && futureStore.highlights().first().color == "gray",
+            require(futureSession.recolor(future.id, "gray") && futureSession.highlights().first().color == "gray",
                     "Displayed gray future color could not explicitly become gray");
-            require(futureSession.restyle(future.id, "dotted") && futureStore.load() &&
-                        futureStore.highlights().first().note == future.note,
+            waitUntil([&] { return !futureSession.saving(); });
+            require(futureStore.load() && futureStore.highlights().first().color == "gray",
+                    "An explicit gray color was not saved");
+            require(futureSession.restyle(future.id, "dotted"), "Cannot restyle future-color passage");
+            waitUntil([&] { return !futureSession.saving(); });
+            require(futureStore.load() && futureStore.highlights().first().note == future.note,
                     "Changing annotation appearance lost its note");
         }
         bool completed = false, saved = false;
@@ -327,6 +330,7 @@ int main(int argc, char **argv) {
         require(session.recolor(passage.id, passage.color) && recolorChanges == 0 && session.resolved(),
                 "Same-color recolor invalidated geometry or notified a change");
         session.changed = {};
+        waitUntil([&] { return !session.saving(); });
         {
             QTemporaryDir pendingRoot;
             require(pendingRoot.isValid(), "Cannot create pending highlight fixture");
@@ -361,6 +365,7 @@ int main(int argc, char **argv) {
                         afterRemoval.order[0] == 0 && afterRemoval.order[1] == 1,
                     "Removing a passage lost page pairing or left stale relative ranks");
         }
+        waitUntil([&] { return !session.saving(); });
         {
             HighlightSession reopened(model, layout, annotations.path(), "file:///highlight-session.epub",
                                       model.sourceHash(), "Book");
@@ -394,7 +399,9 @@ int main(int argc, char **argv) {
         });
         require(!saved && session.highlights().size() == 1, "Invalid range changed saved passages");
         // A failed atomic replacement must preserve the saved passage and
-        // remain retryable through the ordinary save API.
+        // remain retryable through the ordinary save API. Earlier edits must
+        // be on storage first, or their saves would fail against the block too.
+        waitUntil([&] { return !session.saving(); });
         const auto previous = session.highlights().first();
         const auto savedPath = annotations.path() + '/' +
                                BookmarkStore::bookKey("file:///highlight-session.epub", model.sourceHash()) +
@@ -408,12 +415,21 @@ int main(int argc, char **argv) {
         const auto savedBytes = readSaved();
         require(QFile::rename(savedPath, backup) && QDir().mkdir(savedPath),
                 "Cannot block atomic highlight replacement");
-        require(!session.recolor(previous.id, "pink") && samePassage(previous, session.highlights().first()) &&
-                    session.highlights().first().color == previous.color,
-                "Failed recolor changed live saved data");
-        require(!session.updateAppearance(previous.id, "blue", "dotted") && session.highlights().first().style == previous.style &&
-                    samePassage(previous, session.highlights().first()),
-                "Failed restyle changed live saved data");
+        // Edits show at once. A failed save returns to the saved passage.
+        int saveFailures = 0;
+        session.saveFailed = [&] {
+            ++saveFailures;
+        };
+        require(session.recolor(previous.id, "pink") && session.highlights().first().color == "pink",
+                "A recolor did not show at once");
+        waitUntil([&] { return saveFailures == 1; });
+        require(samePassage(previous, session.highlights().first()) &&
+                    session.highlights().first().color == previous.color && !session.error().isEmpty(),
+                "Failed recolor kept its change in memory");
+        require(session.updateAppearance(previous.id, "blue", "dotted"), "Cannot start a restyle");
+        waitUntil([&] { return saveFailures == 2; });
+        require(session.highlights().first().style == previous.style && samePassage(previous, session.highlights().first()),
+                "Failed restyle kept its change in memory");
         completed = false;
         session.save(
             first.start, first.end, previous.id,
@@ -423,9 +439,9 @@ int main(int argc, char **argv) {
             },
             first.end, true, first.start, true);
         waitUntil([&] {
-            return completed;
+            return completed && saveFailures == 3;
         });
-        require(!saved && session.highlights().size() == 1 && session.highlights().first().id == previous.id &&
+        require(saved && session.highlights().size() == 1 && session.highlights().first().id == previous.id &&
                     session.highlights().first().start == previous.start &&
                     session.highlights().first().end == previous.end &&
                     session.highlights().first().text == previous.text &&
@@ -433,6 +449,7 @@ int main(int argc, char **argv) {
                     session.highlights().first().chosenStart == previous.chosenStart &&
                     session.highlights().first().chosenEnd == previous.chosenEnd,
                 "Failed edit changed live saved data");
+        session.saveFailed = {};
         require(QDir().rmdir(savedPath) && QFile::rename(backup, savedPath), "Cannot restore atomic highlight fixture");
         require(readSaved() == savedBytes, "Failed edit replaced prior saved bytes");
         completed = false;
@@ -517,18 +534,20 @@ int main(int argc, char **argv) {
             isCompact();
             require(compact.recolor(a.id, "blue") && detail(compact, a.id).note == a.note,
                     "Compact recolor erased an unloaded note");
+            waitUntil([&] { return !compact.saving(); });
             isCompact();
             bool adjusted = false;
             compact.save(first.start, first.end, a.id, [&](bool ok) {
                 require(ok, "Cannot adjust compact saved highlight");
                 adjusted = true;
             });
-            waitUntil([&] { return adjusted; });
+            waitUntil([&] { return adjusted && !compact.saving(); });
             require(detail(compact, a.id).note == a.note, "Compact endpoint edit erased its note");
             isCompact();
             require(compact.remove(b.id) && compact.highlights().size() == 1 &&
                         detail(compact, a.id).note == a.note,
                     "Compact deletion changed the remaining note");
+            waitUntil([&] { return !compact.saving(); });
             isCompact();
         }
         {

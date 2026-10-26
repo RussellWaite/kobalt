@@ -126,6 +126,12 @@ Reader::Reader(std::unique_ptr<kobalt::ReadingBook> openedBook, kobalt::ReaderOr
             refresh();
         }
     };
+    // A highlight save on the writer thread failed and the saved list is back.
+    highlights->saveFailed = [this] {
+        kobalt::qt::later(0, this, [this] {
+            showHighlightError();
+        });
+    };
     book->onCheckpointFailed([this] {
         page->notice = strings::get("reader.could_not_save_reading_position");
         page->refreshContent();

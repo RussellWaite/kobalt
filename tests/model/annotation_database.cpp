@@ -1,4 +1,7 @@
+#include <mutex>
+#include <vector>
 #include "storage/annotation_database.h"
+#include "storage/profile_database.h"
 #include "storage/bookmark_store.h"
 #include "storage/highlight_store.h"
 #include "storage/reader_storage.h"
@@ -37,7 +40,10 @@ void write(const QString &path, const QByteArray &data) {
     QFile file(path);
     require(file.open(QIODevice::WriteOnly | QIODevice::Truncate) && file.write(data) == data.size(), "Cannot write fixture");
 }
+// Kobalt holds the profile file exclusively while it is open. Close it, as
+// USB export does, before probing the file with another connection.
 QVariant sql(const QString &root, const QString &statement) {
+    storage::closeProfile();
     QVariant result;
     {
         auto db = QSqlDatabase::addDatabase("QSQLITE", "annotation-test-probe");
@@ -276,6 +282,7 @@ void sqlitePageLimit() {
     QTemporaryDir root; legacyCurrent(root.path());
     HighlightStore store(root.path(), identity, fingerprint, "Book");
     require(store.load(), "Production page limit rejected a small database");
+    storage::closeProfile();
     {
         auto db = QSqlDatabase::addDatabase("QSQLITE", "annotation-limit-probe");
         db.setDatabaseName(AnnotationDatabase::path(root.path())); require(db.open(), "Cannot open page-limit fixture");
@@ -308,47 +315,31 @@ void sqlitePageLimit() {
 void concurrentSnapshots() {
     QTemporaryDir root;
     HighlightStore store(root.path(), identity, fingerprint, "Book");
+    require(store.load(), "Cannot initialize concurrent snapshot fixture");
     const QString shortNote(64, 'a'), longNote(96, 'b');
     QVector<Highlight> marks;
     for (int i = 0; i < 128; ++i) {
         auto h = highlight(); h.id = "race-" + QString::number(i); h.note = shortNote; marks.append(h);
     }
     store.setHighlights(marks); require(store.save(), "Cannot seed concurrent snapshot fixture");
-    std::atomic<bool> ready{false}, stop{false};
+    // Another thread saves through Kobalt while this one loads. Both run on
+    // the profile writer thread, so every load sees one whole saved list.
+    std::atomic<bool> stop{false};
     std::atomic<int> commits{0};
     QString writerError;
-    const auto database = AnnotationDatabase::path(root.path());
     std::thread writer([&] {
-        {
-            auto db = QSqlDatabase::addDatabase("QSQLITE", "annotation-snapshot-writer");
-            db.setDatabaseName(database); db.setConnectOptions("QSQLITE_BUSY_TIMEOUT=1500");
-            if (!db.open()) writerError = db.lastError().text();
-            ready = true;
-            bool longer = true;
-            while (writerError.isEmpty() && !stop) {
-                QSqlQuery row(db), list(db);
-                if (!db.transaction() ||
-                    !row.prepare("UPDATE entries SET note=?,bytes=bytes+? WHERE kind=1 AND id='race-0'") ||
-                    !list.prepare("UPDATE lists SET revision=revision+1,bytes=bytes+? WHERE kind=1")) {
-                    writerError = "Cannot prepare concurrent transaction";
-                    break;
-                }
-                const int delta = longer ? 32 : -32;
-                row.addBindValue(longer ? longNote : shortNote); row.addBindValue(delta); list.addBindValue(delta);
-                if (!row.exec() || !list.exec() || !db.commit()) {
-                    writerError = row.lastError().text() + list.lastError().text() + db.lastError().text();
-                    db.rollback();
-                    break;
-                }
-                ++commits;
-                longer = !longer;
-                QThread::msleep(1);
-            }
-            db.close();
+        HighlightStore saver(root.path(), identity, fingerprint, "Book");
+        if (!saver.load(&writerError)) return;
+        bool longer = true;
+        while (!stop) {
+            auto rows = saver.highlights();
+            rows.first().note = longer ? longNote : shortNote;
+            saver.setHighlights(rows);
+            if (!saver.save(&writerError)) break;
+            ++commits;
+            longer = !longer;
         }
-        QSqlDatabase::removeDatabase("annotation-snapshot-writer");
     });
-    while (!ready) QThread::msleep(1);
     bool valid = true;
     QString error;
     for (int i = 0; i < 200 && valid; ++i) {
@@ -361,7 +352,52 @@ void concurrentSnapshots() {
     stop = true; writer.join();
     if (!valid || !writerError.isEmpty())
         std::fprintf(stderr, "Concurrent snapshot: reader=%s writer=%s\n", qPrintable(error), qPrintable(writerError));
-    require(valid && writerError.isEmpty() && commits > 0, "Valid concurrent writes broke annotation read snapshots");
+    require(valid && writerError.isEmpty() && commits > 0, "Concurrent saves broke annotation read snapshots");
+}
+// While Kobalt holds the profile, no other connection can read or write it.
+// Closing returns one rollback-journal file that any connection can use.
+void exclusiveProfile() {
+    QTemporaryDir root;
+    HighlightStore store(root.path(), identity, fingerprint, "Book");
+    require(store.load(), "Cannot initialize exclusive profile fixture");
+    store.setHighlights({highlight()}); require(store.save(), "Cannot save exclusive profile fixture");
+    const auto database = AnnotationDatabase::path(root.path());
+    require(QFile::exists(database + "-wal") && !QFile::exists(database + "-shm"),
+            "An open profile did not use write-ahead logging with an exclusive lock");
+    const auto probe = [&](bool expectOpen) {
+        bool readable = false;
+        {
+            auto db = QSqlDatabase::addDatabase("QSQLITE", "annotation-exclusive-probe");
+            db.setDatabaseName(database); db.setConnectOptions("QSQLITE_BUSY_TIMEOUT=100");
+            require(db.open(), "Cannot open exclusive profile probe");
+            {
+                QSqlQuery q(db);
+                readable = q.exec("SELECT count(*) FROM entries") && q.next();
+                if (expectOpen) {
+                    require(q.exec("PRAGMA journal_mode") && q.next() &&
+                                q.value(0).toString().compare("delete", Qt::CaseInsensitive) == 0,
+                            "A closed profile was left in write-ahead mode");
+                }
+            }
+            db.close();
+        }
+        QSqlDatabase::removeDatabase("annotation-exclusive-probe");
+        return readable;
+    };
+    require(!probe(false), "Another connection read the profile while Kobalt held it");
+    storage::closeProfile();
+    require(!QFile::exists(database + "-wal") && !QFile::exists(database + "-shm"),
+            "Closing the profile left its log files");
+    require(probe(true), "Another connection could not read the closed profile");
+    // The next operation opens the profile again.
+    require(store.load() && store.highlights().size() == 1, "Cannot reopen a closed profile");
+    // While the profile is kept closed, for USB export or power-off, every
+    // operation fails and nothing opens the file.
+    storage::closeProfile(true);
+    require(!store.load() && !QFile::exists(database + "-wal"), "A profile kept closed was opened");
+    storage::reopenProfile();
+    require(store.load() && store.highlights().size() == 1, "Cannot reopen after keeping the profile closed");
+    storage::closeProfile();
 }
 }
 void compactHighlights() {
@@ -631,6 +667,160 @@ void profileDatabaseLocation() {
     require(isolated.load() && isolated.bookmarks().isEmpty() && QFile::exists(empty.database()) &&
             !QFile::exists(empty.annotations()), "Empty profile did not create an independent database");
 }
+// A process that ends without closing the profile leaves its log. The next
+// opening replays it, and so does a connection opened the way earlier builds
+// open the file; that connection also returns it to a rollback journal.
+void crashRecovery(const QString &program) {
+    for (const bool previousBuild : {false, true}) {
+        QTemporaryDir root;
+        QProcess child;
+        child.start(program, {"--crash-after-save", root.path()});
+        require(child.waitForFinished(30000) && child.exitStatus() == QProcess::NormalExit && child.exitCode() == 0,
+                "Crash fixture process failed");
+        const auto database = AnnotationDatabase::path(root.path());
+        require(QFileInfo(database + "-wal").size() > 0 && !QFile::exists(database + "-shm"),
+                "A crash did not leave the write-ahead log");
+        if (previousBuild) {
+            QString note, position, mode;
+            {
+                auto db = QSqlDatabase::addDatabase("QSQLITE", "annotation-previous-build");
+                db.setDatabaseName(database); db.setConnectOptions("QSQLITE_BUSY_TIMEOUT=1500");
+                require(db.open(), "Cannot open crashed profile like the previous build");
+                {
+                    QSqlQuery q(db);
+                    // The previous build reads ownership first, then sets its journal.
+                    require(q.exec("PRAGMA application_id") && q.next() && q.value(0).toInt() == 1262571057,
+                            "Previous build could not read a crashed profile");
+                    q.finish();
+                    require(q.exec("PRAGMA journal_mode=DELETE") && q.next(), "Previous build could not set its journal");
+                    mode = q.value(0).toString();
+                    q.finish();
+                    require(q.exec("SELECT CAST(note AS BLOB) FROM entries WHERE kind=1") && q.next(),
+                            "Previous build lost the crashed highlight");
+                    note = QString::fromUtf8(q.value(0).toByteArray());
+                    q.finish();
+                    require(q.exec("SELECT CAST(payload AS BLOB) FROM book_state WHERE identity='crash-book'") && q.next(),
+                            "Previous build lost the crashed position");
+                    position = QJsonDocument::fromJson(q.value(0).toByteArray()).object().value("position").toString();
+                }
+                db.close();
+            }
+            QSqlDatabase::removeDatabase("annotation-previous-build");
+            require(mode.compare("delete", Qt::CaseInsensitive) == 0 && note == "saved before the crash" &&
+                        position == "routine position",
+                    "Previous build did not recover the crashed profile");
+            require(!QFile::exists(database + "-wal") && !QFile::exists(database + "-shm"),
+                    "Previous build left log files behind");
+        } else {
+            HighlightStore store(root.path(), identity, fingerprint, "Book");
+            require(store.load() && store.highlights().size() == 1 && store.highlights().first().note == "saved before the crash",
+                    "Opening did not recover the crashed highlight");
+            const auto state = storage::readBookState(storage::Paths{root.path()}, "crash-book");
+            require(state.status == storage::ReadStatus::Ok && state.object.value("position").toString() == "routine position",
+                    "Opening did not recover a routine write after a crash");
+            storage::closeProfile();
+            require(!QFile::exists(database + "-wal"), "Closing after recovery left the log");
+        }
+    }
+}
+// Routine commits wait for a sync. A synced commit that changes rows syncs
+// them; one that changes nothing, such as an unchanged record, does not.
+void routineSyncs() {
+    QTemporaryDir root;
+    const storage::Paths paths{root.path()};
+    const auto state = qt::object({{"book", "sync-book"}, {"position", "first"}});
+    require(storage::writeBookState(paths, "sync-book", state) && !storage::profileHasUnsyncedWrites(),
+            "A synced commit left routine writes waiting");
+    {
+        storage::RoutineWrites routine;
+        require(storage::writeBookState(paths, "sync-book", qt::object({{"book", "sync-book"}, {"position", "second"}})),
+                "Cannot write a routine record");
+    }
+    require(storage::profileHasUnsyncedWrites(), "A routine commit was reported as synced");
+    require(storage::writeBookState(paths, "sync-book", qt::object({{"book", "sync-book"}, {"position", "second"}})) &&
+                storage::readBookState(paths, "sync-book").status == storage::ReadStatus::Ok,
+            "Cannot repeat an unchanged record");
+    require(storage::profileHasUnsyncedWrites(), "A commit without changes was counted as a sync");
+    require(!storage::profileCheckpointDue(), "A checkpoint was due within a minute of the last sync");
+    require(storage::writeBookState(paths, "sync-book", qt::object({{"book", "sync-book"}, {"position", "third"}})) &&
+                !storage::profileHasUnsyncedWrites(),
+            "A changed synced commit did not sync earlier routine writes");
+    {
+        storage::RoutineWrites routine;
+        require(storage::writeBookState(paths, "sync-book", qt::object({{"book", "sync-book"}, {"position", "fourth"}})),
+                "Cannot write a second routine record");
+    }
+    storage::checkpointProfile();
+    require(!storage::profileHasUnsyncedWrites(), "A checkpoint did not sync routine writes");
+    storage::closeProfile();
+}
+// Sideloaded books are keyed by content, so each stress book needs its own.
+QByteArray stressFingerprint(int book) {
+    return QByteArray(64, char('a' + book));
+}
+// Threads save, load and close at the same time. Every save lands, and the
+// closed profile is one rollback-journal file.
+void concurrentStress() {
+    QTemporaryDir root;
+    constexpr int books = 3, rounds = 60;
+    std::atomic<bool> failed{false};
+    std::mutex problemMutex;
+    QString problem;
+    const auto fail = [&](const QString &step, const QString &error) {
+        std::lock_guard<std::mutex> lock(problemMutex);
+        if (problem.isEmpty()) problem = step + ": " + error;
+        failed = true;
+    };
+    std::vector<std::thread> threads;
+    for (int book = 0; book < books; ++book) {
+        threads.emplace_back([&, book] {
+            const auto key = QString("file:///stress-%1.epub").arg(book);
+            HighlightStore store(root.path(), key, stressFingerprint(book), "Stress");
+            QString error;
+            if (!store.load(&error)) { fail("load", error); return; }
+            for (int round = 0; round < rounds && !failed; ++round) {
+                auto h = highlight();
+                h.note = QString("round %1").arg(round);
+                store.setHighlights({h});
+                if (!store.save(&error)) { fail("save", error); return; }
+                const auto state = qt::object({{"book", key}, {"position", QString::number(round)}});
+                storage::RoutineWrites routine;
+                if (!storage::writeBookState(storage::Paths{root.path()}, key, state)) { fail("state", {}); return; }
+            }
+        });
+    }
+    threads.emplace_back([&] {
+        for (int i = 0; i < 20 && !failed; ++i) {
+            QThread::msleep(5);
+            storage::closeProfile();
+        }
+    });
+    threads.emplace_back([&] {
+        for (int i = 0; i < rounds && !failed; ++i) {
+            for (int book = 0; book < books; ++book) {
+                HighlightStore reader(root.path(), QString("file:///stress-%1.epub").arg(book), stressFingerprint(book), "Stress");
+                QString error;
+                if (!reader.load(&error) || reader.highlights().size() > 1) { fail("read", error); return; }
+            }
+        }
+    });
+    for (auto &thread : threads) thread.join();
+    if (failed) std::fprintf(stderr, "Concurrent stress: %s\n", qPrintable(problem));
+    require(!failed, "Concurrent profile operations failed");
+    for (int book = 0; book < books; ++book) {
+        const auto key = QString("file:///stress-%1.epub").arg(book);
+        HighlightStore store(root.path(), key, stressFingerprint(book), "Stress");
+        require(store.load() && store.highlights().size() == 1 &&
+                    store.highlights().first().note == QString("round %1").arg(rounds - 1),
+                "A concurrent save was lost");
+        require(storage::readBookState(storage::Paths{root.path()}, key).object.value("position").toString() ==
+                    QString::number(rounds - 1),
+                "A concurrent routine write was lost");
+    }
+    storage::closeProfile();
+    const auto database = AnnotationDatabase::path(root.path());
+    require(!QFile::exists(database + "-wal") && !QFile::exists(database + "-shm"), "Stress left log files");
+}
 void defaultBackend() {
     qunsetenv("KOBALT_ANNOTATIONS_SQLITE");
     require(annotationDatabaseEnabled(), "SQLite must be the default backend");
@@ -660,6 +850,7 @@ int main(int argc, char **argv) {
         defaultBackend(); profileDatabaseLocation();
         beta3(); atomicMigration();
         deletionPreservesRows(); orderChangesAndLimits();
+        storage::closeProfile();
         require(QSqlDatabase::connectionNames().isEmpty(), "Ordering checks retained database connections");
         std::printf("{\"qt\":\"%s\",\"order_regressions\":\"passed\",\"annotations\":2000}\n", qVersion());
         return 0;
@@ -676,12 +867,27 @@ int main(int argc, char **argv) {
                 "Cannot start interrupted schema transaction");
         std::_Exit(0); // Deliberately skip database and lock destructors.
     }
+    if (app.arguments().size() == 3 && app.arguments()[1] == "--crash-after-save") {
+        const auto root = app.arguments()[2];
+        HighlightStore store(root, identity, fingerprint, "Book");
+        require(store.load(), "Cannot initialize crash fixture");
+        auto h = highlight(); h.note = "saved before the crash";
+        store.setHighlights({h}); require(store.save(), "Cannot save crash fixture");
+        {
+            storage::RoutineWrites routine;
+            require(storage::writeBookState(storage::Paths{root}, "crash-book",
+                                            qt::object({{"book", "crash-book"}, {"position", "routine position"}})),
+                    "Cannot write routine crash fixture");
+        }
+        std::_Exit(0); // End without closing the profile, like a crash.
+    }
     defaultBackend(); profileDatabaseLocation();
     beta3(); atomicMigration(); versionsAndCorruption(); editsAndFailures(); adoption(); quotas(); tamperedQuota();
     compactHighlights(); compactBounds(); compactCapacity();
     deletionPreservesRows(); orderChangesAndLimits();
     embeddedNulText(); unsupportedDatabaseEncoding();
-    disabledProvenance(); sqlitePageLimit(); concurrentSnapshots();
+    disabledProvenance(); sqlitePageLimit(); concurrentSnapshots(); exclusiveProfile();
+    crashRecovery(app.applicationFilePath()); concurrentStress(); routineSyncs();
     require(QSqlDatabase::connectionNames().isEmpty(), "Annotation operations retained database connections");
     qunsetenv("KOBALT_ANNOTATIONS_SQLITE");
     return 0;

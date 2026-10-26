@@ -18,6 +18,7 @@
 #include "model/page_refresh_regions.h"
 #include "support/diagnostics.h"
 #include "interfaces/reader/ui/style/metrics.h"
+#include "storage/profile_database.h"
 #include "storage/reader_storage.h"
 #include <QApplication>
 #include <QJsonArray>
@@ -113,6 +114,9 @@ void Reader::prepareTransition(std::function<void()> finished, int timeoutMs) {
     closing = true;
     clockTimer->stop();
     setEnabled(false);
+    // USB export and power-off need running annotation saves on storage.
+    bookmarks->flush();
+    highlights->flush();
     save(true);
     auto completed = std::make_shared<bool>(false);
     if (timeoutMs) {
@@ -219,6 +223,10 @@ void Reader::sleepReader() {
     appearanceEdit.clearContinuation();
     saveNativeProgress();
     checkpoint();
+    // Fold waiting saves into the main profile file before a long sleep.
+    bookmarks->flush();
+    highlights->flush();
+    kobalt::storage::checkpointProfile();
     closeSearch();
     dismissLookup();
     lifecycleHidden = true;
@@ -381,7 +389,7 @@ QVector<QWidget *> Reader::popups() const {
             removeDialog.data(),
             annotationExportPicker.data(),
             customReplaceDialog.data(),
-            bookmarkErrorDialog.data(),
+            annotationErrorDialog.data(),
             formattingWarningDialog.data(),
             settingsWriteErrorDialog.data()};
 }
@@ -412,7 +420,7 @@ bool Reader::event(QEvent *event) {
                         !chapterGraph->isVisible() && !linkReturn->isVisible() && !dictionaryPanel->isVisible() &&
                         !searchPanel->isVisible() && !linksActive() && !lookupPending &&
                         !acknowledgments->isVisible() && !bookmarkList->isVisible() && !lightPopup->isVisible() &&
-                        !busyNotice->isVisible() && !syncDialog && !finishDialog && !bookmarkErrorDialog &&
+                        !busyNotice->isVisible() && !syncDialog && !finishDialog && !annotationErrorDialog &&
                         !formattingWarningDialog && !settingsWriteErrorDialog && !services.suspended() &&
                         page->image.text("kobalt.animation_text_only") == "true");
         // These panels hold text and line controls. Changes inside them can
@@ -778,7 +786,7 @@ void Reader::updateOrientationBlock() {
     if (orientation)
         orientation->setBlocked(lifecycleHidden || services.suspended() || topControls->isVisible() || model->busy() ||
                                 appearanceEdit.panelOpen() || bool(syncDialog) || bool(finishDialog) ||
-                                bool(bookmarkErrorDialog) || bool(formattingWarningDialog) ||
+                                bool(annotationErrorDialog) || bool(formattingWarningDialog) ||
                                 bool(settingsWriteErrorDialog) || dictionaryPanel->isVisible() ||
                                 searchPanel->isVisible() || linksActive() || lookupPending);
 }
@@ -1587,7 +1595,7 @@ void Reader::turnPage(int direction) {
         pageScrubber->cancel();
     turnStarted.start();
     lastInput.start();
-    if (finishDialog || syncDialog || bookmarkErrorDialog || formattingWarningDialog || settingsWriteErrorDialog ||
+    if (finishDialog || syncDialog || annotationErrorDialog || formattingWarningDialog || settingsWriteErrorDialog ||
         !model->canTurn() || closing || exitPending || lifecycleHidden || services.suspended() ||
         book->deviceTransition() || appearanceEdit.panelOpen() || appearanceEdit.applying())
         return;
@@ -1745,18 +1753,27 @@ void Reader::runIdleSave(bool beforeStandby) {
 }
 
 bool Reader::flushBeforeStandby() {
-    // Let a background checkpoint finish its storage syncs before standby.
-    if (book->savesPending())
+    // Let background saves finish their storage syncs before standby.
+    if (book->savesPending() || bookmarks->saving() || highlights->saving() ||
+        kobalt::storage::profileCheckpointPending())
         return false;
-    if (!localSaveDue || closing || exportRunning || lifecycleHidden)
-        return true;
-    // Never write from inside Nickel's suspend decision. Queue the save and
-    // let Nickel ask again; a busy engine already keeps the device awake.
-    if (!std::exchange(standbyFlushQueued, true))
-        kobalt::qt::later(0, this, [this] {
-            runIdleSave(true);
-        });
-    return false;
+    if (localSaveDue && !closing && !exportRunning && !lifecycleHidden) {
+        // Never write from inside Nickel's suspend decision. Queue the save and
+        // let Nickel ask again; a busy engine already keeps the device awake.
+        if (!std::exchange(standbyFlushQueued, true))
+            kobalt::qt::later(0, this, [this] {
+                runIdleSave(true);
+            });
+        return false;
+    }
+    // Routine position saves do not sync storage. Before standby, sync them
+    // once the last sync is a minute old, so a drained battery loses at most
+    // about a minute of reading position.
+    if (kobalt::storage::profileCheckpointDue()) {
+        kobalt::storage::requestProfileCheckpoint();
+        return false;
+    }
+    return true;
 }
 
 // `snapshot` marks a close, sleep or shutdown. `background` queues the

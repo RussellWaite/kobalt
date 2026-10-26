@@ -58,6 +58,14 @@ public:
     void setHighlights(QVector<Highlight> highlights) {
         highlights_ = std::move(highlights);
     }
+    // A compact store keeps only rendering metadata for saved passages.
+    void dropDetails();
+    // Takes over what `saver`, a copy of this store, last wrote. Database reads
+    // check the list revision, so they then match storage.
+    void adoptSaved(const HighlightStore &saver) {
+        persistedHighlights_ = saver.persistedHighlights_;
+        databaseState_ = saver.databaseState_;
+    }
 
 private:
     friend class AnnotationDatabase;

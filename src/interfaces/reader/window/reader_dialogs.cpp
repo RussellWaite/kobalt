@@ -196,7 +196,7 @@ void Reader::showFormattingWarning() {
 }
 
 bool Reader::progressBlocked() const {
-    return bool(debugDialog) || bool(finishDialog) || bool(bookmarkErrorDialog) || bool(formattingWarningDialog) ||
+    return bool(debugDialog) || bool(finishDialog) || bool(annotationErrorDialog) || bool(formattingWarningDialog) ||
            bool(settingsWriteErrorDialog) || book->deviceTransition() || services.suspended() || !isVisible() ||
            lightPopup->isVisible() || model->busy() || chapterGraph->isVisible() || dictionaryPanel->isVisible() ||
            searchPanel->isVisible() || linksActive() || lookupPending || appearanceEdit.panelOpen() ||
@@ -577,19 +577,28 @@ void Reader::showSettingsWriteError() {
 }
 
 void Reader::showBookmarkError() {
-    if (bookmarkErrorDialog || bookmarks->error().isEmpty() || closing || lifecycleHidden || services.suspended() ||
-        !isVisible())
+    if (!bookmarks->error().isEmpty())
+        showAnnotationError(bookmarks->error(), strings::get("bookmarks.title"), "rrBookmarkError");
+}
+
+void Reader::showHighlightError() {
+    showAnnotationError(strings::get("annotations.change_not_saved"), strings::get("annotations.title"),
+                        "rrHighlightError");
+}
+
+// `name` names the notice; its message and button add `Message` and `Confirm`.
+void Reader::showAnnotationError(const QString &message, const QString &title, const QString &name) {
+    if (annotationErrorDialog || closing || lifecycleHidden || services.suspended() || !isVisible())
         return;
     model->cancelPendingTurn();
-    auto *notice = new ui::NoticeModal(this, {bookmarks->error(), strings::get("bookmarks.title"), {}},
-                                       {strings::get("common.ok"), "rrBookmarkErrorConfirm"});
-    bookmarkErrorDialog = notice;
-    notice->setObjectName("rrBookmarkError");
-    notice->descriptionLabel()->setObjectName("rrBookmarkErrorMessage");
+    auto *notice = new ui::NoticeModal(this, {message, title, {}}, {strings::get("common.ok"), name + "Confirm"});
+    annotationErrorDialog = notice;
+    notice->setObjectName(name);
+    notice->descriptionLabel()->setObjectName(name + "Message");
     const auto dismiss = [this, notice] {
         notice->hide();
         notice->deleteLater();
-        bookmarkErrorDialog.clear();
+        annotationErrorDialog.clear();
         updateOrientationBlock();
         refresh();
     };

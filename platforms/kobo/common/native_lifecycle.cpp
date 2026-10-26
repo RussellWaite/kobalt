@@ -2,6 +2,7 @@
 #include "native_lifecycle.h"
 #include "reader_environment.h"
 #include "engine/crengine/engine_activity.h"
+#include "storage/profile_database.h"
 #include "support/diagnostics.h"
 #include <QPointer>
 #include <QTimer>
@@ -350,6 +351,8 @@ void NativeLifecycle::unplugging() {
 void NativeLifecycle::disconnected() {
     if (!active || active->exported)
         return; // Wait for remount and processing.
+    // USB ended before the export; the partition was never released.
+    storage::reopenProfile();
     ++active->generation;
     active->usbPending = false;
     active->pendingGadget.clear();
@@ -365,6 +368,7 @@ void NativeLifecycle::processingDone() {
     ++generation;
     usbPending = exported = storageReady = false;
     pendingGadget.clear();
+    storage::reopenProfile();
     pauseDiagnostics(false);
     diagnostic("usb-storage-ready");
     if (restartAfterRemoval())

@@ -1,5 +1,6 @@
 #include "storage/reader_storage.h"
 #include "storage/annotation_database.h"
+#include "storage/profile_database.h"
 #include "storage/bookmark_store.h"
 #ifndef KOBALT_TEST_NO_LIBRARY
 #include "library/library_index.h"
@@ -26,12 +27,18 @@ QByteArray bytes(const QString &path) {
 void write(const QString &path, const QByteArray &value) {
     QFile file(path); require(file.open(QIODevice::WriteOnly) && file.write(value) == value.size(), "Write fixture");
 }
+// Stands in for a change made while Kobalt was closed: the profile closes
+// afterwards, so the next operation opens and checks the file again.
 void execute(const QString &directory, const QString &sql) {
     require(AnnotationDatabase::transaction(directory, [&](QSqlDatabase &db) {
         QSqlQuery query(db); return query.exec(sql);
     }), "SQL fixture");
+    storage::closeProfile();
 }
+// Kobalt holds the profile file exclusively while it is open. Close it, as
+// USB export does, before probing the file with another connection.
 QVariant rawValue(const QString &directory, const QString &sql) {
+    storage::closeProfile();
     const auto name = QStringLiteral("profile-schema-probe");
     auto db = QSqlDatabase::addDatabase("QSQLITE", name);
     db.setDatabaseName(directory + "/kobalt.sqlite");

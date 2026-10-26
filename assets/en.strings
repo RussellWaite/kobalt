@@ -867,6 +867,7 @@
 "annotations.edit" = "Adjust";
 "annotations.remove" = "Delete";
 "annotations.save_failed" = "Could not save the highlight. Your selection is kept.";
+"annotations.change_not_saved" = "Could not save the last highlight change. The highlights are back as they were saved.";
 "annotations.remove_prompt" = "Delete this highlight?";
 "annotations.remove_detail" = "The saved passage will be removed from this book.";
 "annotations.dismiss" = "Dismiss";

@@ -190,11 +190,19 @@ int main(int argc, char **argv) {
             failedSave.added = [&] {
                 ++added;
             };
-            require(!failedSave.remove(position) && failed == 1, "A failed removal announced success");
+            // Edits show at once. A failed save returns to the saved list.
+            require(failedSave.remove(position) && failedSave.bookmarks().isEmpty(), "A removal did not show at once");
+            waitUntil([&] {
+                return failed == 1;
+            });
             require(failedSave.bookmarks() == original && failedSave.pages() == originalPages,
-                    "A failed removal changed memory");
-            require(failedSave.toggle(model.page()) == BookmarkSession::Toggle::Refused && failed == 2,
-                    "A failed toggle removal announced success");
+                    "A failed removal kept its change in memory");
+            require(failedSave.toggle(model.page()) == BookmarkSession::Toggle::Removed, "Cannot start toggle removal");
+            waitUntil([&] {
+                return failed == 2;
+            });
+            require(failedSave.bookmarks() == original && failedSave.pages() == originalPages,
+                    "A failed toggle removal kept its change in memory");
             require(model.go(1), "Cannot turn for failed-add fixture");
             waitUntil([&] {
                 return !model.busy();
@@ -203,15 +211,15 @@ int main(int argc, char **argv) {
             waitUntil([&] {
                 return failed == 3;
             });
-            require(added == 0 && failedSave.bookmarks() == original && failedSave.pages() == originalPages &&
+            require(added == 1 && failedSave.bookmarks() == original && failedSave.pages() == originalPages &&
                         !failedSave.error().isEmpty(),
-                    "A failed add changed memory or announced success");
+                    "A failed add kept its change in memory or hid the error");
             require(QDir().rmdir(blockedPath) && QFile::rename(blockedPath + ".saved", blockedPath),
                     "Cannot restore bookmark output");
             require(read(marksPath) == originalBytes, "A failed edit changed persisted bookmarks");
             require(failedSave.toggle(model.page()) == BookmarkSession::Toggle::Adding, "Cannot retry failed add");
             waitUntil([&] {
-                return added == 1;
+                return added == 2 && !failedSave.saving();
             });
             require(failedSave.error().isEmpty() && failedSave.bookmarks().size() == 2,
                     "A successful retry kept the save error");

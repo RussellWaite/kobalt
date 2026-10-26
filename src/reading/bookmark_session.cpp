@@ -2,7 +2,9 @@
 #include "reader_session.h"
 #include "appearance_settings.h"
 #include "support/diagnostics.h"
+#include "support/qt_compat.h"
 #include "support/strings.h"
+#include <QCoreApplication>
 #include <QDateTime>
 #include <QJsonDocument>
 #include <QMap>
@@ -31,6 +33,7 @@ BookmarkSession::BookmarkSession(ReaderSession &model, std::function<QString()> 
         error_ = strings::get("bookmarks.load_failed");
         diagnostic("bookmarks-load", {{"error", error}}, false);
     }
+    saved = store->bookmarks();
 }
 const QVector<Bookmark> &BookmarkSession::bookmarks() const {
     static const QVector<Bookmark> none;
@@ -189,29 +192,107 @@ void BookmarkSession::merge() {
     }
 }
 bool BookmarkSession::save(QVector<Bookmark> bookmarks, QVector<int> pages, const char *reason) {
-    QString error;
-    const auto previous = store->bookmarks();
-    bool saved = false;
-    if (bookmarks.size() > BookmarkStore::maxBookmarks)
-        error = "bookmark-limit";
-    else {
-        store->setBookmarks(std::move(bookmarks));
-        saved = store->save(&error);
-    }
-    diagnostic("bookmarks-saved",
-               {{"reason", reason}, {"count", int(store->bookmarks().size())}, {"failed", !saved}, {"error", error}},
-               false);
-    if (!saved) {
-        store->setBookmarks(previous);
+    if (bookmarks.size() > BookmarkStore::maxBookmarks) {
+        diagnostic("bookmarks-saved",
+                   {{"reason", reason}, {"count", int(store->bookmarks().size())}, {"failed", true},
+                    {"error", "bookmark-limit"}},
+                   false);
         error_ = strings::get("bookmarks.save_failed");
+        ++errors;
         if (failed)
             failed();
         return false;
     }
-    error_.clear();
+    // Remember the pages of the list being replaced, so a failed save can
+    // return to the saved list in this layout.
+    if (restoreLayout != layout_ || restoreRevision != layoutRevision_) {
+        restore.clear();
+        restoreLayout = layout_;
+        restoreRevision = layoutRevision_;
+    }
+    const auto &previous = store->bookmarks();
+    if (!layout_.isEmpty() && pages_.size() == previous.size())
+        for (int i = 0; i < previous.size(); ++i)
+            restore.insert(previous[i].position, pages_[i]);
+    store->setBookmarks(bookmarks);
     ++generation;
     pages_ = std::move(pages);
+    if (!writer) {
+        writer = std::make_unique<storage::RecordWriter>();
+        saver = std::make_shared<BookmarkStore>(*store);
+    }
+    const auto id = ++posted;
+    const auto copy = saver;
+    const QPointer<BookmarkSession> guard(this);
+    auto error = std::make_shared<QString>();
+    writer->post(
+        [copy, bookmarks, error] {
+            copy->setBookmarks(bookmarks);
+            return copy->save(error.get());
+        },
+        [guard, id, bookmarks, error, reason, before = errors](bool ok) {
+            kobalt::qt::invoke(
+                QCoreApplication::instance(),
+                [guard, id, bookmarks, error, before, reason, ok] {
+                    if (guard)
+                        guard->finishSave(id, ok, *error, before, bookmarks, reason);
+                },
+                Qt::QueuedConnection);
+        });
     return true;
+}
+void BookmarkSession::finishSave(quint64 id, bool ok, const QString &error, quint64 before,
+                                 const QVector<Bookmark> &bookmarks, const char *reason) {
+    reported = qMax(reported, id);
+    diagnostic("bookmarks-saved",
+               {{"reason", reason}, {"count", int(bookmarks.size())}, {"failed", !ok}, {"error", error}}, false);
+    if (ok)
+        saved = bookmarks;
+    // A newer save writes the whole list again, so only its result counts.
+    if (id != posted)
+        return;
+    if (ok) {
+        // An error set after this save started stays.
+        if (errors == before)
+            error_.clear();
+        restore.clear();
+        return;
+    }
+    // Return to the saved list. Its pages are known when every saved
+    // bookmark was on screen in this layout; otherwise look them up again.
+    QVector<int> pages;
+    if (!layout_.isEmpty() && restoreLayout == layout_ && restoreRevision == layoutRevision_) {
+        QHash<QString, int> known = restore;
+        const auto &current = store->bookmarks();
+        for (int i = 0; i < current.size() && i < pages_.size(); ++i)
+            known.insert(current[i].position, pages_[i]);
+        for (const auto &bookmark : saved) {
+            if (!known.contains(bookmark.position)) {
+                pages.clear();
+                break;
+            }
+            pages.append(known.value(bookmark.position));
+        }
+    }
+    store->setBookmarks(saved);
+    ++generation;
+    if (pages.size() == saved.size()) {
+        pages_ = std::move(pages);
+    } else {
+        layout_.clear();
+        pages_.clear();
+    }
+    restore.clear();
+    error_ = strings::get("bookmarks.save_failed");
+    ++errors;
+    if (changed)
+        changed();
+    if (failed)
+        failed();
+}
+void BookmarkSession::flush() {
+    if (writer)
+        writer->flush();
 }
 bool BookmarkSession::remove(const QString &position) {
     if (!store)

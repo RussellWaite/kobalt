@@ -1,7 +1,9 @@
 #include "highlight_session.h"
 #include "reader_session.h"
 #include "support/diagnostics.h"
+#include "support/qt_compat.h"
 
+#include <QCoreApplication>
 #include <QPointer>
 #include <QHash>
 #include <QUuid>
@@ -21,6 +23,7 @@ HighlightSession::HighlightSession(ReaderSession &model, std::function<QString()
     if (loadFailed_) {
         diagnostic("highlights-load", {{"error", error_}}, false);
     }
+    saved_ = store_->highlights();
 }
 HighlightSession::~HighlightSession() {
     cancelLookup();
@@ -39,17 +42,52 @@ const QVector<Highlight> &HighlightSession::highlights() const {
 bool HighlightSession::excerpts(const QStringList &ids, QVector<HighlightExcerpt> *rows) {
     if (!store_ || loadFailed_)
         return false;
-    if (!store_->excerpts(ids, rows, &error_)) {
-        loadFailed_ = true;
-        return false;
+    QStringList missing;
+    for (const auto &id : ids)
+        if (!known_.contains(id))
+            missing.append(id);
+    if (!missing.isEmpty()) {
+        adoptSaved();
+        QVector<HighlightExcerpt> loaded;
+        if (!store_->excerpts(missing, &loaded, &error_)) {
+            ++errors_;
+            loadFailed_ = true;
+            return false;
+        }
+        // Keep the newest rows read, so a refresh after an edit is served here.
+        QHash<QString, HighlightExcerpt> kept;
+        for (const auto &h : store_->highlights())
+            if (h.detailsLoaded && known_.contains(h.id))
+                kept.insert(h.id, known_.value(h.id));
+        known_ = std::move(kept);
+        for (const auto &row : loaded)
+            known_.insert(row.id, row);
     }
+    QVector<HighlightExcerpt> result;
+    for (const auto &id : ids) {
+        if (!known_.contains(id)) {
+            error_ = QStringLiteral("missing-highlight");
+            ++errors_;
+            return false;
+        }
+        result.append(known_.value(id));
+    }
+    *rows = std::move(result);
     return true;
 }
 bool HighlightSession::detail(const QString &id, Highlight *row) {
     if (!store_ || loadFailed_)
         return false;
+    for (const auto &h : highlights()) {
+        if (h.id == id && h.detailsLoaded) {
+            *row = h;
+            return true;
+        }
+    }
+    adoptSaved();
     QVector<Highlight> loaded;
     if (!store_->details({id}, &loaded, &error_) || loaded.size() != 1) {
+        ++errors_;
         loadFailed_ = true;
         return false;
     }
@@ -60,8 +98,21 @@ bool HighlightSession::exportDetails(QVector<Highlight> *rows) {
     if (!store_ || loadFailed_ || !resolved())
         return false;
     QStringList ids;
-    for (const auto &row : highlights()) ids.append(row.id);
-    if (!store_->details(ids, rows, &error_)) return false;
+    for (const auto &row : highlights())
+        if (!row.detailsLoaded)
+            ids.append(row.id);
+    adoptSaved();
+    QVector<Highlight> loaded;
+    if (!store_->details(ids, &loaded, &error_)) {
+        ++errors_;
+        return false;
+    }
+    QHash<QString, Highlight> stored;
+    for (auto &row : loaded)
+        stored.insert(row.id, std::move(row));
+    rows->clear();
+    for (const auto &row : highlights())
+        rows->append(row.detailsLoaded ? row : stored.value(row.id));
     QHash<QString, int> order;
     for (int i = 0; i < highlights().size(); ++i) {
         const int rank = order_.value(i * 2, -1);
@@ -144,17 +195,94 @@ bool HighlightSession::persist(QVector<Highlight> highlights) {
         }
         return false;
     }
-    const auto previous = store_->highlights();
-    store_->setHighlights(std::move(highlights));
-    if (!store_->save(&error_)) {
-        store_->setHighlights(previous);
+    if (highlights.size() > HighlightStore::maxHighlights) {
+        error_ = QStringLiteral("storage-limit");
+        ++errors_;
         diagnostic("highlights-save", {{"error", error_}}, false);
-        if (failed) {
+        if (failed)
             failed();
-        }
         return false;
     }
-    error_.clear();
+    if (!writer_) {
+        writer_ = std::make_unique<storage::RecordWriter>();
+        saver_ = std::make_shared<HighlightStore>(*store_);
+    }
+    const auto id = ++posted_;
+    const auto copy = saver_;
+    const QPointer<HighlightSession> guard(this);
+    auto error = std::make_shared<QString>();
+    writer_->post(
+        [copy, highlights, error] {
+            copy->setHighlights(highlights);
+            return copy->save(error.get());
+        },
+        [guard, id, highlights, error, before = errors_](bool ok) {
+            kobalt::qt::invoke(
+                QCoreApplication::instance(),
+                [guard, id, highlights, error, before, ok] {
+                    if (guard)
+                        guard->finishSave(id, ok, *error, before, highlights);
+                },
+                Qt::QueuedConnection);
+        });
+    apply(std::move(highlights));
+    return true;
+}
+void HighlightSession::finishSave(quint64 id, bool ok, const QString &error, quint64 before,
+                                  const QVector<Highlight> &highlights) {
+    reported_ = qMax(reported_, id);
+    if (ok)
+        saved_ = highlights;
+    else
+        diagnostic("highlights-save", {{"error", error}}, false);
+    // A newer save writes the whole list again, so only its result counts.
+    if (id != posted_)
+        return;
+    if (ok) {
+        // An error set after this save started, such as an overlap, stays.
+        if (errors_ == before)
+            error_.clear();
+        // The list on screen is the saved one. Edited passages are cached in
+        // `known_`; their full payload returns to storage, as after loading.
+        store_->dropDetails();
+        return;
+    }
+    error_ = error;
+    ++errors_;
+    known_.clear();
+    apply(saved_);
+    if (failed)
+        failed();
+    if (saveFailed)
+        saveFailed();
+}
+void HighlightSession::adoptSaved() {
+    if (!writer_ || adopted_ == posted_)
+        return;
+    // The writer finishes the newest save before this thread reads its state.
+    writer_->flush();
+    store_->adoptSaved(*saver_);
+    adopted_ = posted_;
+}
+void HighlightSession::flush() {
+    if (writer_)
+        writer_->flush();
+}
+void HighlightSession::remember(const QVector<Highlight> &highlights) {
+    QHash<QString, HighlightExcerpt> kept;
+    for (const auto &h : highlights) {
+        if (h.detailsLoaded)
+            kept.insert(h.id, {h.id, h.text, h.chapter});
+        else if (known_.contains(h.id))
+            kept.insert(h.id, known_.value(h.id));
+    }
+    known_ = std::move(kept);
+}
+// Shows a new list and keeps the endpoint pages that still pair with it.
+void HighlightSession::apply(QVector<Highlight> highlights) {
+    const auto previous = store_->highlights();
+    store_->setHighlights(std::move(highlights));
+    remember(store_->highlights());
     ++generation_;
     const auto &current = store_->highlights();
     bool sameRanges = previous.size() == current.size();
@@ -199,8 +327,8 @@ bool HighlightSession::persist(QVector<Highlight> highlights) {
     if (changed) {
         changed();
     }
-    return true;
 }
+
 void HighlightSession::save(const QString &start, const QString &end, const QString &id,
                             std::function<void(bool)> finished, const QString &chosenEnd, bool sentenceEndPolicy,
                             const QString &chosenStart, bool sentenceStartPolicy, const QString &color, const QString &style) {
@@ -215,6 +343,7 @@ void HighlightSession::save(const QString &start, const QString &end, const QStr
     }
     if ((!color.isEmpty() && !isHighlightColor(color)) || (!style.isEmpty() && !isHighlightStyle(style))) {
         error_ = QStringLiteral("invalid-appearance");
+        ++errors_;
         if (failed) {
             failed();
         }
@@ -286,6 +415,7 @@ void HighlightSession::save(const QString &start, const QString &end, const QStr
                                      !hits.isEmpty()) {
                                      if (!hits.isEmpty()) {
                                          guard->error_ = QStringLiteral("overlap");
+                                         ++guard->errors_;
                                          if (guard->failed)
                                              guard->failed();
                                      }
@@ -336,6 +466,7 @@ bool HighlightSession::updateAppearance(const QString &id, const QString &color,
     if ((color.isEmpty() && style.isEmpty()) || (!color.isEmpty() && !isHighlightColor(color)) ||
         (!style.isEmpty() && !isHighlightStyle(style))) {
         error_ = QStringLiteral("invalid-appearance");
+        ++errors_;
         if (failed)
             failed();
         return false;

@@ -1,6 +1,8 @@
 #pragma once
 #include "storage/highlight_store.h"
+#include "storage/record_writer.h"
 
+#include <QHash>
 #include <QObject>
 #include <QRect>
 #include <atomic>
@@ -10,6 +12,10 @@
 namespace kobalt {
 class ReaderSession;
 struct BookmarkLocations;
+// An edit changes the list at once. Its save runs on a writer thread, because
+// each save syncs storage several times. When the newest save fails, the list
+// returns to the last saved one and `failed` runs. Destruction waits for a
+// running save.
 class HighlightSession final : public QObject {
 public:
     HighlightSession(ReaderSession &model, std::function<QString()> layout, const QString &annotations,
@@ -52,10 +58,24 @@ public:
     // Empty fields preserve saved values. Both changes persist together or roll back.
     bool updateAppearance(const QString &id, const QString &color, const QString &style);
     bool remove(const QString &id);
-    std::function<void()> changed, failed;
+    // True until the newest save has reported back.
+    bool saving() const {
+        return reported_ < posted_;
+    }
+    // Waits for the running and pending save, for example before USB export.
+    void flush();
+    // `failed` reports a refused edit or a failed save. `saveFailed` reports
+    // only a failed save, after the list has returned to the saved one.
+    std::function<void()> changed, failed, saveFailed;
 
 private:
     bool persist(QVector<Highlight> highlights);
+    void apply(QVector<Highlight> highlights);
+    // `before` is the error count when the save was posted.
+    void finishSave(quint64 id, bool ok, const QString &error, quint64 before,
+                    const QVector<Highlight> &highlights);
+    void adoptSaved();
+    void remember(const QVector<Highlight> &highlights);
     ReaderSession &model_;
     std::function<QString()> layout;
     std::unique_ptr<HighlightStore> store_;
@@ -66,5 +86,16 @@ private:
     quint64 layoutRevision_ = 0, lookupRevision_ = 0, lookupRequest_ = 0;
     quint64 rangesGeneration_ = 0, lookupGeneration_ = 0;
     bool loadFailed_ = false;
+    // The writer thread owns `saver_`, a copy of the store that tracks what
+    // is on storage. `saved_` is the newest list known to be there.
+    std::unique_ptr<storage::RecordWriter> writer_;
+    std::shared_ptr<HighlightStore> saver_;
+    QVector<Highlight> saved_;
+    quint64 posted_ = 0, reported_ = 0, adopted_ = 0;
+    // Counts errors, so a save clears only errors set before it was posted.
+    quint64 errors_ = 0;
+    // Excerpts known without a database read: edited passages, and the last
+    // rows read. A list refresh after an edit then need not wait for its save.
+    QHash<QString, HighlightExcerpt> known_;
 };
 }

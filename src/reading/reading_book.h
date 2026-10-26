@@ -127,8 +127,10 @@ private:
     QJsonObject pendingCheckpoint;
     std::function<void()> checkpointFailed;
     void finishBackgroundCheckpoint(const QJsonObject &checkpoint, bool saved);
-    // Destroyed before `alive`, after its last write has finished.
-    std::unique_ptr<storage::RecordWriter> writer;
+    // A writer holds one waiting write, so each record has its own: a speed
+    // record must not replace a waiting position. The destructor resets both
+    // after their last writes have finished.
+    std::unique_ptr<storage::RecordWriter> writer, speedWriter;
     std::shared_ptr<ReadingBook *> alive = std::make_shared<ReadingBook *>(this);
     QString dictionaryChoice_;
 };
