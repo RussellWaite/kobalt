@@ -65,6 +65,11 @@ Slovak.pattern
 From hyph-sk.tex (https://github.com/hyphenation/tex-hyphen). Copyright (C) 1992 Jana Chlebíková.
 MIT. License text below.
 
+Russian.pattern
+From hyph-ru.tex (https://github.com/hyphenation/tex-hyphen/blob/master/hyph-utf8/tex/generic/hyph-utf8/patterns/tex/hyph-ru.tex), Copyright (C) 1999-2003 Alexander I. Lebedev, version 2003/03/10.
+Licensed under the LaTeX Project Public License 1.2 or later. Kobalt uses LPPL 1.3c; the full text is in LPPL-1.3c.
+KOReader converted the TeX patterns to CREngine XML. Kobalt includes that conversion unchanged from the pinned CREngine source. The original TeX file is available at the source link above. The original authors do not provide support for this conversion or for Kobalt.
+
 Slovenian.pattern
 From hyph-sl.tex (https://github.com/hyphenation/tex-hyphen). Copyright (C) 1990 Matjaž Vrečko.
 MIT, selected from the LPPL / MIT options. License text below.

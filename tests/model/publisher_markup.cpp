@@ -21,6 +21,21 @@ QByteArray read(const char *path) {
 QString text(const lString32 &value) {
     return QString::fromUtf8(UnicodeToUtf8(value).c_str());
 }
+QString hyphenated(HyphMethod *method, const lString32 &word) {
+    lUInt16 widths[WORD_LENGTH] = {};
+    lUInt8 flags[WORD_LENGTH] = {};
+    require(word.length() < WORD_LENGTH, "Hyphenation probe is too long");
+    for (int i = 0; i < word.length(); ++i)
+        widths[i] = (i + 1) * 10;
+    method->hyphenate(word.c_str(), word.length(), widths, flags, 5, 1000);
+    lString32 result;
+    for (int i = 0; i < word.length(); ++i) {
+        result << word[i];
+        if (flags[i] & LCHAR_ALLOW_HYPH_WRAP_AFTER)
+            result << U'-';
+    }
+    return text(result);
+}
 // Every match of `query` in the book, in reading order.
 QVector<kobalt::SearchHit> find(kobalt::ReaderModel &model, const QString &query) {
     QVector<kobalt::SearchHit> hits;
@@ -378,19 +393,26 @@ int main(int argc, char **argv) {
         require(model.image(model.page()) != hyphenated, "German hyphenation did not change wrapping");
     }
     {
-        // A language without a bundled dictionary keeps algorithmic hyphenation.
+        // Russian uses its dictionary, including regional language tags.
         kobalt::ReaderModel model(kobalt::test::readerFonts());
         require(model.open(read(argv[3]), size, kobalt::qt::object({{"hyphenation", "on"}}), &error),
                 qPrintable(error));
         require(text(TextLangMan::getMainLang()) == "ru", "The Russian package language was not applied");
-        require(text(TextLangMan::getTextLangCfg()->getHyphMethod()->getId()) == "@algorithm",
-                "Russian lost algorithmic hyphenation");
+        for (const auto *language : {"ru", "ru-RU"}) {
+            auto *method = TextLangMan::getTextLangCfg(lString32(language))->getHyphMethod();
+            require(text(method->getId()) == "Russian.pattern" && method->getCount() > 0,
+                    "Russian does not use its bundled patterns");
+            require(hyphenated(method, lString32(U"программирование")) == "про-грам-ми-ро-ва-ние",
+                    "Russian patterns lost their dictionary-specific breaks");
+        }
+        require(text(TextLangMan::getTextLangCfg(lString32("bg"))->getHyphMethod()->getId()) == "@algorithm",
+                "An unbundled language lost algorithmic hyphenation");
     }
     {
         const auto directory = QFileInfo(QString::fromLocal8Bit(argv[1])).absoluteDir();
         const QMap<QString, QString> dictionaries = {
             {"et-EE", "Estonian"},   {"fi-FI", "Finnish"},  {"ka-GE", "Georgian"}, {"hu-HU", "Hungarian"},
-            {"lt-LT", "Lithuanian"}, {"lv-LV", "Latvian"},  {"pl-PL", "Polish"},   {"sk-SK", "Slovak"},
+            {"lt-LT", "Lithuanian"}, {"lv-LV", "Latvian"},  {"pl-PL", "Polish"},   {"ru-RU", "Russian"}, {"sk-SK", "Slovak"},
             {"sl-SI", "Slovenian"},  {"uk-UA", "Ukrainian"}};
         for (auto entry = dictionaries.cbegin(); entry != dictionaries.cend(); ++entry) {
             kobalt::ReaderModel model(kobalt::test::readerFonts());

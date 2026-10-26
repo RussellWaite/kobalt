@@ -84,13 +84,14 @@
     "name": "Hyphenation patterns",
     "version": "CREngine b05cf00791d2",
     "description": "Bundled language dictionaries from TeX hyphenation projects and LibreOffice, converted by the KOReader contributors. Individual languages and authors are listed in the pattern notices.",
-    "license": "MIT, BSD 3-Clause, GNU LGPL and permissive notices",
+    "license": "MIT, BSD 3-Clause, GNU LGPL, LPPL and permissive notices",
     "url": "https://github.com/hyphenation/tex-hyphen",
     "notices": [
       "Hyphenation-patterns",
       "FriBidi-LGPL-2.1",
       "Qt-LGPL-3",
-      "Qt-GPL-3"
+      "Qt-GPL-3",
+      "LPPL-1.3c"
     ]
   },
   {

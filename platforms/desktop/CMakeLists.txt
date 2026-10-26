@@ -87,8 +87,9 @@ target_include_directories(kobalt-core SYSTEM PUBLIC
     "${KOBALT_TEST_DEPENDENCIES}/include" "${KOBALT_TEST_DEPENDENCIES}/include/harfbuzz"
     "${KOBALT_TEST_DEPENDENCIES}/include/freetype2" "${KOBALT_TEST_DEPENDENCIES}/include/fribidi"
     "${KOBALT_TEST_PNG_INCLUDE}")
+include("${KOBALT_ROOT}/platforms/cache-policy.cmake")
 target_compile_definitions(kobalt-core PUBLIC KOBALT_READER_HARDWARE KOBALT_VERSION="${KOBALT_VERSION}"
-    KOBALT_LAYOUT_POLICY="native-public-v1" fdatasync=fsync)
+    KOBALT_LAYOUT_POLICY="${layout_policy}" fdatasync=fsync)
 target_compile_options(kobalt-core PRIVATE -Wall -Wextra)
 option(KOBALT_SQLITE_ANNOTATIONS_DEFAULT "Use SQLite annotation storage by default" ON)
 if(KOBALT_SQLITE_ANNOTATIONS_DEFAULT)

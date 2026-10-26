@@ -149,7 +149,7 @@ inline QMap<QString, BookFiles> publisherBooks(const QByteArray &font) {
     oneChapter("publisher-ru.epub", "ru", "Перенос", "<p>" + QByteArray("Достопримечательности государственного университета. ").repeated(40) + "</p>");
     const QMap<QString, QByteArray> hyphenation{
         {"et-EE", "rahvusvaheline"}, {"fi-FI", "kirjallisuus"}, {"ka-GE", "საქართველო"}, {"hu-HU", "Magyarország"},
-        {"lt-LT", "universitetas"}, {"lv-LV", "universitāte"}, {"pl-PL", "przedstawienie"}, {"sk-SK", "medzinárodného"},
+        {"lt-LT", "universitetas"}, {"lv-LV", "universitāte"}, {"pl-PL", "przedstawienie"}, {"ru-RU", "программирование"}, {"sk-SK", "medzinárodného"},
         {"sl-SI", "slovenščina"}, {"uk-UA", "література"}};
     for (auto it = hyphenation.cbegin(); it != hyphenation.cend(); ++it)
         oneChapter("hyphenation-" + it.key() + ".epub", it.key().toUtf8(), "Hyphenation", "<p>" + (it.value() + ' ').repeated(80) + "</p>");
