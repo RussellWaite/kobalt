@@ -12,6 +12,7 @@
 #include "support/strings.h"
 #include "interfaces/reader/ui/style/styles.h"
 #include "interfaces/reader/ui/style/fonts.h"
+#include "interfaces/reader/window/font_registration.h"
 #include "platform/api/kobo_refresh.h"
 #include "support/diagnostics.h"
 #include "interfaces/reader/ui/style/metrics.h"
@@ -263,11 +264,23 @@ void Reader::buildReadingPage() {
     layout->addWidget(page, 1);
     page->setFont(kobalt::ui::headerFooterFont());
     readerStyle(page, "font-family:@header-footer-font@;");
-    dictionaryPanel = new kobalt::DictionaryPanel(this);
+    dictionaryPanel = new kobalt::DictionaryPanel(this, services.keyboard);
+    dictionaryPanel->prepareEditorFont = [this](const QFont &font) {
+        registerEditorFont(font, registeredFonts);
+    };
     dictionaryPanel->setDefinitionFont(settingsDictionaryFontFace, settingsDictionaryFontSize);
     dictionaryPanel->setLanguage(model->state().value("language").toString());
     dictionaryPanel->dismissed = [this] {
         dismissDictionary();
+    };
+    dictionaryPanel->requested = [this](const QString &query) {
+        if (lifecycleHidden || services.suspended() || closing)
+            return;
+        lookupText = query;
+        const auto result = dictionary->lookup(book->identity(), lookupText);
+        dictionaryPanel->setChoices(dictionary->choices());
+        dictionaryPanel->setBookFont(bookFace());
+        dictionaryPanel->open(lookupText, result, lookupBounds);
     };
     dictionaryPanel->chosen = [this](const QString &id) {
         if (lifecycleHidden || services.suspended() || closing)
@@ -1028,10 +1041,6 @@ void Reader::buildSettings() {
             dictionarySettings->setTransfer(transfer.id, transfer.received, transfer.total, transfer.installing);
             dictionarySettings->setState(installed, manager->busy(), manager->status());
             dictionaryPanel->setChoices(manager->choices());
-            if (general->isVisible()) {
-                fitSettings();
-                refresh();
-            }
         };
         dictionarySettings->installRequested = [manager](const QString &id) {
             manager->download(id);

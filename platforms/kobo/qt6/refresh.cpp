@@ -139,16 +139,14 @@ void flushReader(QBackingStore *store, const QRegion &region, QWindow *target, c
         return;
     }
     const QRect keyboardBounds = readerWindow->property("reader_keyboard_bounds").toRect();
-    const bool keyboardPolicy =
-        compatible && ordinaryControls && std::all_of(flags.cbegin(), flags.cend(), [&](const auto &entry) {
-            return entry.second == flags[0].second;
-        });
+    const quint64 keyboardPolicy = compatible && ordinaryControls
+        ? commonKeyboardPolicy(flags, heuristic | full | partialMode, full, heuristic) : 0;
     if (keyboardPolicy) {
         const bool keyboardOnly = std::all_of(flags.cbegin(), flags.cend(), [&](const auto &entry) {
             return keyboardBounds.contains(entry.first);
         });
         if (keyboardPixels.unchanged(dynamic_cast<QImage *>(store->paintDevice()), region, keyboardBounds,
-                                     flags[0].second, keyboardOnly))
+                                     keyboardPolicy, keyboardOnly))
             return;
     } else {
         keyboardPixels.clear();

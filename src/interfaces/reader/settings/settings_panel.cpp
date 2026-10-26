@@ -260,12 +260,14 @@ SettingsPanel::SettingsPanel(QWidget *parent, const SettingsPanelInputs &inputs)
         ui::ControlIcon::Dictionaries, ui::ControlIcon::System, ui::ControlIcon::About};
     const QStringList tabs = {strings::get("settings.display"),      strings::get("settings.controls"),
                               strings::get("settings.defaults"),     strings::get("settings.styling"),
-                              strings::get("settings.dictionaries"), strings::get("settings.system"),
+                              strings::get("settings.lookup"),       strings::get("settings.system"),
                               strings::get("settings.about")};
     for (int index = 0; index < tabs.size(); ++index) {
         auto *button = makeButton(this, settingsTabs, tabNames[index], tabs[index], [this, index] {
             settingsPages->setCurrentIndex(index);
         });
+        if (index == DictionariesSettings)
+            button->setAccessibleName(strings::get("settings.dictionaries"));
         button->setProperty("reader_tab_label", tabs[index]);
         button->setProperty("reader_tab_icon", int(tabIcons[index]));
         button->setCheckable(true);

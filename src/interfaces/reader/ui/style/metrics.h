@@ -258,8 +258,7 @@ inline constexpr Px outline{2}, handleRadius{14}, handleHitRadius{32};
 namespace lookup {
 inline constexpr int heightPercent = 46, holdMilliseconds = 500;
 inline constexpr Px moveTolerance{40};
-inline constexpr int choiceRows = 6;
-inline constexpr Px choiceHeight{list::oneLine};
+inline constexpr Px choiceHeight{72};
 }
 
 namespace links {

@@ -267,6 +267,15 @@ qint64 privateInterfaceFontBytes() {
         bytes += source.size();
     return bytes;
 }
+QByteArray nativeEditorFontData(const QFont &font) {
+    const auto *registered = registeredFace(font);
+    if (!registered)
+        return {};
+    const auto face = fonts().face(registered->file, registered->index);
+    if (!face || face->num_faces != 1 || QByteArray(FT_Get_Font_Format(face)) != "TrueType")
+        return {};
+    return fonts().sources.value(registered->file);
+}
 PrivateFontRegistration registerPrivateInterfaceFont(const QString &path, const QString &expectedFamily,
                                                      bool forcePrivate) {
     auto &state = fonts();

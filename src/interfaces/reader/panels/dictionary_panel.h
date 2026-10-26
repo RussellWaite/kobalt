@@ -5,6 +5,7 @@
 #include "interfaces/reader/ui/controls/paged_text.h"
 #include "interfaces/reader/ui/style/metrics.h"
 #include "platform/api/dictionary_service.h"
+#include "platform/api/keyboard_controller.h"
 #include <QFont>
 #include <QLabel>
 
@@ -12,9 +13,11 @@ namespace kobalt {
 // A sheet across the full width, fixed to the screen edge away from the word.
 class DictionaryPanel : public ui::Panel {
 public:
-    explicit DictionaryPanel(QWidget *parent);
+    explicit DictionaryPanel(QWidget *parent, KeyboardFactory makeKeyboard = {});
     std::function<void()> dismissed;
     std::function<void(QString)> chosen;
+    std::function<void(QString)> requested;
+    std::function<void(const QFont &)> prepareEditorFont;
     void setChoices(QVector<DictionaryChoice> values);
     void setLanguage(const QString &language);
     // The resolved book face supplies the header and default definition text.
@@ -29,12 +32,19 @@ public:
 protected:
     void paintEvent(QPaintEvent *event) override;
     void resizeEvent(QResizeEvent *) override;
+    void hideEvent(QHideEvent *event) override;
+    void keyPressEvent(QKeyEvent *event) override;
 
 private:
     ui::PagerBar *pages, *choicesPaging;
-    ui::CellButton *dictionary, *close;
-    QLabel *headword;
+    std::unique_ptr<KeyboardController> keyboard;
+    ui::CellButton *dictionary, *close, *edit, *submit;
+    QLineEdit *query;
+    QRect selection;
+    bool editing = false;
+    QLabel *headword, *editHint;
     QString word, bookFamily, language, definitionFamily;
+    QString definitionHtml, sourceText, renderedHtml;
     int definitionPercent = 100;
     QFont headwordFont;
     QFont bookFont(int pixels) const;
@@ -42,7 +52,7 @@ private:
     QVector<DictionaryChoice> options;
     QVector<QPushButton *> optionButtons;
     QString currentId;
-    int optionsPage = 0, visibleRows = ui::metrics::lookup::choiceRows;
+    int optionsPage = 0;
     bool lower = true;
     // Open at the page that holds the selected dictionary.
     void redrawChoices(bool atCurrent = false);
@@ -50,6 +60,10 @@ private:
     int rowTop() const;
     int contentBottom() const;
     void arrange();
+    void updateDefinition();
     void refresh();
+    void editQuery();
+    void finishEditing(bool restore = true);
+    void submitQuery();
 };
 }

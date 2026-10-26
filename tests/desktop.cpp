@@ -1711,6 +1711,77 @@ private slots:
         QTRY_COMPARE(counter->text(), initial);
         QCOMPARE(fixture.state().value("position"), position);
     }
+    void dictionaryEditing_data() { bookmarks_data(); }
+    void dictionaryEditing() {
+        QFETCH(bool, dark);
+        Fixture fixture(dark);
+        QVERIFY(fixture.prepared);
+        QSignalSpy opened(&fixture.window, &desktop::Window::bookOpened);
+        fixture.window.openBook(book);
+        QTRY_COMPARE_WITH_TIMEOUT(opened.count(), 1, 10000);
+        QTRY_VERIFY(!fixture.state().value("busy").toBool());
+        openPrologueBody(fixture);
+        auto *reader = fixture.window.readerWindow();
+        auto *page = static_cast<ReadingPage *>(fixture.widget("rrPage"));
+        const auto word = fixture.wordPoint();
+        const auto position = fixture.state().value("position");
+        QVERIFY(fixture.selectWord(page, word));
+        QTRY_VERIFY(fixture.visible("rrDictionary"));
+        auto *headword = qobject_cast<QLabel *>(fixture.widget("rrDictionaryWord"));
+        auto *query = qobject_cast<QLineEdit *>(fixture.widget("rrDictionaryQuery"));
+        QVERIFY(headword && query);
+        const auto capture = qEnvironmentVariable("KOBALT_DICTIONARY_CAPTURE");
+        const auto saveCapture = [&](const QString &state) {
+            if (capture.isEmpty())
+                return true;
+            if (!QDir().mkpath(capture))
+                return false;
+            QCoreApplication::processEvents();
+            const auto image = fixture.window.saveScreenshot(capture);
+            return !image.isEmpty() && QFile::rename(image, QDir(capture).filePath(
+                QString("%1-%2.png").arg(state, dark ? "dark" : "light")));
+        };
+        const auto selected = headword->text();
+        const auto bounds = fixture.widget("rrDictionary")->geometry();
+        QVERIFY(saveCapture("definition"));
+        QVERIFY(fixture.press("rrDictionaryEdit"));
+        QTRY_VERIFY(query->isVisible());
+        QCOMPARE(query->text(), selected);
+        QCOMPARE(fixture.widget("rrDictionary")->y(), 0);
+        QCOMPARE(fixture.widget("rrDictionary")->height(), bounds.height());
+        QVERIFY(fixture.visible("rrDefinition"));
+        QVERIFY(fixture.visible("rrDictionaryEditHint"));
+        QVERIFY(saveCapture("initial-editor"));
+        query->setText(QString::fromUtf8("  oír  "));
+        QVERIFY(saveCapture("editor"));
+        QTest::keyClick(query, Qt::Key_Return);
+        QTRY_VERIFY(!query->isVisible());
+        QCOMPARE(headword->text(), QString::fromUtf8("oír"));
+        QVERIFY(saveCapture("submitted"));
+        QCOMPARE(fixture.widget("rrDictionary")->geometry(), bounds);
+        QCOMPARE(fixture.state().value("position"), position);
+        QVERIFY(page->annotationContains(word - QPoint(0, page->topHeight())));
+        QVERIFY(fixture.press("rrDictionaryEdit"));
+        QCOMPARE(query->text(), QString::fromUtf8("oír"));
+        query->setText("discard this edit");
+        QVERIFY(fixture.press("rrDictionaryClose"));
+        QCOMPARE(headword->text(), QString::fromUtf8("oír"));
+        QVERIFY(fixture.press("rrDictionaryEdit"));
+        reader->hide();
+        reader->show();
+        QTRY_VERIFY(!fixture.visible("rrDictionary"));
+        QVERIFY(!query->hasFocus());
+        QCOMPARE(fixture.state().value("position"), position);
+        QVERIFY(fixture.selectWord(page, word));
+        QTRY_VERIFY(fixture.visible("rrDictionary"));
+        QCOMPARE(headword->text(), selected);
+        QVERIFY(fixture.press("rrDictionaryEdit"));
+        QCOMPARE(query->text(), selected);
+        QVERIFY(fixture.press("rrDictionaryClose"));
+        QVERIFY(fixture.press("rrDictionaryClose"));
+        QTRY_VERIFY(!fixture.visible("rrDictionary"));
+        QTRY_VERIFY(!page->annotationContains(word - QPoint(0, page->topHeight())));
+    }
     void dictionaryDismissal_data() {
         QTest::addColumn<bool>("dark");
         QTest::addColumn<int>("action");

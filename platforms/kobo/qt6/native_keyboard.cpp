@@ -1,5 +1,6 @@
 #include "support/qt_compat.h"
 #include "platforms/kobo/common/native_keyboard.h"
+#include "platform/api/kobo_refresh.h"
 #include "support/diagnostics.h"
 #include <QApplication>
 #include <QGraphicsEffect>
@@ -84,10 +85,14 @@ bool NativeKeyboard::create() {
     // LibraryFinderController uses this same sequence. The receiver constructor
     // parents it to the editor; setReceiver retains a guarded QObject pointer.
     api().attach(controller, static_cast<QObject *>(storage), true);
-    api().goText(controller, QStringLiteral("Search"));
+    const auto submitText = editor->property("reader_keyboard_submit_text").toString();
+    api().goText(controller, submitText.isEmpty() ? QStringLiteral("Search") : submitText);
     connect(controller, SIGNAL(commitRequested()), this, SLOT(commit()));
     connect(controller, SIGNAL(returnPressed()), this, SLOT(commit()));
     connect(controller, SIGNAL(languageChanged(KeyboardScript)), this, SLOT(changeScript(KeyboardScript)));
+    for (auto *widget : frame->findChildren<QWidget *>())
+        platform::textRefresh(widget);
+    platform::textRefresh(frame);
     ready = true;
     return true;
 }
@@ -96,13 +101,16 @@ bool NativeKeyboard::show() {
         diagnostic("search-keyboard-unavailable");
         return false;
     }
+    const bool opening = !frame->isVisible();
     place();
-    if (!frame->isVisible()) {
+    if (opening) {
         frame->show();
         frame->raise();
     }
     host->window()->setProperty("reader_keyboard_bounds", QRect(frame->mapTo(host->window(), QPoint()), frame->size()));
-    if (frame->graphicsEffect())
+    // A queued focus event can call show again after the first frame was
+    // painted. Only opening the keyboard needs its theme effect redrawn.
+    if (opening && frame->graphicsEffect())
         frame->graphicsEffect()->update();
     editor->setFocus();
     return true;

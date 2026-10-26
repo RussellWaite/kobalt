@@ -25,6 +25,9 @@ enum class PrivateFontRegistration { Failed, Native, Private };
 // retained file uses private painting, later registrations keep that choice.
 PrivateFontRegistration registerPrivateInterfaceFont(const QString &path, const QString &expectedFamily,
                                                      bool forcePrivate = false);
+// A native editor needs a Qt face. Only single-face TrueType files are safe
+// to pass to Qt's font loader; private previews keep their existing renderer.
+QByteArray nativeEditorFontData(const QFont &font);
 struct PrivateText {
     QImage image;
     int advance = 0;

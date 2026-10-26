@@ -104,13 +104,13 @@ DictionariesPage::DictionariesPage(QWidget *parent) : QWidget(parent) {
     });
 }
 DictionariesPage::~DictionariesPage() {
-    delete removal;
+    delete confirmation;
 }
 int DictionariesPage::preferredHeight() const {
     return parentWidget() ? parentWidget()->height() : height();
 }
 void DictionariesPage::hideEvent(QHideEvent *event) {
-    dismissRemoval();
+    dismissConfirmation();
     QWidget::hideEvent(event);
 }
 void DictionariesPage::resizeEvent(QResizeEvent *event) {
@@ -120,7 +120,10 @@ void DictionariesPage::resizeEvent(QResizeEvent *event) {
     });
 }
 void DictionariesPage::setLanguage(const QString &value) {
-    language = DictionaryManager::normalizeLanguage(value);
+    const auto next = DictionaryManager::normalizeLanguage(value);
+    if (language == next)
+        return;
+    language = next;
     redraw();
 }
 void DictionariesPage::setCatalog(const QVector<DownloadDictionary> &value) {
@@ -133,11 +136,17 @@ void DictionariesPage::setCatalog(const QVector<DownloadDictionary> &value) {
     redraw();
 }
 void DictionariesPage::setStorage(const QHash<QString, qint64> &sizes, qint64 available, const QString &) {
+    if (installedSizes == sizes && freeBytes == available)
+        return;
     installedSizes = sizes;
     freeBytes = available;
-    redraw();
+    refreshStorage();
 }
 void DictionariesPage::setTransfer(const QString &id, qint64 received, qint64 total, bool installing) {
+    const bool same = transferId == id && receivedBytes == qMax<qint64>(0, received) &&
+                      totalBytes == qMax<qint64>(0, total) && unpacking == installing;
+    if (same)
+        return;
     if (!transferId.isEmpty() && id.isEmpty())
         endedId = transferId;
     transferId = id;
@@ -147,6 +156,8 @@ void DictionariesPage::setTransfer(const QString &id, qint64 received, qint64 to
     redraw();
 }
 void DictionariesPage::setState(const QSet<QString> &installed, bool busy, const QString &message) {
+    const bool changed = installedIds != installed || working != busy;
+    const auto previousFailure = failedId;
     installedIds = installed;
     working = busy;
     if (!endedId.isEmpty()) {
@@ -159,18 +170,22 @@ void DictionariesPage::setState(const QSet<QString> &installed, bool busy, const
             failedId = requestedId;
         requestedId.clear();
     }
-    redraw();
+    if (changed || previousFailure != failedId)
+        redraw();
 }
-void DictionariesPage::dismissRemoval() {
-    if (removal) {
-        removal->hide();
-        removal->deleteLater();
-        removal.clear();
+void DictionariesPage::dismissConfirmation() {
+    if (confirmation) {
+        confirmation->hide();
+        confirmation->setObjectName({});
+        for (auto *child : confirmation->findChildren<QWidget *>())
+            child->setObjectName({});
+        confirmation->deleteLater();
+        confirmation.clear();
     }
 }
-void DictionariesPage::askRemoval(const DownloadDictionary &entry) {
+void DictionariesPage::askConfirmation(const DownloadDictionary &entry, bool removing) {
     failedId.clear();
-    if (removal)
+    if (confirmation)
         return;
     QWidget *owner = this;
     for (auto *parent = parentWidget(); parent; parent = parent->parentWidget())
@@ -178,37 +193,42 @@ void DictionariesPage::askRemoval(const DownloadDictionary &entry) {
             owner = parent->parentWidget();
             break;
         }
-    removal =
-        new ui::ChoiceModal(owner,
-                            {strings::get("dictionaries.remove_description").arg(bytes(installedSizes.value(entry.id))),
-                             strings::get("dictionaries.remove_title").arg(entry.name),
-                             {}},
-                            {strings::get("common.cancel"), "rrDictionaryRemoveCancel"},
-                            {strings::get("dictionaries.remove"), "rrDictionaryRemoveConfirm"});
-    removal->setObjectName("rrDictionaryRemove");
-    removal->dismissed = [this] {
-        dismissRemoval();
-    };
-    connect(removal->secondaryButton(), &QPushButton::clicked, this, [this] {
-        dismissRemoval();
+    auto license = entry.license;
+    if (license.startsWith("CC-BY-SA-"))
+        license = "CC BY-SA " + license.mid(9);
+    else if (license.startsWith("CC-BY-"))
+        license = "CC BY " + license.mid(6);
+    const auto prefix = QString(removing ? "rrDictionaryRemove" : "rrDictionaryDownload");
+    const auto description = removing
+        ? strings::get("dictionaries.remove_description").arg(bytes(installedSizes.value(entry.id)))
+        : strings::get("dictionaries.download_description").arg(bytes(entry.size), license);
+    confirmation = new ui::ChoiceModal(owner,
+        {description, strings::get(removing ? "dictionaries.remove_title" : "dictionaries.download_title").arg(entry.name), {}},
+        {strings::get("common.cancel"), prefix + "Cancel"},
+        {strings::get(removing ? "dictionaries.remove" : "dictionaries.download"), prefix + "Confirm"});
+    confirmation->setObjectName(prefix);
+    auto *dialog = confirmation.data();
+    dialog->dismissed = [this] { dismissConfirmation(); };
+    connect(dialog->secondaryButton(), &QPushButton::clicked, this, [this] { dismissConfirmation(); });
+    connect(dialog->primaryButton(), &QPushButton::clicked, this, [this, dialog, id = entry.id, removing] {
+        if (confirmation != dialog)
+            return;
+        dismissConfirmation();
+        if (removing) {
+            if (removeRequested)
+                removeRequested(id);
+        } else if (!working && !installedIds.contains(id) && installRequested) {
+            requestedId = id;
+            installRequested(id);
+        }
     });
-    connect(removal->primaryButton(), &QPushButton::clicked, this, [this, id = entry.id] {
-        dismissRemoval();
-        if (removeRequested)
-            removeRequested(id);
-    });
-    removal->show();
-    removal->raise();
-    removal->setFocus();
+    dialog->show();
+    dialog->raise();
+    dialog->setFocus();
 }
 void DictionariesPage::redraw() {
-    for (auto *child : list->findChildren<QWidget *>(QString(), Qt::FindDirectChildrenOnly)) {
-        child->hide();
-        child->setObjectName({});
-        for (auto *nested : child->findChildren<QWidget *>())
-            nested->setObjectName({});
-        child->deleteLater();
-    }
+    const auto previous = list->findChildren<QWidget *>(QString(), Qt::FindDirectChildrenOnly);
+    QSet<QWidget *> retained;
     bool matching = false;
     for (const auto &entry : entries)
         matching |= !language.isEmpty() && entry.language == language;
@@ -268,11 +288,17 @@ void DictionariesPage::redraw() {
     int y = 0, rowIndex = 0, sectionIndex = 0, languageIndex = 0;
     for (const auto &item : pages[page]) {
         if (!item.caption.isEmpty()) {
-            auto *header = new ui::ListHeader(list);
-            header->setShaded(true);
-            header->setCaptions(item.caption);
-            header->setObjectName(QString(item.language ? "rrDictionaryLanguage%1" : "rrDictionarySection%1")
-                                      .arg(item.language ? languageIndex++ : sectionIndex++));
+            const auto name = QString(item.language ? "rrDictionaryLanguage%1" : "rrDictionarySection%1")
+                                  .arg(item.language ? languageIndex++ : sectionIndex++);
+            auto *header = dynamic_cast<ui::ListHeader *>(list->findChild<QWidget *>(name, Qt::FindDirectChildrenOnly));
+            if (!header) {
+                header = new ui::ListHeader(list);
+                header->setShaded(true);
+                header->setObjectName(name);
+            }
+            retained.insert(header);
+            if (header->leftLabel()->text() != item.caption)
+                header->setCaptions(item.caption);
             header->setGeometry(0, y, list->width(), item.height);
             header->show();
             y += item.height;
@@ -280,67 +306,95 @@ void DictionariesPage::redraw() {
         }
         const auto &entry = item.entry;
         const int index = rowIndex++;
-        auto *line = new DictionaryLine(list);
+        DictionaryLine *line = nullptr;
+        for (auto *child : previous)
+            if (child->property("dictionary_id").toString() == entry.id)
+                line = static_cast<DictionaryLine *>(child);
+        const bool created = !line;
+        if (created)
+            line = new DictionaryLine(list);
+        retained.insert(line);
         line->setObjectName(QString("rrDictionaryRow%1").arg(index));
         line->setProperty("dictionary_id", entry.id);
         line->setGeometry(0, y, list->width(), item.height);
-        auto *layout = new QHBoxLayout(line);
-        layout->setContentsMargins(0, 0, c::inset, 0);
-        layout->setSpacing(0);
-        auto *row = new ui::ListRow(line);
+        auto *layout = static_cast<QHBoxLayout *>(line->layout());
+        auto *row = created ? nullptr : static_cast<ui::ListRow *>(layout->itemAt(0)->widget());
+        if (created) {
+            layout = new QHBoxLayout(line);
+            layout->setContentsMargins(0, 0, c::inset, 0);
+            layout->setSpacing(0);
+            row = new ui::ListRow(line);
+            row->setFocusPolicy(Qt::NoFocus);
+            layout->addWidget(row, 1);
+        }
         row->setTitle(entry.name);
-        row->setFocusPolicy(Qt::NoFocus);
-        layout->addWidget(row, 1);
         const bool active = entry.id == transferId, installed = installedIds.contains(entry.id);
-        if (entry.id == failedId)
-            row->setCaption(strings::get("dictionaries.download_failed"));
+        row->setCaption(entry.id == failedId ? strings::get("dictionaries.download_failed") : QString());
         const int percent = totalBytes > 0 ? qBound(0, int(100.0 * receivedBytes / totalBytes), 100) : 0;
         row->setAccessory(ui::ListRow::Caption{active ? QString::number(percent) + "%"
                                                       : bytes(installed ? installedSizes.value(entry.id) : entry.size),
                                                ui::px(180)});
         row->trailingLabel()->setObjectName(QString("rrDictionarySize%1").arg(index));
-        auto *action = new ui::Button(active      ? strings::get("dictionaries.stop")
-                                      : installed ? strings::get("dictionaries.remove")
-                                                  : strings::get("dictionaries.get"),
-                                      line);
+        auto *action = created ? nullptr : static_cast<ui::Button *>(layout->itemAt(1)->widget());
+        if (created)
+            action = new ui::Button(line);
+        action->setText(active ? strings::get("dictionaries.stop") :
+                        installed ? strings::get("dictionaries.remove") : strings::get("dictionaries.get"));
         action->setObjectName(QString("rrDictionaryAction%1").arg(index));
-        action->setFixedSize(ui::px(220), ui::px(66));
-        ui::readerStyle(
-            action,
-            ui::styles::outlined() +
-                QString(
-                    "QPushButton{font-size:%1px;min-height:%2px;max-height:%2px;min-width:%3px;max-width:%3px;padding:0;border:%4px solid palette(window-text);}")
-                    .arg(int(c::labelText))
-                    .arg(ui::px(66))
-                    .arg(ui::px(220))
-                    .arg(int(m::control::border)));
-        if (!installed && !active) {
-            ui::buttonIcon(action, ui::ControlIcon::Download);
+        if (created) {
+            action->setFixedSize(ui::px(220), ui::px(66));
+            ui::readerStyle(
+                action,
+                ui::styles::outlined() +
+                    QString(
+                        "QPushButton{font-size:%1px;min-height:%2px;max-height:%2px;min-width:%3px;max-width:%3px;padding:0;border:%4px solid palette(window-text);}")
+                        .arg(int(c::labelText))
+                        .arg(ui::px(66))
+                        .arg(ui::px(220))
+                        .arg(int(m::control::border)));
+            layout->addWidget(action, 0, Qt::AlignVCenter);
+            connect(action, &QPushButton::clicked, this, [this, id = entry.id] {
+                const bool active = id == transferId, installed = installedIds.contains(id);
+                failedId.clear();
+                if (active) {
+                    if (cancelRequested)
+                        cancelRequested();
+                } else if (installed) {
+                    for (const auto &candidate : entries)
+                        if (candidate.id == id) {
+                            askConfirmation(candidate, true);
+                            break;
+                        }
+                } else if (installRequested) {
+                    for (const auto &candidate : entries)
+                        if (candidate.id == id) {
+                            askConfirmation(candidate, false);
+                            break;
+                        }
+                }
+                redraw();
+            });
+        }
+        const bool download = !installed && !active;
+        if (action->property("dictionary_download").toBool() != download) {
+            action->setProperty("dictionary_download", download);
+            if (download)
+                ui::buttonIcon(action, ui::ControlIcon::Download);
+            else
+                action->clearIconConfiguration();
             action->setIconSize(QSize(ui::px(28), ui::px(28)));
         }
         action->setEnabled(installed || active || !working);
-        layout->addWidget(action, 0, Qt::AlignVCenter);
-        connect(action, &QPushButton::clicked, this, [this, entry, active, installed] {
-            failedId.clear();
-            if (active) {
-                if (cancelRequested)
-                    cancelRequested();
-            } else if (installed)
-                askRemoval(entry);
-            else if (installRequested) {
-                requestedId = entry.id;
-                installRequested(entry.id);
-            }
-            redraw();
-        });
         layout->activate();
+        auto *progress = action->findChild<QProgressBar *>();
         if (active) {
             const auto status =
                 unpacking ? strings::get("dictionaries.installing")
                           : strings::get("dictionaries.downloading").arg(bytes(receivedBytes)).arg(bytes(totalBytes));
             action->setToolTip(status);
             action->setAccessibleDescription(status);
-            auto *progress = new CircleProgress(action);
+            if (!progress)
+                progress = new CircleProgress(action);
             progress->setObjectName(QString("rrDictionaryProgress%1").arg(index));
             progress->setAttribute(Qt::WA_TransparentForMouseEvents);
             progress->setFocusPolicy(Qt::NoFocus);
@@ -350,12 +404,28 @@ void DictionariesPage::redraw() {
             progress->setAccessibleName(status);
             const int diameter = ui::px(28);
             progress->setGeometry(ui::px(24), (action->height() - diameter) / 2, diameter, diameter);
+            progress->show();
+        } else if (progress) {
+            progress->hide();
         }
         line->show();
         y += item.height;
     }
+    for (auto *child : previous) {
+        if (retained.contains(child))
+            continue;
+        child->hide();
+        child->setObjectName({});
+        child->setProperty("dictionary_id", {});
+        for (auto *nested : child->findChildren<QWidget *>())
+            nested->setObjectName({});
+        child->deleteLater();
+    }
     const int listBottom = list->y() + y;
     pager->setBlankArea({c::inset, listBottom, width() - 2 * c::inset, pager->y() - listBottom});
+    refreshStorage();
+}
+void DictionariesPage::refreshStorage() {
     qint64 usedBytes = 0;
     for (const auto &id : installedIds)
         usedBytes += installedSizes.value(id);

@@ -365,6 +365,7 @@ QIcon controlIcon(ControlIcon icon, QColor color, bool sideButtons) {
     if (int(icon) < 0 ||
         (int(icon) > int(ControlIcon::System) && icon != ControlIcon::PreviousChapter &&
          icon != ControlIcon::NextChapter && icon != ControlIcon::Sort && icon != ControlIcon::ArrowDownRight &&
+         icon != ControlIcon::EditHighlight &&
          (icon < ControlIcon::Rows || icon > ControlIcon::Export)))
         return {};
     return QIcon(new VectorIconEngine(icon, color, sideButtons));
@@ -376,6 +377,11 @@ void Button::setIconConfiguration(ButtonIcon configuration) {
         hasIconTheme = false;
     }
     refreshIcon();
+}
+
+void Button::clearIconConfiguration() {
+    hasConfiguredIcon = hasIconTheme = false;
+    setIcon({});
 }
 
 void Button::refreshIcon() {

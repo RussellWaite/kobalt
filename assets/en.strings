@@ -154,6 +154,11 @@
 /* dictionary_panel */
 "dictionary_panel.choose_dictionary" = "Choose dictionary";
 "dictionary_panel.close_definition" = "Close definition";
+"dictionary_panel.edit_lookup" = "Edit lookup";
+"dictionary_panel.lookup_word" = "Word or phrase to look up";
+"dictionary_panel.update_lookup" = "Update lookup";
+"dictionary_panel.cancel_edit" = "Cancel lookup edit";
+"dictionary_panel.edit_hint" = "Update the word or phrase to look up in the dictionary.";
 /* Arguments: %1 */
 "dictionary_panel.definition_for" = "Definition for %1";
 "dictionary_panel.dictionary_unavailable" = "Dictionary unavailable";
@@ -695,8 +700,12 @@
 "chapter_contents.close" = "Close chapters";
 /* Arguments: %1 */
 "dictionary_panel.no_definition_for" = "No definition found for “%1”.";
-"dictionary_panel.try_another_dictionary" = "Choose another dictionary above, or hold a different word.";
-"dictionary_panel.try_another_word" = "Hold a different word to look it up.";
+"dictionary_panel.try_another_dictionary" = "Edit the lookup above, or choose another dictionary.";
+"dictionary_panel.try_another_word" = "Edit the lookup above to try another word.";
+"dictionary_panel.dictionary_sources" = "Dictionary sources: %1";
+"dictionaries.download" = "Download";
+"dictionaries.download_title" = "Download %1?";
+"dictionaries.download_description" = "This is a %1 download.\nThis dictionary is licensed under %2.";
 "dictionary_panel.source" = "Source";
 "search_panel.search_this_book" = "Search this book";
 "search_panel.search_hint" = "Search ignores case. Tap Search on the keyboard to start.";
@@ -745,6 +754,7 @@
 
 /* dictionaries */
 "settings.dictionaries" = "Dictionaries";
+"settings.lookup" = "Lookup";
 "link_panel.browser_confirmation" = "Open this link in your browser?";
 "link_panel.browser_unavailable" = "The browser is unavailable.";
 "link_panel.open_browser" = "Open";

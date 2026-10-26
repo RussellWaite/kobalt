@@ -4,6 +4,33 @@
 #include <cstring>
 
 namespace kobalt {
+// Nickel can add a mode-only keyboard entry alongside Qt's text policy.
+// Complete its waveform so it does not bypass the reader's damage splitting.
+inline quint64 completeKeyboardWaveform(const QRect &damage, const QRect &keyboard, quint64 policy,
+                                       quint64 ordinary, quint64 modeMask) {
+    const auto mode = policy & modeMask;
+    if (!damage.isEmpty() && !keyboard.isEmpty() && keyboard.contains(damage) && policy == mode && mode &&
+        !(mode & (mode - 1)))
+        return (ordinary & ~modeMask) | mode;
+    return policy;
+}
+// Mode variants can describe the same keyboard pixels in one Qt flush. Keep
+// the strongest requested mode so a new full update cannot match a partial one.
+template <class Policies>
+quint64 commonKeyboardPolicy(const Policies &policies, quint64 modeMask, quint64 fullMode, quint64 heuristicMode) {
+    if (policies.isEmpty())
+        return 0;
+    const quint64 waveform = quint64(policies[0].second) & ~modeMask;
+    quint64 modes = 0;
+    for (const auto &entry : policies) {
+        const quint64 policy = entry.second, mode = policy & modeMask;
+        if ((policy & ~modeMask) != waveform || !mode || (mode & (mode - 1)))
+            return 0;
+        modes |= mode;
+    }
+    const auto mode = modes & fullMode ? fullMode : modes & heuristicMode ? heuristicMode : modes;
+    return waveform | mode;
+}
 class KeyboardRefreshCache {
 public:
     void clear() {

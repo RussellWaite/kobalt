@@ -67,19 +67,20 @@ QRectF pixelAlignedRect(const QPainter &painter, const QRectF &rect) {
 void paintEdges(QPainter &painter, const QRect &rect, Edges edges, const QColor &ink, int width) {
     if (rect.isEmpty() || width <= 0 || !edges)
         return;
-    const auto transform = painter.deviceTransform();
-    const bool scaled = transform.type() <= QTransform::TxScale && transform.m11() > 0 && transform.m22() > 0;
-    const QRectF bounds = pixelAlignedRect(painter, rect);
-    const qreal horizontal = scaled ? qMax(1, qRound(width * transform.m22())) / transform.m22() : width;
-    const qreal vertical = scaled ? qMax(1, qRound(width * transform.m11())) / transform.m11() : width;
+    const QRectF bounds(rect);
+    // Snap both boundaries of each strip. Rounding its width separately can
+    // extend the rule under adjacent opaque widgets at fractional scales.
+    const auto fill = [&](const QRectF &strip) {
+        painter.fillRect(pixelAlignedRect(painter, strip), ink);
+    };
     if (edges.testFlag(Qt::TopEdge))
-        painter.fillRect(QRectF(bounds.left(), bounds.top(), bounds.width(), horizontal), ink);
+        fill(QRectF(bounds.left(), bounds.top(), bounds.width(), width));
     if (edges.testFlag(Qt::BottomEdge))
-        painter.fillRect(QRectF(bounds.left(), bounds.bottom() - horizontal, bounds.width(), horizontal), ink);
+        fill(QRectF(bounds.left(), bounds.bottom() - width, bounds.width(), width));
     if (edges.testFlag(Qt::LeftEdge))
-        painter.fillRect(QRectF(bounds.left(), bounds.top(), vertical, bounds.height()), ink);
+        fill(QRectF(bounds.left(), bounds.top(), width, bounds.height()));
     if (edges.testFlag(Qt::RightEdge))
-        painter.fillRect(QRectF(bounds.right() - vertical, bounds.top(), vertical, bounds.height()), ink);
+        fill(QRectF(bounds.right() - width, bounds.top(), width, bounds.height()));
 }
 void paintButtonShape(QPainter &painter, const QRect &rect, const QColor &paper, const QColor &fill,
                       const QColor &border) {

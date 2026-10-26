@@ -31,8 +31,9 @@ protected:
 
 private:
     void redraw();
-    void dismissRemoval();
-    void askRemoval(const DownloadDictionary &entry);
+    void refreshStorage();
+    void dismissConfirmation();
+    void askConfirmation(const DownloadDictionary &entry, bool removing);
     QVector<DownloadDictionary> entries;
     QSet<QString> installedIds;
     QHash<QString, qint64> installedSizes;
@@ -43,6 +44,6 @@ private:
     QWidget *list;
     QLabel *storage;
     ui::PagerBar *pager;
-    QPointer<ui::ChoiceModal> removal;
+    QPointer<ui::ChoiceModal> confirmation;
 };
 }

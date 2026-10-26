@@ -182,6 +182,10 @@ static void flushReaderUsing(QBackingStore *store, const QRegion &region, QWindo
     // policy: a page turn arrives with the controls' automatic policy. Give
     // the page's own rectangles the policy pageRefresh chose.
     FlushFlags policies = flags;
+    const QRect keyboardBounds = readerWindow->property("reader_keyboard_bounds").toRect();
+    for (auto &entry : policies)
+        entry.second = completeKeyboardWaveform(entry.first, keyboardBounds, entry.second,
+                                               ordinaryPolicy(dark, wide), heuristic | full | partialMode);
     if (pageWidget && pageWidget->isVisible() && pagePolicy) {
         for (auto &entry : policies) {
             // Controls can lie over the page. Only a rectangle whose centre
@@ -245,17 +249,14 @@ static void flushReaderUsing(QBackingStore *store, const QRegion &region, QWindo
         submit(QRegion(screen), {{screen, policy}});
         return;
     }
-    const QRect keyboardBounds = readerWindow->property("reader_keyboard_bounds").toRect();
-    const bool keyboardPolicy =
-        compatible && ordinaryControls && std::all_of(policies.cbegin(), policies.cend(), [&](const auto &entry) {
-            return entry.second == policies[0].second;
-        });
+    const quint64 keyboardPolicy = compatible && ordinaryControls
+        ? commonKeyboardPolicy(policies, heuristic | full | partialMode, full, heuristic) : 0;
     if (keyboardPolicy) {
         const bool keyboardOnly = std::all_of(policies.cbegin(), policies.cend(), [&](const auto &entry) {
             return keyboardBounds.contains(entry.first);
         });
         if (keyboardPixels.unchanged(dynamic_cast<QImage *>(store->paintDevice()), region, keyboardBounds,
-                                     policies[0].second, keyboardOnly))
+                                     keyboardPolicy, keyboardOnly))
             return;
     } else {
         keyboardPixels.clear();

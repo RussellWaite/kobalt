@@ -18,6 +18,15 @@ class Button : public QPushButton {
 public:
     using QPushButton::QPushButton;
     void setPaintMode(ButtonPaintMode mode);
+    // Content stays vertically centered in either horizontal alignment.
+    void setContentAlignment(Qt::Alignment alignment) {
+        const auto next = alignment.testFlag(Qt::AlignLeft) ? Qt::AlignLeft : Qt::AlignHCenter;
+        if (contentAlignment == next)
+            return;
+        contentAlignment = next;
+        update();
+    }
+    void clearIconConfiguration();
     void setFill(QPalette::ColorRole role) {
         if (fill == role)
             return;
@@ -66,6 +75,7 @@ private:
     ButtonPaintMode mode = ButtonPaintMode::Native;
     QPalette::ColorRole fill = QPalette::Window;
     ButtonIcon configuredIcon;
+    Qt::Alignment contentAlignment = Qt::AlignHCenter;
     int iconLabelGap = 0;
     bool iconAboveLabel = false;
     bool hasConfiguredIcon = false, hasIconTheme = false, iconDark = false;
@@ -267,6 +277,23 @@ public:
         rule = edges;
         update();
     }
+    void setMaximumLabelLines(int lines) {
+        lines = qBound(1, lines, 2);
+        if (maximumLabelLines == lines)
+            return;
+        maximumLabelLines = lines;
+        updateGeometry();
+        update();
+    }
+    void setTrailingInset(int pixels) {
+        pixels = qMax(0, pixels);
+        if (trailingInset == pixels)
+            return;
+        trailingInset = pixels;
+        updateGeometry();
+        update();
+    }
+    int widthForLabel(int maximumWidth) const;
     QSize sizeHint() const override;
 
 protected:
@@ -277,6 +304,8 @@ private:
     int iconPixels;
     Edges rule;
     bool inverted = false;
+    int maximumLabelLines = 1;
+    int trailingInset = metrics::chrome::inset;
 };
 QPushButton *makeButton(QWidget *parent, QBoxLayout *layout, const char *name, const QString &text,
                         std::function<void()> action);
