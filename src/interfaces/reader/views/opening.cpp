@@ -38,10 +38,8 @@ public:
         setWindowModality(embedded ? Qt::NonModal : Qt::ApplicationModal);
         setProperty("reader_dark", dark);
         setAutoFillBackground(true);
-        QPalette colors = palette();
-        colors.setColor(QPalette::Window, dark ? Qt::black : Qt::white);
-        colors.setColor(QPalette::WindowText, dark ? Qt::white : Qt::black);
-        colors.setColor(QPalette::Midlight, dark ? QColor(44, 44, 44) : QColor(211, 211, 211));
+        QPalette colors = ui::readerPalette(palette(), dark);
+        colors.setColor(QPalette::Midlight, ui::themeColors(dark).openingTrack);
         setPalette(colors);
         setFont(ui::interfaceFont());
         // The card stylesheet otherwise uses the application font on Qt 6.

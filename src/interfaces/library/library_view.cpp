@@ -1132,7 +1132,7 @@ void LibraryView::paintEvent(QPaintEvent *event) {
     QPainter painter(this);
     // The reader style sheet on this root widget keeps its own text color, so
     // take the ink from the theme rather than the palette.
-    const QColor ink = dark ? Qt::white : Qt::black;
+    const auto &ink = ui::themeColors(dark).ink;
     painter.fillRect(0, c::actionHeight - c::heavyRule, width(), c::heavyRule, ink);
     painter.fillRect(0, c::actionHeight + lm::toolbarHeight - ui::metrics::control::border, width(),
                      ui::metrics::control::border, ui::dividerColor(this));
@@ -1169,8 +1169,8 @@ void LibraryView::showBookMenu(const QString &key) {
         header.image = QImage(ui::metrics::actionMenu::thumbnailWidth, ui::metrics::actionMenu::thumbnailHeight,
                               QImage::Format_RGB32);
         QPainter painter(&header.image);
-        const QColor ink = dark ? Qt::white : Qt::black, paper = dark ? Qt::black : Qt::white;
-        BookPages::paintPlainCover(painter, header.image.rect(), book, ink, paper);
+        const auto &colors = ui::themeColors(dark);
+        BookPages::paintPlainCover(painter, header.image.rect(), book, colors.ink, colors.paper);
     }
     header.title = book.displayTitle();
     header.detail = book.author;

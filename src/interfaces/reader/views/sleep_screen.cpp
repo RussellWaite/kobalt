@@ -322,11 +322,11 @@ QImage sleepScreenImage(QImage page, const QString &progress, const QString &rem
     }
     QPainter painter(&page);
     if (dimPage) {
-        painter.fillRect(page.rect(), QColor(0, 0, 0, m::dimAlpha));
+        painter.fillRect(page.rect(), ui::themeColors(dark).sleepDim);
     }
     const bool poweredOff = status == SleepStatus::PoweredOff;
-    const QColor paper = poweredOff ? QColor(Qt::black) : QColor(dark ? m::darkPaper : m::lightPaper);
-    const QColor ink(poweredOff || dark ? Qt::white : Qt::black);
+    const QColor paper = poweredOff ? ui::themeColors(true).paper : ui::themeColors(dark).sleepPaper;
+    const QColor ink = ui::themeColors(poweredOff || dark).ink;
     const Content content{status, progress, remaining, percent, batteryPercent};
     const QRect area = sleepScreenCardRect(page.size(), !remaining.isEmpty(), tile);
     switch (tile) {
@@ -339,7 +339,8 @@ QImage sleepScreenImage(QImage page, const QString &progress, const QString &rem
     case sleep::Tile::Bookmark:
         // The ribbon is dark in both themes and keeps a white outline, so it
         // stands out from any page or cover.
-        paintBookmark(painter, area, content, dark && !poweredOff ? QColor(m::darkPaper) : QColor(Qt::black));
+        paintBookmark(painter, area, content,
+                      dark && !poweredOff ? ui::themeColors(dark).sleepPaper : ui::themeColors(true).paper);
         break;
     }
     painter.end();

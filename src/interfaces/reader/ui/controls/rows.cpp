@@ -244,7 +244,8 @@ void ListRow::syncLabelStyles() {
     int index = 0;
     bool changed = false;
     for (auto *label : {title, detail, caption, leading, trailing}) {
-        const QColor color = !isEnabled() ? QColor("#999999") : current || label == title ? ink : noteColor(this);
+        const QColor color = !isEnabled() ? themeColors(this).disabledInk
+                             : current || label == title ? ink : noteColor(this);
         const QString style = labelStyles[index++] + "color:" + color.name() + ';';
         if (label->property("reader_style").toString() != style) {
             readerStyle(label, style);
@@ -314,7 +315,7 @@ void ListRow::paintEvent(QPaintEvent *) {
     const QColor ink = colors.color(current ? QPalette::Window : QPalette::WindowText);
     QColor paper = colors.color(current ? QPalette::WindowText : QPalette::Window);
     if (!current && isEnabled() && isDown())
-        paper = darkTheme(this) ? QColor("#333333") : QColor("#dddddd");
+        paper = themeColors(this).pressedPaper;
     painter.fillRect(rect(), paper);
     if (hasLeadingIcon) {
         const int side = m::control::iconSize;

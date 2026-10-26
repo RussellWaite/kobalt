@@ -128,7 +128,7 @@ void DescribedOption::paintEvent(QPaintEvent *) {
                                                      : appearance.horizontalInset + m::settings::labelLeft;
     const bool held = appearance.pressedFill && isEnabled() && isDown();
     // The pressed gray of list rows such as Chapters.
-    painter.fillRect(rect(), held ? (darkTheme(this) ? QColor("#333333") : QColor("#dddddd")) : paper);
+    painter.fillRect(rect(), held ? themeColors(this).pressedPaper : paper);
     if (appearance.dividers) {
         paintEdges(painter, rect(), appearance.dividers, dividerColor(this));
     }
@@ -230,7 +230,7 @@ void DescribedOption::paintEvent(QPaintEvent *) {
     labelFont.setPixelSize(appearance.descriptionPixels);
     labelFont.setItalic(false);
     painter.setFont(labelFont);
-    painter.setPen(darkTheme(this) ? QColor(m::text::explanationDark) : QColor(m::text::explanationLight));
+    painter.setPen(themeColors(this).secondaryInk);
     drawWrappedInterfaceText(painter,
                              QRect(textLeft, m::settings::descriptionTop + textOffset, textWidth,
                                    height() - m::settings::descriptionTop - textOffset),

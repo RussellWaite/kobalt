@@ -24,7 +24,7 @@ public:
 protected:
     void paintEvent(QPaintEvent *) override {
         QPainter painter(this);
-        painter.fillRect(rect(), QColor(ui::darkTheme(this) ? m::light::hintPaperDark : m::light::hintPaperLight));
+        painter.fillRect(rect(), ui::themeColors(this).lightHintPaper);
     }
 };
 class SwipeIcon : public QWidget {

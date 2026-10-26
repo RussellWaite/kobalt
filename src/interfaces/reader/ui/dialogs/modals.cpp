@@ -260,12 +260,9 @@ void ModalOverlay::setDimmed(bool enabled) {
 void ModalOverlay::paintEvent(QPaintEvent *) {
     if (dimmed && blocksInput) {
         QPainter painter(this);
-        const bool dark = darkTheme(this);
-        QColor fade = dark ? Qt::black : Qt::white;
-        fade.setAlpha(m::notice::backdropFadeAlpha);
-        painter.fillRect(rect(), fade);
-        const int gray = dark ? 255 - m::notice::backdropLineGray : m::notice::backdropLineGray;
-        QPen lines(QColor(gray, gray, gray, m::notice::backdropLineAlpha));
+        const auto &colors = themeColors(this);
+        painter.fillRect(rect(), colors.modalFade);
+        QPen lines(colors.modalPattern);
         // Keep diagonal strokes one output pixel wide at Native resolution.
         lines.setWidth(1);
         lines.setCosmetic(true);
@@ -428,9 +425,7 @@ PopupWindow::PopupWindow(QWidget *source, bool dark) : QDialog(source, Qt::Dialo
         background = source->grab();
     setWindowModality(Qt::ApplicationModal);
     setProperty("reader_dark", dark);
-    QPalette colors = palette();
-    colors.setColor(QPalette::Window, dark ? Qt::black : Qt::white);
-    colors.setColor(QPalette::WindowText, dark ? Qt::white : Qt::black);
+    const auto colors = readerPalette(palette(), dark);
     setPalette(colors);
     setFont(interfaceFont());
     readerStyle(this, styles::reader());

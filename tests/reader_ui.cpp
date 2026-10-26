@@ -449,7 +449,7 @@ private slots:
             QCoreApplication::processEvents();
             const auto image = button->grab().toImage();
             // Standalone actions have a complete frame, unlike footer cells.
-            const QColor border(dark ? ui::metrics::control::darkOutline : ui::metrics::control::lightOutline);
+            const QColor border(ui::themeColors(dark).outline);
             QCOMPARE(image.pixelColor(0, image.height() / 2), border);
             QCOMPARE(image.pixelColor(image.width() - 1, image.height() / 2), border);
             QCOMPARE(image.pixelColor(image.width() / 2, image.height() - 1), border);

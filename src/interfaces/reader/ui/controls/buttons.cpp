@@ -131,7 +131,7 @@ void Button::paintEvent(QPaintEvent *) {
         }
     } else {
         paintButtonShape(painter, rect(), paper, active ? ink : paper,
-                         isEnabled() ? QColor(paper == Qt::black ? m::control::darkOutline : m::control::lightOutline)
+                         isEnabled() ? themeColors(paper == Qt::black).outline
                                      : palette().color(QPalette::Midlight));
     }
     painter.setPen(active ? paper : ink);
@@ -192,7 +192,7 @@ void TapZoneButton::paintEvent(QPaintEvent *) {
     QPainter painter(this);
     const auto paper = palette().color(QPalette::Window);
     const auto ink = palette().color(QPalette::WindowText);
-    const auto gray = darkTheme(this) ? QColor("#333333") : QColor("#dddddd");
+    const auto gray = themeColors(this).pressedPaper;
     painter.fillRect(rect(), isDown() ? gray : paper);
     const int diagramHeight = px(200);
     const int diagramWidth = qMin(px(142), width() - px(24));

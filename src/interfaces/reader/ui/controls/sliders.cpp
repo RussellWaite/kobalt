@@ -215,7 +215,7 @@ void RangeOverview::paintEvent(QPaintEvent *) {
     const auto divider = dividerColor(this);
     const Edges outline = Edges(Qt::TopEdge) | Qt::BottomEdge | Qt::LeftEdge | Qt::RightEdge;
     const QRect track = trackBounds();
-    painter.fillRect(track, QColor(darkTheme(this) ? m::scrubber::overviewPaperDark : m::scrubber::overviewPaperLight));
+    painter.fillRect(track, themeColors(this).overviewPaper);
     const QRect window = windowBounds();
     const int border = m::control::border;
     painter.fillRect(track.adjusted(border, border, -border, -border).intersected(window), paper);

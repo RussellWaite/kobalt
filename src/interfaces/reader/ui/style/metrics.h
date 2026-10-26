@@ -20,13 +20,11 @@ namespace spacing {
 inline constexpr Px tight{8}, row{16}, section{24}, gutter{48};
 }
 namespace text {
-inline constexpr auto explanationLight = "#333333", explanationDark = "#cccccc";
 inline constexpr Px small{32}, secondary{30}, explanation{32}, body{36};
 inline constexpr Px choice{36}, heading{36}, opening{40}, typography{44}, pageHeading{48};
 }
 namespace control {
 inline constexpr Px border{2}; // Two pixels at 300 ppi, one at the Nia's 212 ppi.
-inline constexpr auto lightOutline = "#666666", darkOutline = "#bbbbbb";
 inline constexpr Px minimumHeight{60}, padding{4};
 inline constexpr Px captionValueText{24}, captionWidth{280}, valueWidth{84}, captionGap{8}, captionRight{12};
 inline constexpr Px rowGap{16}, sectionGap{8}, itemGap{16}, fontPickerGap{16};
@@ -63,14 +61,11 @@ inline QRect footer(const QSize &size) {
 }
 }
 namespace light {
-inline constexpr auto hintPaperLight = "#e6e6e6", hintPaperDark = "#222222";
 inline constexpr int pollMilliseconds = 500;
 }
 namespace sleep {
 inline constexpr Px inset{48}, bottom{96}, width{620}, padding{36}, gap{20}, lineGap{8}, border{2};
 inline constexpr Px titleText{60}, detailText{32}, batteryText{28}, batteryGap{12};
-inline constexpr int dimAlpha = 40;
-inline constexpr auto lightPaper = "#ffffff", darkPaper = "#202020";
 inline constexpr Px bandHeight{188}, bandPadding{64}, bandRule{12}, bandTitleText{80}, bandGap{28}, captionText{26};
 inline constexpr Px ribbonWidth{280}, ribbonRight{104}, ribbonTop{120}, ribbonPadding{22}, ribbonNotch{70};
 inline constexpr Px ribbonOutline{4}, ribbonPercentText{104}, ribbonRule{70}, ribbonGap{22};
@@ -82,7 +77,6 @@ inline constexpr Px overviewHeight{192}, overviewWindow{64}, overviewBottomPaddi
 inline constexpr Px overviewTrack{28}, overviewGrip{64}, overviewIcon{32}, overviewIconPadding{8}, overviewLens{56};
 inline constexpr Px overviewBracketMinimum{10}, overviewBracketMaximum{20};
 inline constexpr Px overviewDashSpacing{20}, overviewDashHeight{10}, overviewTickGap{8}, overviewTickHeight{12};
-inline constexpr auto overviewPaperLight = "#f1f1f1", overviewPaperDark = "#242424";
 inline constexpr qreal previewHeightFraction = .9;
 inline constexpr int minimumZoomSpan = 60;
 }
@@ -134,7 +128,6 @@ inline constexpr Px oneLine{96}, twoLines{146}, threeLines{168};
 namespace chrome {
 // Kobalt navigation: the header, the bottom tabs and the Settings rows.
 // Full-screen views and sheets reuse these so they match the reading chrome.
-inline constexpr auto dividerLight = "#b8b8b8", dividerDark = "#666666";
 inline constexpr Px statusHeight{60}, actionHeight{112}, heavyRule{3};
 inline constexpr Px headerHeight{statusHeight + actionHeight};
 inline constexpr Px cellWidth{118}, cellIcon{40}, backIcon{44}, inset{36};
@@ -246,7 +239,6 @@ namespace actionMenu {
 inline constexpr Px thumbnailWidth{112}, thumbnailHeight{168};
 }
 namespace notice {
-inline constexpr int backdropFadeAlpha = 90, backdropLineAlpha = 150, backdropLineGray = 85;
 inline constexpr Px backdropPitch{18};
 inline constexpr Px cardWidth{760}, height{144}, sideClearance{32};
 inline constexpr PxMargins cardMargins{32, 28, 32, 28};
@@ -279,7 +271,6 @@ inline constexpr Px hintGap{24}, stripButtonInset{6}, stripButtonPadding{16};
 // Revealed links: a tint and an outline around each link rectangle. Stacked
 // links keep a gap between their outlines.
 inline constexpr Px revealPadding{6}, revealGap{6}, revealOutline{2};
-inline constexpr auto revealLight = "#dddddd", revealDark = "#333333";
 }
 
 namespace search {

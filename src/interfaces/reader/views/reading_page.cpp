@@ -637,7 +637,7 @@ void ReadingPage::paintContents(QPainter &painter, bool sleeping) const {
         // the tint even where the rectangles of one link overlap.
         painter.setClipRegion(linkRegion);
         painter.setCompositionMode(dark ? QPainter::CompositionMode_Screen : QPainter::CompositionMode_Multiply);
-        painter.fillRect(linkRegion.boundingRect(), QColor(dark ? m::links::revealDark : m::links::revealLight));
+        painter.fillRect(linkRegion.boundingRect(), ui::themeColors(dark).pressedPaper);
         painter.restore();
         const int outline = m::links::revealOutline;
         for (const auto &r : revealedOutlines)

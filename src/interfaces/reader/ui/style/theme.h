@@ -5,6 +5,15 @@
 class QPainter;
 
 namespace kobalt::ui {
+// Fixed UI colors. Book content, annotation tints and native host controls have
+// their own color policies. Selected controls exchange paper and ink.
+struct ThemeColors {
+    QColor paper, ink, secondaryInk, disabledInk, divider, outline, pressedPaper;
+    QColor swipeCaptionInk, lightHintPaper, sleepPaper, overviewPaper, openingTrack;
+    QColor modalFade, modalPattern, sleepDim;
+};
+const ThemeColors &themeColors(bool dark);
+const ThemeColors &themeColors(const QWidget *widget);
 using Edges = QFlags<Qt::Edge>;
 // These components use public Qt Widgets APIs shared by Qt 5 and Qt 6.
 // Their parent owns the widgets. Reader actions and firmware hooks stay outside.
@@ -23,8 +32,7 @@ void paintHeaderRules(QPainter &painter, const QWidget *view);
 void readerStyle(QWidget *widget, const QString &source);
 // The reader's paper, ink and gray roles in light or dark mode.
 QPalette readerPalette(QPalette base, bool dark);
-// Sets the palette, then replays the widget's reader style sheet. Setting a
-// style sheet takes the gray roles from the platform; no sheet sets them, so
-// the palette's rule and pressed grays are restored afterwards.
+// Sets the palette, then replays the widget's reader style sheet. Qt can replace
+// gray roles while applying QSS, so restore the fixed theme roles afterwards.
 void applyReaderPalette(QWidget *widget, const QPalette &colors);
 }

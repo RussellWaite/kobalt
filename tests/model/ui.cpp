@@ -157,6 +157,62 @@ int main(int argc, char **argv) {
             "Component font substitution");
     checkPrivateInterfaceText(kobalt::test::readerAssets());
     {
+        using namespace kobalt::ui;
+        QWidget host;
+        Button button("Theme", &host);
+        LightSwipeNotice notice(&host);
+        auto *caption = notice.findChild<QLabel *>("rrLightSwipeCaption");
+        require(caption, "Swipe notice has no caption");
+        // Replay the same widgets in both directions. Platform gray roles must
+        // not leak into either QSS or custom painting after a theme change.
+        for (bool dark : {false, true, false, true}) {
+            host.setProperty("reader_dark", dark);
+            const auto &theme = themeColors(dark);
+            QPalette base;
+            for (const auto group : {QPalette::Active, QPalette::Inactive, QPalette::Disabled})
+                for (const auto role : {QPalette::Light, QPalette::Dark, QPalette::Mid, QPalette::Midlight})
+                    base.setColor(group, role, Qt::magenta);
+            const auto colors = readerPalette(base, dark);
+            applyReaderPalette(&host, colors);
+            readerStyle(&button, "color:palette(window-text);background:palette(window);");
+            applyReaderPalette(&button, colors);
+            for (const auto &entry : {
+                     qMakePair(QPalette::Window, theme.paper), qMakePair(QPalette::WindowText, theme.ink),
+                     qMakePair(QPalette::Highlight, theme.ink), qMakePair(QPalette::HighlightedText, theme.paper),
+                     qMakePair(QPalette::Mid, theme.disabledInk), qMakePair(QPalette::Midlight, theme.pressedPaper),
+                     qMakePair(QPalette::Light, theme.divider), qMakePair(QPalette::Dark, theme.outline)})
+                for (const auto group : {QPalette::Active, QPalette::Inactive, QPalette::Disabled})
+                    require(button.palette().color(group, entry.first) == entry.second,
+                            "Styled widget retained a platform color instead of the fixed theme");
+#if QT_VERSION >= QT_VERSION_CHECK(5, 12, 0)
+            require(button.palette().color(QPalette::PlaceholderText) == theme.secondaryInk,
+                    "Placeholder text retained the platform color");
+#endif
+            for (const auto &entry : {
+                     qMakePair("window-text", theme.ink), qMakePair("window", theme.paper),
+                     qMakePair("mid", theme.disabledInk), qMakePair("midlight", theme.pressedPaper),
+                     qMakePair("light", theme.divider), qMakePair("dark", theme.outline),
+                     qMakePair("placeholder-text", theme.secondaryInk)}) {
+                QLabel sample(&host);
+                readerStyle(&sample, QString("color:palette(%1);").arg(entry.first));
+                require(sample.styleSheet().contains("color:" + entry.second.name() + ';'),
+                        "Stylesheet and theme colors disagree");
+            }
+            applyReaderPalette(caption, colors);
+            require(caption->styleSheet().contains("color:" + theme.swipeCaptionInk.name() + ';'),
+                    "Theme replay left the swipe caption in its previous theme");
+            require(theme.swipeCaptionInk == QColor(dark ? "#aaaaaa" : "#666666") &&
+                        theme.lightHintPaper == QColor(dark ? "#222222" : "#e6e6e6") &&
+                        theme.sleepPaper == QColor(dark ? "#202020" : "#ffffff") &&
+                        theme.overviewPaper == QColor(dark ? "#242424" : "#f1f1f1") &&
+                        theme.openingTrack == QColor(dark ? "#2c2c2c" : "#d3d3d3") &&
+                        theme.modalFade.alpha() == 90 &&
+                        theme.modalPattern == QColor(dark ? 170 : 85, dark ? 170 : 85, dark ? 170 : 85, 150) &&
+                        theme.sleepDim == QColor(0, 0, 0, 40),
+                    "Theme flattened an intentional surface or caption color");
+        }
+    }
+    {
         QWidget host;
         host.resize(1264, 1680);
         kobalt::ui::LightSwipeNotice notice(&host);
@@ -3207,7 +3263,7 @@ int main(int argc, char **argv) {
     }
     panel.setProperty("reader_dark", true);
     kobalt::ui::readerStyle(&action, "color:palette(window-text);background:palette(window);");
-    require(action.styleSheet().contains("color:white;background:black"), "Dark component colors are wrong");
+    require(action.styleSheet().contains("color:#ffffff;background:#000000"), "Dark component colors are wrong");
     {
         QWidget nativeWindow;
         nativeWindow.setProperty("reader_dark", false);
@@ -3216,9 +3272,9 @@ int main(int argc, char **argv) {
         kobalt::ui::Button nested("Read", &reader);
         nested.resize(180, 80);
         kobalt::ui::readerStyle(&nested, "color:palette(window-text);background:palette(window);");
-        require(nested.styleSheet().contains("color:white;background:black"),
+        require(nested.styleSheet().contains("color:#ffffff;background:#000000"),
                 "Embedded reader uses the native window's light theme");
-        require(kobalt::ui::noteColor(&nested) == QColor(kobalt::ui::metrics::text::explanationDark),
+        require(kobalt::ui::noteColor(&nested) == kobalt::ui::themeColors(true).secondaryInk,
                 "Embedded reader caption uses light-theme ink");
         const auto image = nested.grab().toImage();
         require(qGray(image.pixel(4, 4)) == 0, "Embedded reader button has white paper in dark mode");

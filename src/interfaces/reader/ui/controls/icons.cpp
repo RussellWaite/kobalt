@@ -385,10 +385,9 @@ void Button::refreshIcon() {
     if (hasIconTheme && iconDark == dark)
         return;
     const auto &configuration = configuredIcon;
-    const QColor foreground = dark ? Qt::white : Qt::black;
-    const QColor background = dark ? Qt::black : Qt::white;
-    setIcon(QIcon(new VectorIconEngine(configuration.glyph, foreground, configuration.rotationSideButtons,
-                                       configuration.rendition, background)));
+    const auto &colors = themeColors(dark);
+    setIcon(QIcon(new VectorIconEngine(configuration.glyph, colors.ink, configuration.rotationSideButtons,
+                                       configuration.rendition, colors.paper)));
     iconDark = dark;
     hasIconTheme = true;
 }

@@ -72,7 +72,7 @@ LightSwipeNotice::LightSwipeNotice(QWidget *parent)
     caption = new ui::InterfaceLabel(this);
     caption->setObjectName("rrLightSwipeCaption");
     readerStyle(percentage, styles::font(m::lightSwipe::percentText));
-    readerStyle(caption, styles::font(m::lightSwipe::captionText) + "color:#666666;");
+    readerStyle(caption, styles::font(m::lightSwipe::captionText) + "color:@swipe-caption-ink@;");
     auto font = interfaceFont(m::lightSwipe::captionText);
     font.setLetterSpacing(QFont::AbsoluteSpacing, px(2));
     caption->setFont(font);
@@ -84,10 +84,6 @@ void LightSwipeNotice::setLevel(bool warmth, int value) {
     warm = warmth;
     level = next;
     percentage->setText(QString::number(level) + '%');
-    const auto style =
-        styles::font(m::lightSwipe::captionText) + (darkTheme(this) ? "color:#aaaaaa;" : "color:#666666;");
-    if (caption->property("reader_style").toString() != style)
-        readerStyle(caption, style);
     caption->setText((warm ? strings::get("light_panel.warmth") : strings::get("light_panel.brightness")).toUpper());
     setAccessibleName((warm ? strings::get("reader.warmth") : strings::get("reader.brightness")).arg(level));
     if (changed)
