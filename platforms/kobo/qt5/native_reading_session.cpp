@@ -224,6 +224,7 @@ void NativeReadingSession::start(const ReadingActivity &activity) {
     // Nickel records detailed session timestamps separately from reading time.
     api().fire(engine, "readerShown", volume, {});
     running = true;
+    ++epoch;
 #ifndef KOBALT_READER_HARDWARE
     testActive = this;
 #endif
@@ -252,7 +253,31 @@ void NativeReadingSession::page(const ReadingActivity &activity) {
     int words = 0;
     if (!activity_.observe(activity, &words))
         return;
-    if (!api().open() || api().account() != account) {
+    // The account lookup reads Nickel's database. Run it on Nickel's event
+    // worker, like the pace query, so the next page turn does not wait for it.
+    // The event itself is fired from this thread, as before: firing it on the
+    // event worker could make that worker wait for itself. A report that
+    // arrives after stop() is dropped with its session.
+    const auto owner = account;
+    const std::weak_ptr<NativeReadingSession *> guard = alive;
+    const int session = epoch;
+    kobalt::qt::invoke(
+        api().engine(),
+        [owner, words, guard, session] {
+            const bool signedIn = api().open() && api().account() == owner;
+            kobalt::qt::invoke(
+                qApp,
+                [guard, session, signedIn, words] {
+                    const auto self = guard.lock();
+                    if (self && (*self)->epoch == session && (*self)->running)
+                        (*self)->report(signedIn, words);
+                },
+                Qt::QueuedConnection);
+        },
+        Qt::QueuedConnection);
+}
+void NativeReadingSession::report(bool signedIn, int words) {
+    if (!signedIn) {
         running = false;
         pace_.clear();
         return;
@@ -280,6 +305,7 @@ void NativeReadingSession::stop() {
     if (!running)
         return;
     running = false;
+    ++epoch;
     if (!api().open() || !workerReady() || api().account() != account) {
         pace_.clear();
         diagnostic("reading-session-discarded");
