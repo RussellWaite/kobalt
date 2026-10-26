@@ -307,7 +307,7 @@ void Reader::wakeReader() {
     });
 }
 
-void Reader::saveNativeProgress(bool background) {
+void Reader::saveNativeProgress() {
     if (!book->canWriteNative() || model->image().isNull() || !model->error().isEmpty() || appearanceEdit.panelOpen() ||
         importingProgress || syncDialog) {
         return;
@@ -323,7 +323,7 @@ void Reader::saveNativeProgress(bool background) {
         return;
     }
     QJsonObject state;
-    book->checkpoint(&state, background);
+    book->checkpoint(&state);
     const auto result = state.value("native_writeback").toString();
     if (result == "verified" || result == "time-only") {
         savedNativeAnchor = anchor;
@@ -1680,11 +1680,11 @@ void Reader::finishExit() {
 // A page turn does not have to reach storage before the next one. A local
 // checkpoint opens the profile database and syncs storage several times, so
 // it is queued on the book's writer thread after two quiet seconds (a short
-// pause after 30 seconds without a save). The native save must use Nickel's
-// database from this thread, so it waits for ten quiet seconds. Standby
-// does not advance the timers: a save still pending when Nickel wants to
-// suspend runs then (flushBeforeStandby), not after the tap that wakes the
-// device. Closing, sleep, USB and power-off call save() at once.
+// pause after 30 seconds without a save). Standby does not advance the timer:
+// a save still pending when Nickel wants to suspend is queued then
+// (flushBeforeStandby), not after the tap that wakes the device.
+// The native save must use Nickel's database from this thread, so it never
+// runs while reading. Opening, sleep, USB, close and power-off write it.
 void Reader::saveSoon() {
     if (!localSaveDue)
         unsavedSince.start();
@@ -1705,12 +1705,9 @@ void Reader::scheduleIdleSave() {
             runIdleSave(false);
         });
     }
-    if (!localSaveDue && !nativeSaveDue)
+    if (!localSaveDue)
         return;
-    // Wake for whichever save becomes quiet enough first.
-    qint64 delay = nativeQuietSaveDelay;
-    if (localSaveDue)
-        delay = idleSaveDelay();
+    const qint64 delay = idleSaveDelay();
     const qint64 quiet = lastInput.isValid() ? lastInput.elapsed() : delay;
     idleSaveTimer->start(int(qBound(qint64(0), delay - quiet, delay)));
 }
@@ -1718,11 +1715,11 @@ void Reader::scheduleIdleSave() {
 void Reader::runIdleSave(bool beforeStandby) {
     if (beforeStandby)
         standbyFlushQueued = false;
-    if (!localSaveDue && !nativeSaveDue)
+    if (!localSaveDue)
         return;
     // These paths save the position themselves.
     if (closing || exportRunning || lifecycleHidden) {
-        localSaveDue = nativeSaveDue = false;
+        localSaveDue = false;
         unsavedSince.invalidate();
         return;
     }
@@ -1731,40 +1728,22 @@ void Reader::runIdleSave(bool beforeStandby) {
             idleSaveTimer->start(250);
         return;
     }
-    // The local checkpoint goes to the book's writer thread, so a short pause
-    // is enough. Nickel's database is only reachable from this thread, so the
-    // native save waits for a long pause, or for Nickel to ask before standby.
-    const qint64 quiet = lastInput.isValid() ? lastInput.elapsed() : nativeQuietSaveDelay;
-    const bool runLocal = localSaveDue && (beforeStandby || quiet >= idleSaveDelay());
-    const bool runNative = nativeSaveDue && (beforeStandby || quiet >= nativeQuietSaveDelay);
-    if (!runLocal && !runNative) {
+    if (!beforeStandby && lastInput.isValid() && lastInput.elapsed() < idleSaveDelay()) {
         scheduleIdleSave();
         return;
     }
     QElapsedTimer timer;
     timer.start();
-    if (runNative)
-        nativeSaveDue = false;
-    const bool native = runNative && !progressBlocked();
-    if (native)
-        saveNativeProgress(true);
-    // After a native save this compares equal to the checkpoint it queued.
-    if (runLocal)
-        save(false, true);
-    kobalt::diagnostic("idle-save", {{"native", native},
-                                     {"local", runLocal},
-                                     {"before_standby", beforeStandby},
-                                     {"elapsed_ms", double(timer.elapsed())}},
+    save(false, true);
+    kobalt::diagnostic("idle-save", {{"before_standby", beforeStandby}, {"elapsed_ms", double(timer.elapsed())}},
                        false);
-    if (localSaveDue || nativeSaveDue)
-        scheduleIdleSave();
 }
 
 bool Reader::flushBeforeStandby() {
     // Let a background checkpoint finish its storage syncs before standby.
     if (book->savesPending())
         return false;
-    if ((!localSaveDue && !nativeSaveDue) || closing || exportRunning || lifecycleHidden)
+    if (!localSaveDue || closing || exportRunning || lifecycleHidden)
         return true;
     // Never write from inside Nickel's suspend decision. Queue the save and
     // let Nickel ask again; a busy engine already keeps the device awake.
@@ -1780,7 +1759,7 @@ bool Reader::flushBeforeStandby() {
 void Reader::save(bool snapshot, bool background) {
     localSaveDue = false;
     unsavedSince.invalidate();
-    if (idleSaveTimer && !nativeSaveDue)
+    if (idleSaveTimer)
         idleSaveTimer->stop();
     QJsonObject state;
     if (!book->checkpoint(&state, background)) {

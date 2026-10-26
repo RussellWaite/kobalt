@@ -96,8 +96,7 @@ private:
     void prepareTransition(std::function<void()> finished, int timeoutMs);
     // Construction, in this order. Each step builds one group of widgets and
     // connects its signals.
-    // `background` queues its local checkpoint on the book's writer thread.
-    void saveNativeProgress(bool background = false);
+    void saveNativeProgress();
     QString savedNativeAnchor;
     int savedNativePage = -1, savedNativePages = -1;
     void buildReadingPage();
@@ -509,15 +508,13 @@ private:
     void requestFlash(const char *reason);
     bool turnPainted = false;
     // Position saves wait until input has been quiet, so their storage syncs
-    // and Nickel database work do not land on a page turn. See saveSoon().
+    // do not land on a page turn. See saveSoon().
     QTimer *idleSaveTimer = nullptr;
     QElapsedTimer lastInput, unsavedSince;
-    bool localSaveDue = false, nativeSaveDue = false, standbyFlushQueued = false;
+    bool localSaveDue = false, standbyFlushQueued = false;
     void scheduleIdleSave();
     void runIdleSave(bool beforeStandby);
     int idleSaveDelay() const;
-    // The native save runs on this thread and holds Nickel's database.
-    static constexpr int nativeQuietSaveDelay = 10000;
     void showFinishChoice();
     // Like Nickel's reader, record the opening in Nickel's database once the
     // book is on screen: the position, the reading status and the time. Nickel

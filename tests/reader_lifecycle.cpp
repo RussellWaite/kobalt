@@ -2794,18 +2794,15 @@ private slots:
         }
     }
 
-    void nativeProgressAutosave_data() {
-        QTest::addColumn<bool>("sleep");
+    void nativeProgressWaitsForSleep_data() {
         QTest::addColumn<QString>("outcome");
-        for (const bool sleep : {false, true}) {
-            for (const auto *outcome : {"saved", "newer", "failed"}) {
-                const auto name = QString("%1-%2").arg(sleep ? "sleep" : "background", outcome);
-                QTest::newRow(qPrintable(name)) << sleep << QString::fromLatin1(outcome);
-            }
+        for (const auto *outcome : {"saved", "newer", "failed"}) {
+            QTest::newRow(outcome) << QString::fromLatin1(outcome);
         }
     }
-    void nativeProgressAutosave() {
-        QFETCH(bool, sleep);
+    // Nickel's progress is written on the GUI thread, so reading pauses save
+    // only the local position. Sleep writes Nickel's copy.
+    void nativeProgressWaitsForSleep() {
         QFETCH(QString, outcome);
         QTemporaryDir root;
         auto paths = testPaths();
@@ -2825,53 +2822,40 @@ private slots:
         QVERIFY(QTest::qWaitForWindowExposed(&canvas));
         QTRY_VERIFY(!host.session()->busy());
         QTRY_VERIFY(host.progress->writes > 0);
-        auto *timer = host.window()->findChild<QTimer *>("rrNativeProgressTimer");
-        QVERIFY(timer);
-        QCOMPARE(timer->interval(), 30000);
-        const int openingWrites = host.progress->writes;
-        // The timer marks the save due; it runs once input is quiet.
-        const auto runDueNativeSave = [&] {
-            QVERIFY(QMetaObject::invokeMethod(timer, "timeout", Qt::DirectConnection));
-            auto *idle = host.window()->findChild<QTimer *>("rrIdleSaveTimer");
-            QVERIFY(idle);
-            QTRY_VERIFY(!idle->isActive());
-        };
-        runDueNativeSave();
-        QCOMPARE(host.progress->writes, openingWrites);
+        const int writes = host.progress->writes;
         QVERIFY(host.session()->go(1));
         QTRY_VERIFY(!host.session()->busy());
         const auto anchor = host.session()->state().value("position").toString();
+        const auto stored = [&] {
+            return storage::readBookState(paths, identity).object.value("position").toString();
+        };
+        QTRY_COMPARE_WITH_TIMEOUT(stored(), anchor, 5000);
+        QVERIFY(host.window()->flushBeforeStandby());
+        QCOMPARE(host.progress->writes, writes);
         QString error;
         const auto expected = host.session()->savedNativePosition(&error);
         QVERIFY2(error.isEmpty(), qPrintable(error));
         QVERIFY(!expected.isEmpty());
         const double percent = 100.0 * host.session()->page() / host.session()->pages();
-        const int writes = host.progress->writes;
         if (outcome == "newer") {
             host.progress->publish({identity, "OEBPS/c3.xhtml#kobo.8.1:7", 200, 1, true});
         }
         host.progress->failWrite = outcome == "failed";
         const auto before = host.progress->current;
-        if (sleep) {
-            host.window()->sleepReader();
-        } else {
-            runDueNativeSave();
-        }
+        host.window()->sleepReader();
         QCOMPARE(host.progress->writes, writes + (outcome == "saved" ? 1 : 0));
         if (outcome == "saved") {
             QCOMPARE(host.progress->current.location, expected);
             QCOMPARE(host.progress->percent, percent);
-            runDueNativeSave();
-            QCOMPARE(host.progress->writes, writes + 1);
         } else {
             QVERIFY(host.progress->current == before);
         }
-        QCOMPARE(storage::readBookState(paths, identity).object.value("position").toString(), anchor);
+        QCOMPARE(stored(), anchor);
     }
 
-    // Position saves sync storage and write Nickel's database on the GUI
-    // thread. They wait for quiet input, or for Nickel to ask before standby,
-    // so they never run inside a page turn.
+    // Position saves run on the book's writer thread. They wait for quiet
+    // input, or for Nickel to ask before standby, so their storage syncs never
+    // land on a page turn. They do not write Nickel's database.
     void positionSavesWaitForQuietInput() {
         QTemporaryDir root;
         auto paths = testPaths();
@@ -2898,8 +2882,6 @@ private slots:
             return host.session()->state().value("position").toString();
         };
         QTRY_COMPARE(stored(), current());
-        auto *native = host.window()->findChild<QTimer *>("rrNativeProgressTimer");
-        QVERIFY(native);
         QElapsedTimer sinceInput;
         const auto turn = [&] {
             const auto before = current();
@@ -2908,27 +2890,23 @@ private slots:
             QTRY_VERIFY(!host.session()->busy() && current() != before);
         };
 
-        // Turns closer together than the quiet period keep both saves pending,
-        // including a native save that falls due between them.
+        // Turns closer together than the quiet period keep the save pending.
         const auto saved = stored();
         const int writes = host.progress->writes;
         for (int step = 0; step < 4; ++step) {
             turn();
-            if (step == 1)
-                QVERIFY(QMetaObject::invokeMethod(native, "timeout", Qt::DirectConnection));
             QTest::qWait(300);
             QCOMPARE(stored(), saved);
             QCOMPARE(host.progress->writes, writes);
         }
 
-        // Nickel asks before standby: the window refuses once, writes both saves
-        // at once instead of after the waking tap, then allows standby.
+        // Nickel asks before standby: the window refuses once, saves at once
+        // instead of after the waking tap, then allows standby.
         QVERIFY(!host.window()->flushBeforeStandby());
         QVERIFY(!host.window()->flushBeforeStandby());
         QTRY_COMPARE_WITH_TIMEOUT(stored(), current(), 1500);
         QVERIFY(sinceInput.elapsed() < 2000);
-        QCOMPARE(host.progress->writes, writes + 1);
-        QVERIFY(host.window()->flushBeforeStandby());
+        QTRY_VERIFY(host.window()->flushBeforeStandby());
 
         // Without a standby request the save follows two quiet seconds.
         turn();
@@ -2937,7 +2915,8 @@ private slots:
         QVERIFY(stored() != current());
         QTRY_COMPARE_WITH_TIMEOUT(stored(), current(), 5000);
         QVERIFY(sinceInput.elapsed() >= 1950);
-        QVERIFY(host.window()->flushBeforeStandby());
+        QTRY_VERIFY(host.window()->flushBeforeStandby());
+        QCOMPARE(host.progress->writes, writes);
 
         // A queued background checkpoint never replaces a newer synchronous
         // one, such as the checkpoint at sleep, USB or close.
