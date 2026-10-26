@@ -276,6 +276,7 @@ public:
 private:
     // Sets the current and next entries of `links` around `position`.
     ChapterSelection chapterAround(const QVector<ChapterLink> &links, const QString &position) const;
+    int chapterEndPage(const ChapterLink &next) const;
     void markKoboLinkDecorations();
     EngineFontInputs fonts_;
     friend class nickel::NickelPositionCodec;

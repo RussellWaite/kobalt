@@ -1054,6 +1054,7 @@ quint64 ReaderModel::layoutSignature() const {
     };
     mix(quint64(quintptr(engine_->getDocument())));
     mix(engine_->getDocumentRenderingHash(true));
+    mix(columns_);
     mix(verticalSpacing_ == "center" ? 2 : verticalSpacing_ == "expand" ? 1 : 0);
     mix(verticalSpacingScope_ == "protection");
     return hash ? hash : 1;
@@ -1135,11 +1136,20 @@ QVector<ChapterLink> ReaderModel::chapterGraph() const {
         return {};
     return chapterIndex(graphIndex_, graph_, false).links;
 }
+int ReaderModel::chapterEndPage(const ChapterLink &next) const {
+    if (columns_ == 1)
+        return next.page;
+    const auto pointer = engine_->getDocument()->createXPointer(cre(next.position));
+    const int column = pointer.isNull() ? -1 : engine_->getBookmarkPage(pointer, true);
+    // A chapter starting in the second column shares this screen with the
+    // preceding chapter. Round its exclusive end up before counting screens.
+    return column < 0 ? next.page : (column + columns_ - 1) / columns_;
+}
 ChapterSelection ReaderModel::chapterSelection(const QVector<ChapterLink> &links) const {
     auto result = chapterAround(links, anchor_);
     if (result.current >= 0) {
         const int first = links[result.current].page;
-        const int last = result.next < 0 ? pages() - 1 : qMax(first, links[result.next].page - 1);
+        const int last = result.next < 0 ? pages() - 1 : qMax(first, chapterEndPage(links[result.next]) - 1);
         result.page = qBound(1, page() - first + 1, last - first + 1);
         result.pages = last - first + 1;
     }
@@ -1222,11 +1232,12 @@ ChapterProgress ReaderModel::chapterProgress() const {
             return {title.isEmpty() ? strings::get("reader.untitled_chapter") : title, selected.page, selected.pages};
         }
         if (selected.next >= 0)
-            return {strings::get("reader.front_matter"), page() + 1, qMax(1, links[selected.next].page)};
+            return {strings::get("reader.front_matter"), page() + 1, qMax(1, chapterEndPage(links[selected.next]))};
         return {};
     }
     const int current = page();
-    int start = -1, end = pages();
+    int start = -1;
+    const ChapterLink *next = nullptr;
     ChapterProgress progress;
     bool found = false;
     for (const auto &chapter : links) {
@@ -1236,8 +1247,8 @@ ChapterProgress ReaderModel::chapterProgress() const {
         if (chapter.page <= current && chapter.page >= start) {
             start = chapter.page;
             progress.title = chapter.title.trimmed();
-        } else if (chapter.page > current)
-            end = qMin(end, chapter.page);
+        } else if (chapter.page > current && (!next || chapter.page < next->page))
+            next = &chapter;
     }
     if (!found)
         return progress;
@@ -1245,7 +1256,7 @@ ChapterProgress ReaderModel::chapterProgress() const {
         progress.title = start < 0 ? strings::get("reader.front_matter") : strings::get("reader.untitled_chapter");
     const int first = qMax(0, start);
     progress.page = current - first + 1;
-    progress.pages = end - first;
+    progress.pages = (next ? chapterEndPage(*next) : pages()) - first;
     return progress;
 }
 QString ReaderModel::textFontFace() const {

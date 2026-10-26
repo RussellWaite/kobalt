@@ -5,14 +5,7 @@
 #include <QDir>
 #include <cstdio>
 namespace {
-void open(kobalt::ReaderModel &model, const QByteArray &body, const QByteArray &css = {},
-          QJsonObject settings = {}, QSize size = {1072, 1448}, bool rtl = false) {
-    const QMap<QString, QByteArray> data{
-        {"mimetype", "application/epub+zip"},
-        {"META-INF/container.xml", "<container xmlns='urn:oasis:names:tc:opendocument:xmlns:container' version='1.0'><rootfiles><rootfile full-path='book.opf' media-type='application/oebps-package+xml'/></rootfiles></container>"},
-        {"book.opf", QByteArray("<package xmlns='http://www.idpf.org/2007/opf' version='3.0'><metadata><title>Columns</title></metadata><manifest><item id='c' href='c.xhtml' media-type='application/xhtml+xml'/></manifest><spine") + (rtl ? " page-progression-direction='rtl'" : "") + "><itemref idref='c'/></spine></package>"},
-        {"c.xhtml", "<html xmlns='http://www.w3.org/1999/xhtml'><head><style>p{margin:0;text-indent:0}" + css +
-                          "</style></head><body>" + body + "</body></html>"}};
+void openResources(kobalt::ReaderModel &model, const QMap<QString, QByteArray> &data, QJsonObject settings, QSize size) {
     QMap<QString, qint64> sizes;
     for (auto it = data.cbegin(); it != data.cend(); ++it)
         sizes[it.key()] = it.value().size();
@@ -30,9 +23,83 @@ void open(kobalt::ReaderModel &model, const QByteArray &body, const QByteArray &
     QString error;
     require(model.openResources(source, sizes, size, settings, &error), qPrintable(error));
 }
+void open(kobalt::ReaderModel &model, const QByteArray &body, const QByteArray &css = {},
+          QJsonObject settings = {}, QSize size = {1072, 1448}, bool rtl = false) {
+    const QMap<QString, QByteArray> data{
+        {"mimetype", "application/epub+zip"},
+        {"META-INF/container.xml", "<container xmlns='urn:oasis:names:tc:opendocument:xmlns:container' version='1.0'><rootfiles><rootfile full-path='book.opf' media-type='application/oebps-package+xml'/></rootfiles></container>"},
+        {"book.opf", QByteArray("<package xmlns='http://www.idpf.org/2007/opf' version='3.0'><metadata><title>Columns</title></metadata><manifest><item id='c' href='c.xhtml' media-type='application/xhtml+xml'/></manifest><spine") + (rtl ? " page-progression-direction='rtl'" : "") + "><itemref idref='c'/></spine></package>"},
+        {"c.xhtml", "<html xmlns='http://www.w3.org/1999/xhtml'><head><style>p{margin:0;text-indent:0}" + css +
+                          "</style></head><body>" + body + "</body></html>"}};
+    openResources(model, data, settings, size);
+}
+QMap<QString, QByteArray> chapterBook(int firstColumns, bool rtl) {
+    const auto html = [](const char *name, int count) {
+        QByteArray body;
+        for (int i = 0; i < count; ++i)
+            body += "<p style='page-break-before:always'>" + QByteArray(name) + QByteArray::number(i) + "<br/>" +
+                    QByteArray("Amber birch cedar.<br/>").repeated(i == count - 1 ? 8 : 16) + "</p>";
+        return "<html xmlns='http://www.w3.org/1999/xhtml'><head><style>p{margin:0;text-indent:0;line-height:1}</style></head><body>" + body + "</body></html>";
+    };
+    return {
+        {"mimetype", "application/epub+zip"},
+        {"META-INF/container.xml", "<container xmlns='urn:oasis:names:tc:opendocument:xmlns:container' version='1.0'><rootfiles><rootfile full-path='book.opf' media-type='application/oebps-package+xml'/></rootfiles></container>"},
+        {"book.opf", QByteArray("<package xmlns='http://www.idpf.org/2007/opf' version='2.0'><metadata><title>Chapter columns</title></metadata><manifest><item id='a' href='a.xhtml' media-type='application/xhtml+xml'/><item id='b' href='b.xhtml' media-type='application/xhtml+xml'/><item id='toc' href='toc.ncx' media-type='application/x-dtbncx+xml'/></manifest><spine toc='toc'") + (rtl ? " page-progression-direction='rtl'" : "") + "><itemref idref='a'/><itemref idref='b'/></spine></package>"},
+        {"toc.ncx", "<ncx xmlns='http://www.daisy.org/z3986/2005/ncx/' version='2005-1'><head/><docTitle><text>Chapter columns</text></docTitle><navMap><navPoint id='a' playOrder='1'><navLabel><text>Short chapter</text></navLabel><content src='a.xhtml'/></navPoint><navPoint id='b' playOrder='2'><navLabel><text>Next chapter</text></navLabel><content src='b.xhtml'/></navPoint></navMap></ncx>"},
+        {"a.xhtml", html("A", firstColumns)}, {"b.xhtml", html("B", 13)}};
+}
+void chapterProgress() {
+    for (bool rtl : {false, true}) for (int firstColumns : {2, 3, 4}) {
+        kobalt::ReaderModel model(kobalt::test::readerFonts());
+        openResources(model, chapterBook(firstColumns, rtl), {{"columns", 2}}, {1000, 800});
+        const auto chapters = model.chapters();
+        require(chapters.size() == 2 && chapters[1].page == firstColumns / 2,
+                "Chapter fixture lost its column boundary");
+        const int firstScreens = firstColumns == 2 ? 1 : 2;
+        const int nextScreen = chapters[1].page;
+        for (bool supplied : {false, true}) {
+            if (supplied) model.setChapters(chapters, chapters);
+            require(model.go(0), "Cannot open the short chapter");
+            const auto anchor = model.position();
+            const auto progress = model.chapterProgress();
+            require(progress.title == "Short chapter" && progress.page == 1 && progress.pages == firstScreens,
+                    "Chapter total omitted its final shared screen or included the next full screen");
+            require(model.chapterSelection(model.chapters()).pages == firstScreens && model.position() == anchor,
+                    "Chapter selection disagreed with the total or moved the reader");
+            require(model.go(nextScreen), "Cannot open the chapter boundary");
+            if (firstColumns == 3) {
+                require(!model.searchPage("A2", nextScreen).hits.isEmpty() &&
+                            !model.searchPage("B0", nextScreen).hits.isEmpty(),
+                        "Shared screen lost one of its chapters");
+                const auto mixed = model.chapterProgress();
+                require(supplied ? mixed.title == "Short chapter" && mixed.page == 2 && mixed.pages == 2
+                                 : mixed.title == "Next chapter" && mixed.page == 1 && mixed.pages == 7,
+                        "Shared-screen chapter label or page count changed");
+            }
+            require(model.goTo(chapters[1].position), "Cannot open the next chapter");
+            const auto next = model.chapterProgress();
+            require(next.title == "Next chapter" && next.page == 1 && next.pages == 7,
+                    "Next chapter did not retain its first shared screen");
+            require(model.go(model.pages() - 1) && model.chapterProgress().page == 7 &&
+                        model.chapterProgress().pages == 7,
+                    "Last chapter lost its partial final screen");
+        }
+        if (firstColumns == 3) {
+            // Keep the engine's text width unchanged while changing the screen
+            // grouping, so cached chapter pages must include the column count.
+            require(model.applyAppearance({{"columns", 1}}, {490, 800}) && model.go(0), "Cannot reflow to one column");
+            require(model.chapters()[1].page == 3 && model.chapterProgress().pages == 3,
+                    "Chapter pages stayed grouped after switching to one column");
+            require(model.applyAppearance({{"columns", 2}}, {1000, 800}) && model.go(0) &&
+                        model.chapterProgress().pages == 2,
+                    "Chapter total lost its shared screen after reflow");
+        }
+    }
+}
 }
 int main(int argc, char **argv) {
     QGuiApplication app(argc, argv);
+    chapterProgress();
     for (bool rtl : {false, true}) for (bool dark : {false, true}) for (int count : {1, 2}) {
         kobalt::ReaderModel model(kobalt::test::readerFonts());
         const auto paragraph = QByteArray("<p>") + QByteArray("<a href='https://example.test/'>Amber</a> birch cedar dogwood elm fir. ").repeated(100) + "</p>";
@@ -185,5 +252,5 @@ int main(int argc, char **argv) {
         require(!relative.applyAppearance({{"column_spacing_percent", 99}}) && !relative.applyAppearance({{"column_spacing_percent", 301}}),
                 "Invalid relative column spacing was accepted");
     }
-    std::puts("PASS: one and two columns preserve text, geometry and screen navigation");
+    std::puts("PASS: one and two columns preserve text, geometry, chapter progress and screen navigation");
 }
