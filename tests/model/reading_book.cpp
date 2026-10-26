@@ -28,6 +28,9 @@ QJsonObject persistedBook(QJsonObject state) {
         state.remove(key);
     for (const auto *key : appearance::marginKeys)
         state.remove(key);
+    for (const auto *key : {"chapter_title", "chapter_page", "chapter_pages", "page", "pages", "next_page",
+                            "text_font_face", "embedded_font_count", "cached_pages"})
+        state.remove(key);
     return state;
 }
 void waitUntil(const std::function<bool()> &ready) {
@@ -162,11 +165,14 @@ int main(int argc, char **argv) {
     QTemporaryDir temporary;
     require(temporary.isValid(), "Cannot create state directory");
     storage::Paths paths{temporary.path()};
-    const auto open = [&](QSize size = QSize(758, 900)) {
+    const auto open = [&](QSize size = QSize(758, 900), const QJsonObject &state = QJsonObject(),
+                          const QString &identity = QStringLiteral("test-book"), PositionCodec positions = {}) {
         auto session = std::make_unique<ReaderSession>(test::readerFonts(), test::readerPlaceholder());
         bool ready = false;
         auto lease = std::make_shared<SourceLease>();
-        session->open({"test-book", path, size, {}, {}, {}, lease, nativeResourceFactory(path, server.port(), lease)},
+        OpenRequest request{identity, path, size, state, {}, {}, lease, nativeResourceFactory(path, server.port(), lease)};
+        request.positions = positions;
+        session->open(std::move(request),
                       [&](const OpeningResult &result) {
                           require(result.ready(), qPrintable(openingMessage(result)));
                           ready = true;
@@ -269,6 +275,109 @@ int main(int argc, char **argv) {
                 "Normal reopening retained temporary typography");
         auto ordinary = open();
         require(!ordinary->temporaryTypography(), "Unmatched opening inherited benchmark typography");
+    }
+    {
+        const QString identity = "checkpoint-fields";
+        const auto statePath = paths.bookState(identity);
+        const auto optional = qt::array({false, QJsonValue(), qt::object({{"note", QString::fromUtf8("\xc3\xa9") + QChar(0) + "tail"}})});
+        const auto original = qt::object({{"schema", 1}, {"book", identity}, {"future_optional", optional},
+                                          {"future_null", QJsonValue()}, {"dictionary_id", "old-dictionary"},
+                                          {"chapter_title", "Old display title"}, {"cached_pages", 123}});
+        require(storage::writeJson(statePath, original), "Cannot create legacy checkpoint fields");
+        const auto imported = storage::readBookState(paths, identity, statePath);
+        require(imported.status == storage::ReadStatus::Ok && imported.object == original,
+                "Legacy checkpoint fields changed during import");
+        {
+            const PositionCodec positions{
+                [](const ReaderModel &, const QString &location, QString *) { return location; },
+                [](const ReaderModel &model, QString *) { return model.position(); },
+                [](const QString &location) { return location; }};
+            auto session = open(QSize(758, 900), imported.object, identity, positions);
+            const auto hash = session->sourceHash();
+            int failures = 0;
+            ReadingBook book(std::move(session), statePath, paths, identity, hash, nullptr, {}, {});
+            book.onCheckpointFailed([&] { ++failures; });
+            require(book.saveDictionaryChoice({}), "Cannot clear an imported dictionary choice");
+            QJsonObject snapshot;
+            require(book.checkpoint(&snapshot), "Cannot save imported checkpoint fields");
+            auto saved = storage::readBookState(paths, identity).object;
+            require(saved.value("future_optional") == optional && saved.contains("future_null") &&
+                        saved.value("future_null").isNull(), "Opening checkpoint lost optional fields");
+            require(!saved.contains("dictionary_id"), "Checkpoint restored a cleared dictionary choice");
+            require(snapshot.contains("chapter_title") && snapshot.contains("cached_pages") &&
+                        snapshot.contains("page"), "Inspection snapshot lost display fields");
+            // A display title can exceed the saved-record budget without
+            // changing the reading position or any persistent preference.
+            const QString title(int(storage::maxJsonBytes) + 1, 'T');
+            book.session()->setChapters({{title, snapshot.value("position").toString()}}, {});
+            waitUntil([&] { return book.session()->chapterTitle() == title; });
+            require(book.checkpoint(&snapshot) && snapshot.value("chapter_title") == title &&
+                        storage::readBookState(paths, identity).object == saved,
+                    "Display-only chapter change affected the saved checkpoint");
+            for (const auto *key : {"chapter_title", "chapter_page", "chapter_pages", "page", "pages", "next_page",
+                                    "text_font_face", "embedded_font_count", "cached_pages"})
+                require(!saved.contains(key), "Checkpoint persisted a display-only field");
+            require(book.session()->turn(1), "Cannot turn before background checkpoint");
+            waitUntil([&] { return !book.session()->busy(); });
+            require(book.checkpoint(&snapshot, true), "Cannot queue preserved checkpoint fields");
+            waitUntil([&] { return !book.savesPending(); });
+            saved = storage::readBookState(paths, identity).object;
+            require(saved.value("future_optional") == optional && saved.value("position") == snapshot.value("position"),
+                    "Background checkpoint lost optional fields or reading position");
+            require(AnnotationDatabase::transaction(paths.directory, [](QSqlDatabase &db) {
+                QSqlQuery query(db);
+                return query.exec("CREATE TRIGGER refuse_fields BEFORE UPDATE ON book_state "
+                                  "BEGIN SELECT RAISE(ABORT,'test'); END");
+            }), "Cannot obstruct preserved checkpoint");
+            require(book.session()->turn(1), "Cannot turn before failed checkpoint");
+            waitUntil([&] { return !book.session()->busy(); });
+            require(book.checkpoint(&snapshot, true), "Cannot queue obstructed checkpoint");
+            waitUntil([&] { return failures == 1; });
+            require(storage::readBookState(paths, identity).object == saved, "Failed checkpoint changed saved fields");
+            require(AnnotationDatabase::transaction(paths.directory, [](QSqlDatabase &db) {
+                QSqlQuery query(db);
+                return query.exec("DROP TRIGGER refuse_fields");
+            }) && book.checkpoint(&snapshot), "Cannot retry preserved checkpoint");
+            require(storage::readBookState(paths, identity).object.value("future_optional") == optional,
+                    "Retried checkpoint lost optional fields");
+        }
+        require(storage::writeBookState(paths, identity, qt::object({{"book", identity}})), "Cannot reset book state");
+        {
+            auto session = open();
+            const auto hash = session->sourceHash();
+            ReadingBook book(std::move(session), statePath, paths, identity, hash, nullptr, {}, {});
+            QJsonObject snapshot;
+            require(book.checkpoint(&snapshot), "Cannot checkpoint after explicit reset");
+            const auto saved = storage::readBookState(paths, identity).object;
+            require(!saved.contains("future_optional") && !saved.contains("future_null") &&
+                        !saved.contains("dictionary_id"), "Reopening restored explicitly reset fields");
+        }
+    }
+    for (const bool newlyUnread : {true, false}) {
+        const QString identity = newlyUnread ? "native-unread-reset" : "native-unread-acknowledged";
+        Calls calls;
+        calls.current = {identity, {}, 0, 0, true};
+        auto previous = calls.current;
+        if (newlyUnread) {
+            previous.status = 1;
+            previous.location = "old-position";
+        }
+        const auto original = qt::object({{"schema", 1}, {"book", identity}, {"future_optional", "keep"},
+                                          {"dictionary_id", "old-dictionary"}, {"nickel_progress", previous.json()}});
+        require(storage::writeBookState(paths, identity, original), "Cannot seed native unread checkpoint");
+        // Nickel's coordinator resets the opening snapshot without replacing
+        // the stored record first. An acknowledged unread state is not a reset.
+        auto opening = original;
+        require(resetNativeUnread(opening, calls.current) == newlyUnread, "Unexpected native unread reset");
+        auto session = open(QSize(758, 900), opening, identity);
+        const auto hash = session->sourceHash();
+        ReadingBook book(std::move(session), paths.bookState(identity), paths, identity, hash,
+                         std::make_unique<Bridge>(calls), calls.current, calls.current);
+        QJsonObject snapshot;
+        require(book.checkpoint(&snapshot), "Cannot checkpoint native unread state");
+        const auto saved = storage::readBookState(paths, identity).object;
+        require(saved.contains("future_optional") == !newlyUnread && saved.contains("dictionary_id") == !newlyUnread,
+                "Checkpoint ignored or repeated Nickel's explicit unread reset");
     }
     {
         auto session = open();

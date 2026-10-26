@@ -16,7 +16,12 @@ ReadingBook::ReadingBook(std::unique_ptr<ReaderSession> session, QString statePa
     : model(std::move(session)), statePath(std::move(statePath)), identity_(std::move(identity)),
       paths_(std::move(paths)), digest(std::move(digest)), bridge(std::move(bridge)), baseline(std::move(baseline)),
       reconciliation(std::move(diskBaseline)) {
-    const auto saved = storage::readBookState(paths_, identity_, this->statePath).object;
+    auto saved = storage::readBookState(paths_, identity_, this->statePath).object;
+    // The native opener resets its snapshot before the database record is
+    // replaced. Apply the same reset before retaining fields or preferences.
+    if (this->bridge)
+        resetNativeUnread(saved, reconciliation.baseline());
+    preservedState = saved;
     const auto preferences = appearance::readerPreferences(
         storage::readPreferences(paths_.preferences()).object, saved.value("book").toString() == identity_ ? saved : QJsonObject());
     for (const auto *key : appearance::layoutKeys)
@@ -273,9 +278,19 @@ bool ReadingBook::checkpoint(QJsonObject *snapshot, bool background) {
     state["sync_pending"] = reconciliation.pending();
     state["native_writeback_error"] = nativeWritebackError;
     *snapshot = state;
-    auto checkpoint = state;
+    auto checkpoint = preservedState;
+    for (auto it = state.begin(); it != state.end(); ++it)
+        checkpoint[it.key()] = it.value();
+    if (dictionaryChoice_.isEmpty())
+        checkpoint.remove("dictionary_id");
     if (model->temporaryTypography())
         appearance::copy(checkpoint, model->persistentState());
+    // These describe the displayed frame, not a saved reading position. Drop
+    // them from imported records too, before comparing checkpoints or applying
+    // the record's byte limit. Diagnostic snapshots above keep the full frame.
+    for (const auto *key : {"chapter_title", "chapter_page", "chapter_pages", "page", "pages", "next_page",
+                            "text_font_face", "embedded_font_count", "cached_pages"})
+        checkpoint.remove(key);
     if (checkpoint == savedCheckpoint || (background && checkpoint == pendingCheckpoint))
         return true;
     // Unchanged checkpoints need no disk write. The interval timer and pause

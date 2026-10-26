@@ -128,7 +128,7 @@ Kobalt saves the position in its own per-book file while reading. It writes the 
 
 Kobalt recognizes a changed book by the file size and the ZIP directory, which holds the checksum of every file in the book. When the book changes, for example after an update from the store, Kobalt discards its saved position and typography for that book and imports Nickel's position.
 
-The per-book file also records the CREngine DOM version that wrote the position. Kobalt opens the book with that version again, so a saved position stays valid after an update to CREngine. A new book uses the current version.
+The per-book file also records the CREngine DOM version that wrote the position. Kobalt opens the book with that version again, so a saved position stays valid after an update to CREngine. A new book uses the current version. Saving progress preserves extra fields in the book's supported saved record. Mark as unread still resets the record without removing bookmarks, annotations or reading history.
 
 On firmware 5 and 6, Nickel stores a chapter path, an element ID and a text offset, so a supported position round trip is exact. On firmware 4, Nickel stores only a chapter path and an element ID. Kobalt gives Nickel the element that contains the position and keeps the exact offset locally. If a page has no source element ID, or CREngine normalizes the source text, Kobalt saves the start of the current chapter to Nickel and keeps the exact position locally. This lets Nickel update the current book, sleep cover and percentage without saving an invalid text offset. Ambiguous chapter paths, duplicate IDs and resource read failures still prevent native position writeback.
 

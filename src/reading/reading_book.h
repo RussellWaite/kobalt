@@ -127,6 +127,9 @@ private:
     QString nativeWriteback = "not-attempted", nativeWritebackError, acceptedFinishedAnchor;
     // The last checkpoint that reached storage. An identical one is not written again.
     QJsonObject savedCheckpoint, layoutPreferences_;
+    // Keep extra fields from the supported record loaded at opening. Reader
+    // fields are regenerated at each checkpoint.
+    QJsonObject preservedState;
     // The background checkpoint that has not reported back yet.
     QJsonObject pendingCheckpoint;
     std::function<void()> checkpointFailed;
