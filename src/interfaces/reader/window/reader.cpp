@@ -43,6 +43,11 @@ using kobalt::platform::textRefresh;
 using kobalt::Choice;
 
 Reader::~Reader() {
+    // Qt drops these connections only in ~QObject, after the members, the book
+    // among them, are gone. Hiding the window in ~QWidget can change the
+    // application state and would call back into a half-destroyed reader.
+    disconnect(qApp, nullptr, this, nullptr);
+    disconnect(QGuiApplication::primaryScreen(), nullptr, this, nullptr);
     delete annotationExportPicker.data();
     book->onEstimatesChanged({});
     model->cancelPagePreview();
