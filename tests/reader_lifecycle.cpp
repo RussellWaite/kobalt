@@ -2975,12 +2975,24 @@ private slots:
         wifiChanged({true, true, 1});
         QVERIFY(wifi->accessibleName().contains("1 of 4"));
         QVERIFY(strong != wifi->grab().toImage());
+        wifiChanged({true, true, 4});
         const int withBluetooth = wifi->x();
+        const auto bluetoothSlot = QRectF(bluetooth->geometry()).center().x();
         bluetoothChanged(false);
         QTRY_VERIFY(!bluetooth->isVisible());
         QVERIFY(wifi->x() > withBluetooth);
+        QCOMPARE(QRectF(wifi->geometry()).center().x(), bluetoothSlot);
+        if (!capture.isEmpty())
+            QVERIFY(host.window()->grab(QRect(0, 0, host.window()->width(), ui::px(60))).save(
+                capture + QString("/wifi-only-statusbar-%1-%2.png").arg(dark ? "dark" : "light").arg(ppi)));
         wifiChanged({true, false, -1});
-        QVERIFY(wifi->isVisible() && wifi->accessibleName().contains("not connected"));
+        QTRY_VERIFY(!wifi->isVisible());
+        wifiChanged({true, true, -1});
+        QTRY_VERIFY(!wifi->isVisible());
+        wifiChanged({true, true, 0});
+        QTRY_VERIFY(!wifi->isVisible());
+        wifiChanged({true, true, 1});
+        QTRY_VERIFY(wifi->isVisible());
         wifiChanged({false, false, -1});
         QTRY_VERIFY(!wifi->isVisible());
     }

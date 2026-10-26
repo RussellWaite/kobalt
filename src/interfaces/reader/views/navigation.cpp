@@ -364,21 +364,25 @@ void Navigation::update(QSize size, const NavigationState &state) {
     clock->setGeometry(c::inset, ui::px(10), ui::px(160), ui::px(40));
     int sessionInset = ui::px(196);
     battery->move(size.width() - c::inset - battery->width(), ui::px(10));
-    int nextStatus = battery->x();
+    const int statusGap = ui::metrics::panel::bluetoothGap;
+    QWidget *previousStatus = nullptr;
+    const auto placeStatus = [&](QWidget *indicator) {
+        const int x = previousStatus ? previousStatus->x() - statusGap - indicator->width()
+            : battery->x() - statusGap - (int(ui::metrics::panel::bluetoothIconSize) + indicator->width()) / 2;
+        indicator->move(x, ui::px(10));
+        previousStatus = indicator;
+        sessionInset = qMax(sessionInset, size.width() - indicator->x() + int(c::inset));
+    };
     if (bluetooth) {
         bluetooth->setVisible(statusVisible && bluetooth->active());
-        bluetooth->move(battery->x() - int(ui::metrics::panel::bluetoothGap) - bluetooth->width(), ui::px(10));
         if (bluetooth->active()) {
-            nextStatus = bluetooth->x();
-            const int rightInset = size.width() - bluetooth->x() + int(c::inset);
-            sessionInset = qMax(sessionInset, rightInset);
+            placeStatus(bluetooth);
         }
     }
     if (wifi) {
         wifi->setVisible(statusVisible && wifi->active());
-        wifi->move(nextStatus - int(ui::metrics::panel::bluetoothGap) - wifi->width(), ui::px(10));
         if (wifi->active())
-            sessionInset = qMax(sessionInset, size.width() - wifi->x() + int(c::inset));
+            placeStatus(wifi);
     }
     session->setGeometry(sessionInset, ui::px(10), qMax(0, size.width() - 2 * sessionInset), ui::px(40));
     exitAction->setGeometry(ui::px(24), statusHeight(), exitAction->sizeHint().width(), c::actionHeight);

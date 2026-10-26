@@ -169,7 +169,10 @@ BluetoothIndicator::BluetoothIndicator(QWidget *parent) : QWidget(parent) {
     hide();
 }
 WifiIndicator::WifiIndicator(QWidget *parent) : QWidget(parent) {
-    setFixedSize(m::panel::wifiIconWidth, m::panel::statusHeight);
+    const int width = m::panel::wifiIconWidth;
+    const int reference = m::panel::bluetoothIconSize;
+    // Equal width parity keeps their centers on the same pixel grid.
+    setFixedSize(width + (width - reference) % 2, m::panel::statusHeight);
     setAttribute(Qt::WA_TransparentForMouseEvents);
     hide();
 }

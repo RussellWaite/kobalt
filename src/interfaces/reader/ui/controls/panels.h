@@ -140,7 +140,7 @@ private:
 class WifiIndicator final : public QWidget {
 public:
     explicit WifiIndicator(QWidget *parent);
-    bool active() const { return enabled; }
+    bool active() const { return enabled && connected && strength > 0; }
     bool setStatus(bool enabled, bool connected, int strength);
 protected:
     void paintEvent(QPaintEvent *) override;
