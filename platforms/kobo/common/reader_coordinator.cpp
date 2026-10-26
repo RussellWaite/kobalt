@@ -187,10 +187,6 @@ ReaderCoordinator::ReaderCoordinator(ReaderEnvironment &environment, Coordinator
             },
             [this, ready = std::move(ready)] {
                 environment_.assets.invalidate();
-                // Nickel unmounts the partition lazily and hands it to the
-                // computer; no Kobalt file may stay open, and none opens again
-                // until the partition is mounted again.
-                kobalt::storage::closeProfile(true);
                 ready();
             });
     };

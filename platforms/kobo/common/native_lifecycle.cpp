@@ -285,6 +285,9 @@ bool NativeLifecycle::interceptUsbWorkflow(QObject *manager) {
         if (!guard || request != guard->generation || !guard->usbPending || !guard->pendingWorkflow) {
             return;
         }
+        // Only a current USB request may block storage. The reader drain can
+        // finish after disconnect has cancelled it and reopened the profile.
+        storage::closeProfile(true);
         auto *manager = guard->pendingWorkflow.data();
         guard->pendingWorkflow.clear();
         guard->storageReady = true;
@@ -310,6 +313,7 @@ void NativeLifecycle::beginUsb() {
     active->prepareUsb([guard, request] {
         if (!guard || request != guard->generation || !guard->usbPending)
             return;
+        storage::closeProfile(true);
         diagnostic("usb-release-complete");
         guard->storageReady = true;
         guard->finishUsb();
@@ -349,8 +353,8 @@ void NativeLifecycle::unplugging() {
         disconnected();
 }
 void NativeLifecycle::disconnected() {
-    if (!active || active->exported)
-        return; // Wait for remount and processing.
+    if (!active || active->exported || active->poweringOff)
+        return; // Wait for remount, or leave storage closed for shutdown.
     // USB ended before the export; the partition was never released.
     storage::reopenProfile();
     ++active->generation;

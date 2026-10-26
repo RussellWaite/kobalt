@@ -358,6 +358,14 @@ if(BUILD_TESTING)
                 target_link_libraries(kobalt-${name}-tests PRIVATE Qt6::Core)
                 target_compile_definitions(kobalt-${name}-tests PRIVATE KOBALT_READER_HARDWARE)
                 set_target_properties(kobalt-${name}-tests PROPERTIES AUTOMOC ON ENABLE_EXPORTS ON)
+            elseif(check STREQUAL "native_lifecycle")
+                target_sources(kobalt-${name}-tests PRIVATE "${KOBALT_ROOT}/platforms/kobo/common/native_lifecycle.cpp"
+                    "${KOBALT_ROOT}/platforms/kobo/common/native_lifecycle.h")
+                target_link_libraries(kobalt-${name}-tests PRIVATE kobalt-regression-runtime Qt6::Widgets Qt6::Sql)
+                target_include_directories(kobalt-${name}-tests PRIVATE "${KOBALT_ROOT}")
+                target_compile_definitions(kobalt-${name}-tests PRIVATE KOBALT_READER_HARDWARE
+                    KOBALT_CONFIG_DIR="/unused" KOBALT_SYSTEM_FONT_DIRECTORY="/unused")
+                set_target_properties(kobalt-${name}-tests PROPERTIES AUTOMOC ON ENABLE_EXPORTS ON)
             elseif(check STREQUAL "nickel_book_menu")
                 target_sources(kobalt-${name}-tests PRIVATE "${KOBALT_ROOT}/platforms/kobo/common/book_menu.cpp")
                 target_link_libraries(kobalt-${name}-tests PRIVATE kobalt-regression-runtime Qt6::Widgets Qt6::Sql)
@@ -427,7 +435,7 @@ if(BUILD_TESTING)
         library)
     kobalt_regressions(model font_axes touch_rotation)
     kobalt_regressions(platform reader_orientation font_sources system_fonts nickel_dictionary_selection
-        nickel_reading_pace_cache nickel_session_calls nickel_book_menu native_progress usb_removal page_transition_native)
+        nickel_reading_pace_cache nickel_session_calls nickel_book_menu native_progress native_lifecycle usb_removal page_transition_native)
     kobalt_regressions(engine vertical_spacing source_index columns advanced_text alignment indentation page_layout vertical_writing mathml line_breaking
         fallback_styles svg_limits whitespace links search word_selection reader publisher_markup local_reader document_word_count document_cache)
     kobalt_regressions(component ui acknowledgments font_data font_registration)
