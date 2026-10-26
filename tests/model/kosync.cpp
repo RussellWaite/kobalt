@@ -19,11 +19,12 @@ using namespace kobalt;
 namespace {
 class Reply final : public QNetworkReply {
 public:
-    Reply(const QNetworkRequest &request, QByteArray bytes, int status, QObject *parent)
+    Reply(const QNetworkRequest &request, QByteArray bytes, int status, QNetworkReply::NetworkError error, QObject *parent)
         : QNetworkReply(parent), bytes_(std::move(bytes)) {
         setRequest(request);
         setUrl(request.url());
-        setAttribute(QNetworkRequest::HttpStatusCodeAttribute, status);
+        setAttribute(QNetworkRequest::HttpStatusCodeAttribute, error == QNetworkReply::NoError ? status : 0);
+        if (error != QNetworkReply::NoError) setError(error, "fixture transport failure");
         open(QIODevice::ReadOnly);
         QTimer::singleShot(0, this, [this] {
             if (isFinished()) return;
@@ -55,8 +56,10 @@ private:
 class Network final : public QNetworkAccessManager {
 public:
     QByteArray response = "{}", payload;
-    int status = 200, calls = 0;
+    int status = 200, calls = 0, failures = 0;
+    QNetworkReply::NetworkError transportError = QNetworkReply::ConnectionRefusedError;
     QNetworkRequest last;
+    QPointer<QNetworkReply> lastReply;
     Operation operation = GetOperation;
 protected:
     QNetworkReply *createRequest(Operation op, const QNetworkRequest &request, QIODevice *data) override {
@@ -64,7 +67,9 @@ protected:
         last = request;
         operation = op;
         payload = data ? data->readAll() : QByteArray();
-        return new Reply(request, response, status, this);
+        const auto error = failures > 0 ? (--failures, transportError) : QNetworkReply::NoError;
+        lastReply = new Reply(request, response, status, error, this);
+        return lastReply;
     }
 };
 void wait(kosync::Client &client, int timeout = 1000) {
@@ -393,6 +398,70 @@ int main(int argc, char **argv) {
         kosync::Client invalid(matchingPath);
         require(!invalid.storageError().isEmpty() && !invalid.setFilenameMatching(true), "unsupported matching method blocks writes");
         require(stored.open(QIODevice::ReadOnly) && stored.readAll() == futureBytes, "unsupported matching preference remains untouched");
+    }
+    {
+        Network retryNetwork;
+        retryNetwork.response = R"({"authorized":"OK"})";
+        retryNetwork.failures = 1;
+        kosync::Client retrying(path + ".retry", nullptr, &retryNetwork);
+        retrying.login("https://retry.example", "reader", "test-password", done);
+        wait(retrying, 3000);
+        require(error.isEmpty() && retrying.signedIn() && retryNetwork.calls == 2,
+                "login recovers from a transient connection failure without re-entering credentials");
+        require(retrying.recordSyncSuccess(), "record a baseline before retry checks");
+        const auto lastSuccess = retrying.lastSync();
+        retryNetwork.response = "{}";
+        retryNetwork.failures = 10;
+        int before = retryNetwork.calls;
+        retrying.pull(digest, pulled);
+        wait(retrying, 8000);
+        require(!error.isEmpty() && retryNetwork.calls == before + 4 && retrying.lastSync() == lastSuccess,
+                "persistent offline failures stop after bounded read retries without advancing last sync");
+        retryNetwork.failures = 1;
+        retryNetwork.transportError = QNetworkReply::SslHandshakeFailedError;
+        before = retryNetwork.calls;
+        retrying.pull(digest, pulled);
+        wait(retrying);
+        require(!error.isEmpty() && retryNetwork.calls == before + 1, "TLS failures are not retried");
+        retryNetwork.failures = 0;
+        for (const int status : {401, 404, 500}) {
+            retryNetwork.status = status;
+            before = retryNetwork.calls;
+            retrying.pull(digest, pulled);
+            wait(retrying);
+            require(!error.isEmpty() && retryNetwork.calls == before + 1, "HTTP failures are not retried");
+        }
+        retryNetwork.status = 200;
+        retryNetwork.transportError = QNetworkReply::ConnectionRefusedError;
+        retryNetwork.failures = 1;
+        before = retryNetwork.calls;
+        retrying.push(digest, {"local", {}, {}, 0.5}, done);
+        wait(retrying);
+        require(!error.isEmpty() && retryNetwork.calls == before + 1, "uploads are never retried after an ambiguous transport failure");
+        retryNetwork.failures = 1;
+        before = retryNetwork.calls;
+        retrying.pull(digest, pulled, false);
+        wait(retrying);
+        require(!error.isEmpty() && retryNetwork.calls == before + 1, "background and final reads can opt out of retries");
+        retryNetwork.failures = 1;
+        before = retryNetwork.calls;
+        int replies = 0;
+        retrying.pull(digest, [&](kosync::Progress, QString) { ++replies; });
+        QEventLoop firstFailure;
+        QTimer::singleShot(10, &firstFailure, &QEventLoop::quit);
+        firstFailure.exec();
+        require(!retryNetwork.lastReply || retryNetwork.lastReply->isFinished(), "the first transport failure was delivered before cancellation");
+        require(retrying.busy() && !retrying.setFilenameMatching(true), "pending retry remains busy and blocks identity changes");
+        retrying.cancel();
+        require(!retrying.busy(), "cancel clears a scheduled retry immediately");
+        QEventLoop cancelled;
+        QTimer::singleShot(700, &cancelled, &QEventLoop::quit);
+        cancelled.exec();
+        require(replies == 0 && retryNetwork.calls == before + 1, "cancel suppresses the delayed request and its callback");
+        retryNetwork.failures = 0;
+        retrying.pull(digest, [&](kosync::Progress, QString failure) { require(failure.isEmpty(), "retry cancellation permits a fresh sync"); ++replies; });
+        wait(retrying);
+        require(replies == 1, "a later sync finishes exactly once");
     }
     save(path, R"({"schema":99,"private":"preserve"})");
     require(!reopened.setAutomatic(true), "newer account schema blocks writes even after client construction");

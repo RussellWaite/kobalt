@@ -311,7 +311,7 @@ void Reader::startKosyncExchange(bool finishing) {
             finishKosync(strings::get(status));
         });
         if (kosyncClient->busy()) kosyncStatus(strings::get("kosync.syncing"));
-    });
+    }, !finishing && kosyncOpening);
     if (kosyncClient->busy()) kosyncStatus(strings::get("kosync.syncing"));
 }
 void Reader::showKosyncChoice() {

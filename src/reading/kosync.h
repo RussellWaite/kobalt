@@ -1,6 +1,8 @@
 #pragma once
 #include <QJsonObject>
 #include <QDateTime>
+#include <QElapsedTimer>
+#include <QTimer>
 #include <QNetworkAccessManager>
 #include <QPointer>
 #include <QUrl>
@@ -45,7 +47,7 @@ public:
     explicit Client(QString accountPath, QObject *parent = nullptr, QNetworkAccessManager *network = nullptr);
     ~Client() override;
     bool signedIn() const { return !key_.isEmpty(); }
-    bool busy() const { return !reply_.isNull(); }
+    bool busy() const { return !reply_.isNull() || retryTimer_.isActive(); }
     bool automatic() const { return automatic_; }
     QString server() const { return server_.toString(); }
     QString username() const { return username_; }
@@ -65,13 +67,17 @@ public:
     QDateTime lastSync() const { return lastSync_; }
     bool recordSyncSuccess();
     void cancel();
-    void pull(const QByteArray &document, std::function<void(Progress, QString)> done);
+    void pull(const QByteArray &document, std::function<void(Progress, QString)> done, bool retryTransient = true);
     void push(const QByteArray &document, const Progress &progress, Done done);
 
 private:
     using Response = std::function<void(int, QJsonObject, QString)>;
     void request(const QByteArray &method, const QString &path, const QUrl &server,
-                 const QString &username, const QByteArray &key, const QJsonObject &body, Response done);
+                 const QString &username, const QByteArray &key, const QJsonObject &body, Response done, bool retryTransient = true);
+    void requestAttempt(const QByteArray &method, const QString &path, const QUrl &server,
+                        const QString &username, const QByteArray &key, const QJsonObject &body, Response done, int attempt);
+    QTimer retryTimer_;
+    QElapsedTimer requestElapsed_;
     bool save(const QUrl &server, const QString &username, const QByteArray &key, bool automatic,
               const QDateTime &lastSync, const QString &deviceName, bool filenameMatching);
     QString accountPath_, username_, deviceId_, storageError_;

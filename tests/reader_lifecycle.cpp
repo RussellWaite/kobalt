@@ -3089,6 +3089,7 @@ private slots:
             QTest::newRow("https-sleep") << "https-sleep" << false;
             QTest::newRow("https-filename-close") << "https-filename-close" << false;
             QTest::newRow("https-filename-sleep") << "https-filename-sleep" << false;
+            QTest::newRow("https-wake-recovery") << "https-wake-recovery" << false;
             QTest::newRow("https-switch-close") << "https-switch-close" << false;
             for (const auto *decision : {"keep", "resume", "dismiss", "invalid"}) {
                 const auto name = QByteArray("https-choice-") + decision;
@@ -3101,6 +3102,7 @@ private slots:
         QFETCH(bool, inFlight);
         const bool live = transition.startsWith("https-");
         if (live) transition.remove(0, 6);
+        if (live && transition == "wake-recovery") { verifyKosyncWakeRecovery(); return; }
         if (live && transition.startsWith("choice-")) {
             verifyKosyncChoice(transition.mid(7));
             return;
@@ -4074,6 +4076,66 @@ private slots:
     }
 
 private:
+    void verifyKosyncWakeRecovery() {
+        const QUrl destination(qEnvironmentVariable("KOBALT_KOSYNC_TEST_SERVER"));
+        QTcpServer relay;
+        QVector<QPointer<QTcpSocket>> connections;
+        int accepted = 0;
+        connect(&relay, &QTcpServer::newConnection, &relay, [&] {
+            while (auto *incoming = relay.nextPendingConnection()) {
+                ++accepted;
+                connections.append(incoming);
+                auto *upstream = new QTcpSocket(incoming);
+                connect(incoming, &QTcpSocket::readyRead, upstream, [incoming, upstream] {
+                    if (upstream->state() == QAbstractSocket::ConnectedState) upstream->write(incoming->readAll());
+                });
+                connect(upstream, &QTcpSocket::connected, incoming, [incoming, upstream] { upstream->write(incoming->readAll()); });
+                connect(upstream, &QTcpSocket::readyRead, incoming, [incoming, upstream] { incoming->write(upstream->readAll()); });
+                connect(incoming, &QTcpSocket::disconnected, incoming, &QObject::deleteLater);
+                connect(upstream, &QTcpSocket::disconnected, incoming, &QObject::deleteLater);
+                upstream->connectToHost(destination.host(), quint16(destination.port()));
+            }
+        });
+        QVERIFY(relay.listen(QHostAddress::LocalHost));
+        const auto port = relay.serverPort();
+        auto paths = testPaths();
+        QVERIFY(storage::writeJson(paths.syncAccount(), {
+            {"schema", 1}, {"server", QString("https://localhost:%1").arg(port)},
+            {"username", qEnvironmentVariable("KOBALT_KOSYNC_TEST_USER")}, {"key", QString(32, 'a')},
+            {"device_id", "wake-recovery-device"}, {"automatic", true}}));
+        ReaderFixture host(paths, testFonts, testPlaceholder);
+        CloseHost cleanup{host};
+        QSignalSpy opened(&host, &ReaderFixture::opened);
+        host.open(textBook, nativeSize);
+        QTRY_COMPARE_WITH_TIMEOUT(opened.count(), 1, 30000);
+        // Isolate the initial state from earlier rows using the same server account.
+        kosync::Client seed(paths.syncAccount());
+        bool seeded = false;
+        QString seedError;
+        seed.push(host.session()->syncDigest(), {host.session()->state().value("position").toString(), {}, {}, 0},
+                  [&](QString error) { seedError = error; seeded = true; });
+        QTRY_VERIFY_WITH_TIMEOUT(seeded, 12000);
+        QVERIFY2(seedError.isEmpty(), qPrintable(seedError));
+        Canvas canvas(host.window(), nativeSize);
+        canvas.resize(900, 900);
+        canvas.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&canvas));
+        auto *status = host.window()->findChild<QLabel *>("rrKosyncStatus");
+        QVERIFY(status);
+        QTRY_COMPARE_WITH_TIMEOUT(status->text(), strings::get("kosync.up_to_date"), 12000);
+        host.window()->sleepReader();
+        QTRY_VERIFY_WITH_TIMEOUT(!host.window()->pendingNetworkSync(), 3500);
+        const auto position = host.session()->state().value("position").toString();
+        relay.close();
+        for (const auto &incoming : connections) if (incoming) incoming->abort();
+        QCoreApplication::processEvents();
+        const int before = accepted;
+        QTimer::singleShot(1000, &relay, [&] { QVERIFY(relay.listen(QHostAddress::LocalHost, port)); });
+        host.window()->wakeReader();
+        QTRY_COMPARE_WITH_TIMEOUT(status->text(), strings::get("kosync.up_to_date"), 8000);
+        QVERIFY(accepted > before);
+        QCOMPARE(host.session()->state().value("position").toString(), position);
+    }
     void verifyKosyncChoice(const QString &decision) {
         const bool forward = decision == "resume";
         const bool invalid = decision == "invalid";
