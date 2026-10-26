@@ -326,6 +326,8 @@ int main(int argc, char **argv) {
                                     ink |= QRect(x, y, 1, 1);
                         require(!ink.isEmpty() && qAbs(ink.center().x() - image.rect().center().x()) <= px(4),
                                 "Forward profile label is not horizontally centered");
+                        require(qAbs(ink.center().y() - image.rect().center().y()) <= 1,
+                                "Forward profile label is not vertically centered");
                     }
                     QVBoxLayout rows(&controls);
                     SegmentedRow segments(&controls, &rows, "contrastSegments", "Header");

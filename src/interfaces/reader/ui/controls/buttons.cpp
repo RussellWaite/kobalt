@@ -340,7 +340,8 @@ void DropdownButton::paintEvent(QPaintEvent *) {
                                      int(m::choices::fontButtonWidthReserve) - int(m::choices::fontButtonLeft))
                               : int(m::choices::fontButtonLeft);
     const QRect label(inset, 0, qMax(0, width() - (forward ? 2 * inset : int(m::choices::fontButtonWidthReserve))), height());
-    if (opticalLabel())
+    // Profile labels center their visible ink, not the font's full line box.
+    if (opticalLabel() || forward)
         drawOpticalText(painter, label, text(), forward, sampleAppearance());
     else
         drawInterfaceText(painter, label, elideInterfaceText(text(), painter.font(), label.width()),
