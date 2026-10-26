@@ -180,7 +180,11 @@ void PopupCard::fitToWidth(int width) {
         label->setMaximumHeight(QWIDGETSIZE_MAX);
         label->setFixedHeight(qMax(0, label->heightForWidth(textWidth)));
     }
-    adjustSize();
+    // Measure nested wrapped content at the fixed width. adjustSize() uses
+    // the layout's natural width and can leave too little height for a footer.
+    const int height = contentRows->hasHeightForWidth() ? contentRows->totalHeightForWidth(width)
+                                                       : contentRows->totalSizeHint().height();
+    resize(width, height);
 }
 
 namespace {

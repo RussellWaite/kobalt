@@ -3689,6 +3689,12 @@ private slots:
         QVERIFY(notice->visibleRegion().contains(notice->rect()));
         auto *footer = fixture.widget("rrTrackingAlignmentFooter");
         QVERIFY(footer);
+        auto *lastChoice = fixture.widget("rrTracking_more");
+        QVERIFY(lastChoice);
+        auto *choices = lastChoice->parentWidget();
+        QCOMPARE(choices->parentWidget(), footer->parentWidget());
+        QVERIFY2(choices->geometry().bottom() < footer->y(), "Tracking alignment footer overlaps the choices");
+        QVERIFY(footer->parentWidget()->rect().contains(footer->geometry()));
         QVERIFY(notice->mapTo(footer, QPoint()).x() >= int(ui::metrics::chrome::inset));
         QVERIFY(notice->mapTo(footer, QPoint()).y() >= int(ui::metrics::spacing::row));
         auto *hint = fixture.widget("rrTrackingPopup")->findChild<QLabel *>("rrAdvancedTextHint");
