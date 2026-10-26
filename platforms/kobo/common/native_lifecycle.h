@@ -47,6 +47,8 @@ public:
     static void finishSleepView();
     std::function<void(std::function<void()>)> prepareUsb;
     std::function<void(std::function<void()>)> prepareShutdown;
+    // False keeps the device awake while pending reader saves are started.
+    std::function<bool()> beforeStandby;
     static void disconnected();
     static bool canSuspend();
     static void beginUsb();

@@ -276,7 +276,7 @@ if(BUILD_TESTING)
             sleepSnapshotReplacesEachClockWithoutChangingTheReadingPage sleepTimeLeftUsesHoursAboveTwoHours
             sleepScreenModesKeepTheStockDefaultAndMigrateTheOptIn sleepCoverFitsWithoutCroppingOrDimming
             sleepCoverDecodingIsBoundedAndHonorsSourceCancellation remoteKeyActivityRequiresActiveReading
-            finishChoiceSurvivesSleepAndRequiresActiveReader nativeProgressAutosave usbFinalSave
+            finishChoiceSurvivesSleepAndRequiresActiveReader nativeProgressAutosave positionSavesWaitForQuietInput usbFinalSave
             progressChoiceKeepAndGo finishedSyncWithoutPositionKeepsLocalReading
             progressChoiceForOlderAlert progressChoiceUnavailablePosition
             appearanceOpeningDoesNotRepaintToolbar annotationFramesKeepFirstPaintComplete annotationListResolvesPagesOnDemand)

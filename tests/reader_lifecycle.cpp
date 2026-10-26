@@ -2829,7 +2829,14 @@ private slots:
         QVERIFY(timer);
         QCOMPARE(timer->interval(), 30000);
         const int openingWrites = host.progress->writes;
-        QVERIFY(QMetaObject::invokeMethod(timer, "timeout", Qt::DirectConnection));
+        // The timer marks the save due; it runs once input is quiet.
+        const auto runDueNativeSave = [&] {
+            QVERIFY(QMetaObject::invokeMethod(timer, "timeout", Qt::DirectConnection));
+            auto *idle = host.window()->findChild<QTimer *>("rrIdleSaveTimer");
+            QVERIFY(idle);
+            QTRY_VERIFY(!idle->isActive());
+        };
+        runDueNativeSave();
         QCOMPARE(host.progress->writes, openingWrites);
         QVERIFY(host.session()->go(1));
         QTRY_VERIFY(!host.session()->busy());
@@ -2848,18 +2855,117 @@ private slots:
         if (sleep) {
             host.window()->sleepReader();
         } else {
-            QVERIFY(QMetaObject::invokeMethod(timer, "timeout", Qt::DirectConnection));
+            runDueNativeSave();
         }
         QCOMPARE(host.progress->writes, writes + (outcome == "saved" ? 1 : 0));
         if (outcome == "saved") {
             QCOMPARE(host.progress->current.location, expected);
             QCOMPARE(host.progress->percent, percent);
-            QVERIFY(QMetaObject::invokeMethod(timer, "timeout", Qt::DirectConnection));
+            runDueNativeSave();
             QCOMPARE(host.progress->writes, writes + 1);
         } else {
             QVERIFY(host.progress->current == before);
         }
         QCOMPARE(storage::readBookState(paths, identity).object.value("position").toString(), anchor);
+    }
+
+    // Position saves sync storage and write Nickel's database on the GUI
+    // thread. They wait for quiet input, or for Nickel to ask before standby,
+    // so they never run inside a page turn.
+    void positionSavesWaitForQuietInput() {
+        QTemporaryDir root;
+        auto paths = testPaths();
+        paths.directory = root.path();
+        ReaderFixture host(paths, testFonts, testPlaceholder);
+        CloseHost cleanup{host};
+        const auto identity = QUrl::fromLocalFile(QFileInfo(fixture()).absoluteFilePath()).toString();
+        host.progress = std::make_shared<test::HostProgress>();
+        host.progress->current = {identity, "OEBPS/cover.xhtml", 100, 1, true};
+        host.positions = nickel::positionCodec();
+        QSignalSpy opened(&host, &ReaderFixture::opened);
+        host.open(fixture(), nativeSize);
+        QTRY_COMPARE_WITH_TIMEOUT(opened.count(), 1, 30000);
+        Canvas canvas(host.window(), nativeSize);
+        canvas.resize(900, 900);
+        canvas.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&canvas));
+        QTRY_VERIFY(!host.session()->busy() && host.session()->resourceStats().value("pending_images").toInt() == 0);
+        QTRY_VERIFY(host.progress->writes > 0);
+        const auto stored = [&] {
+            return storage::readBookState(paths, identity).object.value("position").toString();
+        };
+        const auto current = [&] {
+            return host.session()->state().value("position").toString();
+        };
+        QTRY_COMPARE(stored(), current());
+        auto *native = host.window()->findChild<QTimer *>("rrNativeProgressTimer");
+        QVERIFY(native);
+        QElapsedTimer sinceInput;
+        const auto turn = [&] {
+            const auto before = current();
+            sinceInput.start();
+            host.window()->pageButton(1);
+            QTRY_VERIFY(!host.session()->busy() && current() != before);
+        };
+
+        // Turns closer together than the quiet period keep both saves pending,
+        // including a native save that falls due between them.
+        const auto saved = stored();
+        const int writes = host.progress->writes;
+        for (int step = 0; step < 4; ++step) {
+            turn();
+            if (step == 1)
+                QVERIFY(QMetaObject::invokeMethod(native, "timeout", Qt::DirectConnection));
+            QTest::qWait(300);
+            QCOMPARE(stored(), saved);
+            QCOMPARE(host.progress->writes, writes);
+        }
+
+        // Nickel asks before standby: the window refuses once, writes both saves
+        // at once instead of after the waking tap, then allows standby.
+        QVERIFY(!host.window()->flushBeforeStandby());
+        QVERIFY(!host.window()->flushBeforeStandby());
+        QTRY_COMPARE_WITH_TIMEOUT(stored(), current(), 1500);
+        QVERIFY(sinceInput.elapsed() < 2000);
+        QCOMPARE(host.progress->writes, writes + 1);
+        QVERIFY(host.window()->flushBeforeStandby());
+
+        // Without a standby request the save follows two quiet seconds.
+        turn();
+        auto *idle = host.window()->findChild<QTimer *>("rrIdleSaveTimer");
+        QVERIFY(idle && idle->isActive());
+        QVERIFY(stored() != current());
+        QTRY_COMPARE_WITH_TIMEOUT(stored(), current(), 5000);
+        QVERIFY(sinceInput.elapsed() >= 1950);
+        QVERIFY(host.window()->flushBeforeStandby());
+
+        // A queued background checkpoint never replaces a newer synchronous
+        // one, such as the checkpoint at sleep, USB or close.
+        turn();
+        QVERIFY(!host.window()->flushBeforeStandby());
+        QCoreApplication::processEvents();
+        turn();
+        host.window()->checkpoint();
+        const auto newest = current();
+        QCOMPARE(stored(), newest);
+        QTest::qWait(300);
+        QCOMPARE(stored(), newest);
+
+        // A failed background write is reported and retried by the next save.
+        int failures = 0;
+        host.book()->onCheckpointFailed([&failures] {
+            ++failures;
+        });
+        const auto database = paths.database();
+        QVERIFY(QFile::setPermissions(database, QFileDevice::ReadOwner));
+        turn();
+        QVERIFY(!host.window()->flushBeforeStandby());
+        QTRY_COMPARE(failures, 1);
+        QVERIFY(stored() != current());
+        QVERIFY(QFile::setPermissions(database, QFileDevice::ReadOwner | QFileDevice::WriteOwner));
+        host.window()->checkpoint();
+        QCOMPARE(stored(), current());
+        QCOMPARE(failures, 1);
     }
 
     void usbFinalSave_data() {

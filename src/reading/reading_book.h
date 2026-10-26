@@ -3,6 +3,7 @@
 #include "reading_speed.h"
 #include "reading_progress.h"
 #include "storage/reader_storage.h"
+#include "storage/record_writer.h"
 #include "reading_bridge.h"
 #include "reading_timer.h"
 #include <QElapsedTimer>
@@ -85,7 +86,15 @@ public:
     void acknowledge(const ReadingProgress &shown, bool moved);
     // False leaves a sync conflict pending for the window to resolve.
     bool writeNative(const QString &location, const QString &mappingError);
-    bool checkpoint(QJsonObject *snapshot);
+    // A background checkpoint is queued on the book's writer thread and
+    // returns at once; a failure is reported through onCheckpointFailed. A
+    // synchronous checkpoint first drops a queued one and waits for a running
+    // one, so an older position cannot replace it.
+    bool checkpoint(QJsonObject *snapshot, bool background = false);
+    bool savesPending() const;
+    void onCheckpointFailed(std::function<void()> failed) {
+        checkpointFailed = std::move(failed);
+    }
     const QJsonObject &layoutPreferences() const {
         return layoutPreferences_;
     }
@@ -114,6 +123,13 @@ private:
     QString nativeWriteback = "not-attempted", nativeWritebackError, acceptedFinishedAnchor;
     // The last checkpoint that reached storage. An identical one is not written again.
     QJsonObject savedCheckpoint, layoutPreferences_;
+    // The background checkpoint that has not reported back yet.
+    QJsonObject pendingCheckpoint;
+    std::function<void()> checkpointFailed;
+    void finishBackgroundCheckpoint(const QJsonObject &checkpoint, bool saved);
+    // Destroyed before `alive`, after its last write has finished.
+    std::unique_ptr<storage::RecordWriter> writer;
+    std::shared_ptr<ReadingBook *> alive = std::make_shared<ReadingBook *>(this);
     QString dictionaryChoice_;
 };
 }

@@ -128,9 +128,15 @@ Reader::Reader(std::unique_ptr<kobalt::ReadingBook> openedBook, kobalt::ReaderOr
     };
     auto *nativeSaveTimer = new QTimer(this);
     nativeSaveTimer->setObjectName("rrNativeProgressTimer");
+    book->onCheckpointFailed([this] {
+        page->notice = strings::get("reader.could_not_save_reading_position");
+        page->refreshContent();
+    });
+    // Mark the native save due; runIdleSave() writes it when input is quiet.
     connect(nativeSaveTimer, &QTimer::timeout, this, [this] {
-        if (!closing && !lifecycleHidden && !exportRunning && !model->busy() && !progressBlocked()) {
-            saveNativeProgress();
+        if (!closing && !lifecycleHidden && !exportRunning) {
+            nativeSaveDue = true;
+            scheduleIdleSave();
         }
     });
     nativeSaveTimer->start(30000);

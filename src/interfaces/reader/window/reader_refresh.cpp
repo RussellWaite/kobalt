@@ -83,10 +83,12 @@ void Reader::refresh() {
     }
     syncAppearanceControls(pickingFont);
     syncReadingControls();
+    // A jump saves at once, but on the book's writer thread: this pass runs
+    // on the tap. A layout change still saves synchronously in checkpoint().
     if (afterTurn)
         saveSoon();
     else
-        save();
+        save(false, true);
     // Wait for the selected preview page before clearing the dimmed frame.
     // Settings can also close the menu later than the tap, after applying.
     if ((flashAfterMenu || flashAfterPagePreview) && (!flashAfterPagePreview || !model->busy()) && isVisible() &&

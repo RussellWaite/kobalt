@@ -67,6 +67,7 @@ public:
     bool readyForPresentation() const override;
     void preparePresentation(std::function<void(bool)> finished) override;
     void checkpoint() override;
+    bool flushBeforeStandby() override;
     void prepareUsb(std::function<void()> finished) override;
     void prepareShutdown(std::function<void()> finished) override;
     sleep::Snapshot powerScreenSnapshot() override;
@@ -95,7 +96,8 @@ private:
     void prepareTransition(std::function<void()> finished, int timeoutMs);
     // Construction, in this order. Each step builds one group of widgets and
     // connects its signals.
-    void saveNativeProgress();
+    // `background` queues its local checkpoint on the book's writer thread.
+    void saveNativeProgress(bool background = false);
     QString savedNativeAnchor;
     int savedNativePage = -1, savedNativePages = -1;
     void buildReadingPage();
@@ -505,9 +507,17 @@ private:
     void showFormattingWarning();
     bool flashAfterMenu = false, flashAfterPagePreview = false;
     void requestFlash(const char *reason);
-    QTimer *saveTimer = nullptr;
     bool turnPainted = false;
-    QElapsedTimer unsavedSince;
+    // Position saves wait until input has been quiet, so their storage syncs
+    // and Nickel database work do not land on a page turn. See saveSoon().
+    QTimer *idleSaveTimer = nullptr;
+    QElapsedTimer lastInput, unsavedSince;
+    bool localSaveDue = false, nativeSaveDue = false, standbyFlushQueued = false;
+    void scheduleIdleSave();
+    void runIdleSave(bool beforeStandby);
+    int idleSaveDelay() const;
+    // The native save runs on this thread and holds Nickel's database.
+    static constexpr int nativeQuietSaveDelay = 10000;
     void showFinishChoice();
     // Like Nickel's reader, record the opening in Nickel's database once the
     // book is on screen: the position, the reading status and the time. Nickel
@@ -517,6 +527,6 @@ private:
     void recordOpening();
     void finishExit();
     void saveSoon();
-    void save(bool snapshot = false);
+    void save(bool snapshot = false, bool background = false);
 };
 }

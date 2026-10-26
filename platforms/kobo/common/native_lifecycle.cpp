@@ -222,8 +222,11 @@ void NativeLifecycle::finishWake() {
     }
 }
 bool NativeLifecycle::canSuspend() {
+    // Standby stops the reader's timers. Run pending position saves now,
+    // while the device is idle, instead of after the tap that wakes it.
     return !active ||
-           (!active->draining && !active->usbPending && !active->poweringOff && engineActivity().quiescent());
+           (!active->draining && !active->usbPending && !active->poweringOff && engineActivity().quiescent() &&
+            (!active->beforeStandby || active->beforeStandby()));
 }
 bool NativeLifecycle::interceptShutdown(QObject *manager, Shutdown mode) {
     if (!active || !active->prepareShutdown)

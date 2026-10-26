@@ -4,6 +4,8 @@
 #include "reader_session.h"
 #include "storage/reader_storage.h"
 #include "support/diagnostics.h"
+#include "support/qt_compat.h"
+#include <QCoreApplication>
 
 namespace kobalt {
 ReadingBook::ReadingBook(std::unique_ptr<ReaderSession> session, QString statePath, storage::Paths paths,
@@ -32,6 +34,11 @@ ReadingBook::ReadingBook(std::unique_ptr<ReaderSession> session, QString statePa
 }
 ReadingBook::~ReadingBook() {
     saveSpeed(true);
+    // Finish the last queued position before the profile can be released.
+    writer.reset();
+}
+bool ReadingBook::savesPending() const {
+    return writer && !writer->idle();
 }
 bool ReadingBook::deviceTransition() const {
     return bridge && bridge->deviceTransition();
@@ -214,7 +221,7 @@ bool ReadingBook::saveDictionaryChoice(const QString &id) {
     dictionaryChoice_ = previous;
     return false;
 }
-bool ReadingBook::checkpoint(QJsonObject *snapshot) {
+bool ReadingBook::checkpoint(QJsonObject *snapshot, bool background) {
     saveSpeed();
     auto state = model->state();
     state["book"] = identity_;
@@ -237,13 +244,49 @@ bool ReadingBook::checkpoint(QJsonObject *snapshot) {
     auto checkpoint = state;
     if (model->temporaryTypography())
         appearance::copy(checkpoint, model->persistentState());
-    if (checkpoint == savedCheckpoint)
+    if (checkpoint == savedCheckpoint || (background && checkpoint == pendingCheckpoint))
         return true;
     auto persisted = checkpoint;
     for (const auto *key : appearance::layoutKeys)
         persisted.remove(key);
     for (const auto *key : appearance::marginKeys)
         persisted.remove(key);
+    // The first write of an opening stays synchronous: it can import legacy
+    // files. A layout or margin change also stays synchronous, because it
+    // updates the global layout memory below. Other checkpoints only change
+    // the position and progress.
+    const auto layoutChanged = [&] {
+        for (const auto *key : appearance::layoutKeys)
+            if (checkpoint.value(key) != savedCheckpoint.value(key))
+                return true;
+        for (const auto *key : appearance::marginKeys)
+            if (checkpoint.value(key) != savedCheckpoint.value(key))
+                return true;
+        return false;
+    };
+    if (background && !savedCheckpoint.isEmpty() && !layoutChanged()) {
+        pendingCheckpoint = checkpoint;
+        if (!writer)
+            writer = std::make_unique<storage::RecordWriter>();
+        const std::weak_ptr<ReadingBook *> guard = alive;
+        writer->post(
+            [paths = paths_, identity = identity_, persisted, path = statePath] {
+                return storage::writeBookState(paths, identity, persisted, path);
+            },
+            [guard, checkpoint](bool saved) {
+                kobalt::qt::invoke(
+                    QCoreApplication::instance(),
+                    [guard, checkpoint, saved] {
+                        if (const auto book = guard.lock())
+                            (*book)->finishBackgroundCheckpoint(checkpoint, saved);
+                    },
+                    Qt::QueuedConnection);
+            });
+        return true;
+    }
+    if (writer)
+        writer->cancel();
+    pendingCheckpoint = {};
     const bool saved = storage::writeBookState(paths_, identity_, persisted, statePath);
     if (saved) {
         if (!model->temporaryTypography()) {
@@ -263,5 +306,18 @@ bool ReadingBook::checkpoint(QJsonObject *snapshot) {
         diagnostic("local-save-failed");
     }
     return saved;
+}
+void ReadingBook::finishBackgroundCheckpoint(const QJsonObject &checkpoint, bool saved) {
+    // A synchronous checkpoint replaced this one while it ran.
+    if (checkpoint != pendingCheckpoint)
+        return;
+    pendingCheckpoint = {};
+    if (saved) {
+        savedCheckpoint = checkpoint;
+        return;
+    }
+    diagnostic("local-save-failed");
+    if (checkpointFailed)
+        checkpointFailed();
 }
 }

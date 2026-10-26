@@ -98,6 +98,9 @@ ReaderCoordinator::ReaderCoordinator(ReaderEnvironment &environment, Coordinator
             status("authorization-lost");
         });
     };
+    lifecycle->beforeStandby = [this] {
+        return busy || !run.reader || run.reader->flushBeforeStandby();
+    };
     lifecycle->sleep = [this] {
         if (lifecycle->shuttingDown())
             return;

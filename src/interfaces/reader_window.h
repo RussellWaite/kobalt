@@ -23,6 +23,11 @@ public:
         finished(true);
     }
     virtual void checkpoint() = 0;
+    // Asked before the device enters standby. False means reading-position
+    // saves are pending; the window starts them and the host should ask again.
+    virtual bool flushBeforeStandby() {
+        return true;
+    }
     // Limit the native-position wait to two seconds before file release.
     virtual void prepareUsb(std::function<void()> finished) = 0;
     virtual void prepareShutdown(std::function<void()> finished) = 0;
