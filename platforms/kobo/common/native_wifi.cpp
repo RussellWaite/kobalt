@@ -1,6 +1,7 @@
 #include "native_ui.h"
 #include "native_network_state.h"
 #include "platform/api/reader_host_services.h"
+#include "support/diagnostics.h"
 #include <QObject>
 #include <QPointer>
 #include <cmath>
@@ -54,7 +55,11 @@ private slots:
         publish();
     }
 private:
-    void publish() { changed(state); }
+    void publish() {
+        diagnostic("kosync-wifi-status", qt::object({{"enabled", state.enabled}, {"connected", state.connected},
+                                                     {"strength", state.strength}}), false);
+        changed(state);
+    }
     QPointer<QObject> manager;
     bool (*up)(QObject *) = nullptr;
     WifiStatus state;

@@ -7,6 +7,8 @@
 #include <QFile>
 #include <QJsonDocument>
 #include <QNetworkReply>
+#include <QHostAddress>
+#include <QSemaphore>
 #include <QSslCertificate>
 #include <QSslConfiguration>
 #include <QTemporaryDir>
@@ -14,6 +16,7 @@
 #include <QUuid>
 #include <cstring>
 #include <limits>
+#include <atomic>
 
 using namespace kobalt;
 namespace {
@@ -84,6 +87,192 @@ void wait(kosync::Client &client, int timeout = 1000) {
 void save(const QString &path, const QByteArray &bytes) {
     QFile file(path);
     require(file.open(QIODevice::WriteOnly) && file.write(bytes) == bytes.size(), "write account fixture");
+}
+void drainEvents(int milliseconds = 60) {
+    QEventLoop loop;
+    QTimer::singleShot(milliseconds, &loop, &QEventLoop::quit);
+    loop.exec();
+}
+QHostInfo resolvedHost(const QString &host) {
+    QHostInfo result;
+    result.setHostName(host);
+    result.setAddresses({QHostAddress::LocalHost});
+    return result;
+}
+void lookupChecks(const QString &path) {
+    {
+        QSemaphore started, release, finished;
+        std::atomic<bool> stallNext{true};
+        std::atomic<int> lookups{0};
+        kosync::HostLookup lookup([&](const QString &host) {
+            ++lookups;
+            if (stallNext.exchange(false)) {
+                started.release();
+                release.acquire();
+                finished.release();
+            }
+            return resolvedHost(host);
+        });
+        Network network;
+        network.response = R"({"authorized":"OK"})";
+        kosync::Client client(path, nullptr, &network, &lookup);
+        int callbacks = 0;
+        QString error;
+        const auto done = [&](QString result) { error = result; ++callbacks; };
+        const auto recover = [&](int previousHttpCalls, int previousLookups, bool expectError) {
+            require(started.tryAcquire(1, 1000), "first DNS lookup is blocked");
+            wait(client, 2500);
+            require(network.calls == previousHttpCalls + 1 && lookups == previousLookups + 2,
+                    "one sync call recovers through a fresh DNS lookup and sends HTTP once");
+            require(error.isEmpty() != expectError, "DNS recovery preserves the HTTP result");
+            release.release();
+            require(finished.tryAcquire(1, 1000), "release the abandoned first lookup");
+            drainEvents();
+            require(network.calls == previousHttpCalls + 1, "late DNS completion cannot replay HTTP");
+        };
+        client.login("https://fixture.invalid", "reader", "secret", done);
+        recover(0, 0, false);
+        require(callbacks == 1, "sign-in completes once after automatic DNS recovery");
+        const QByteArray document(32, 'a');
+        network.response = "{}";
+        stallNext.store(true);
+        client.pull(document, [&](kosync::Progress, QString result) { done(result); }, false);
+        recover(1, 2, false);
+        require(callbacks == 2, "manual pull recovers even when HTTP retries are disabled");
+        network.response = "{\"document\":\"" + document + "\"}";
+        network.failures = 1;
+        stallNext.store(true);
+        client.push(document, {"local", {}, {}, 0.5}, done);
+        recover(2, 4, true);
+        require(callbacks == 3 && network.operation == QNetworkAccessManager::PutOperation,
+                "upload DNS recovery does not enable replay after an HTTP transport failure");
+    }
+    {
+        QSemaphore started, release, finished;
+        kosync::HostLookup lookup([&](const QString &host) {
+            started.release();
+            release.acquire();
+            const auto result = resolvedHost(host);
+            finished.release();
+            return result;
+        });
+        Network network;
+        kosync::Client client(path, nullptr, &network, &lookup);
+        int callbacks = 0;
+        client.pull(QByteArray(32, 'a'), [&](kosync::Progress, QString) { ++callbacks; }, false);
+        require(started.tryAcquire(1, 1000), "first lookup started before cancellation test");
+        drainEvents(1150);
+        require(started.tryAcquire(1, 1000) && client.busy() && network.calls == 0,
+                "second lookup starts within the same busy request before HTTP");
+        client.cancel();
+        require(!client.busy(), "cancellation stops the second DNS subattempt immediately");
+        release.release(2);
+        require(finished.tryAcquire(2, 1000), "release both cancelled DNS subattempts");
+        drainEvents();
+        require(callbacks == 0 && network.calls == 0, "neither lookup can dispatch HTTP after cancellation");
+    }
+    {
+        QSemaphore started, release, finished;
+        std::atomic<int> calls{0};
+        int callbacks = 0;
+        const auto blocked = [&](const QString &host) {
+            ++calls;
+            started.release();
+            release.acquire();
+            const auto result = resolvedHost(host);
+            finished.release();
+            return result;
+        };
+        auto first = std::make_unique<kosync::HostLookup>(blocked);
+        auto second = std::make_unique<kosync::HostLookup>(blocked);
+        first->start("fixture.invalid", 1000, [&](QHostInfo) { ++callbacks; });
+        second->start("fixture.invalid", 1000, [&](QHostInfo) { ++callbacks; });
+        require(started.tryAcquire(2, 1000), "two independent DNS lookups can run");
+        QElapsedTimer closing;
+        closing.start();
+        first.reset();
+        second.reset();
+        require(closing.elapsed() < 100, "destroying readers does not wait for blocked DNS");
+        kosync::HostLookup saturated(blocked);
+        bool rejected = false;
+        saturated.start("fixture.invalid", 1000, [&](QHostInfo result) { rejected = result.error() != QHostInfo::NoError; });
+        require(!rejected && saturated.busy(), "pool saturation completes asynchronously");
+        drainEvents();
+        require(rejected && calls == 2, "cancelled running lookups still count toward the process limit");
+        release.release(2);
+        require(finished.tryAcquire(2, 1000), "release both cancelled resolver calls");
+        drainEvents();
+        require(callbacks == 0, "destroyed lookups never deliver late callbacks");
+    }
+    {
+        QSemaphore started, release;
+        std::atomic<int> calls{0};
+        kosync::HostLookup lookup([&](const QString &host) {
+            if (++calls == 1) { started.release(); release.acquire(); }
+            return resolvedHost(host);
+        });
+        Network network;
+        network.response = R"({"authorized":"OK"})";
+        auto client = std::make_unique<kosync::Client>(path, nullptr, &network, &lookup);
+        int callbacks = 0;
+        client->login("https://fixture.invalid/prefix", "reader", "secret", [&](QString) { ++callbacks; });
+        require(client->busy() && network.calls == 0, "DNS is busy before HTTP starts");
+        require(started.tryAcquire(1, 1000), "first client lookup started");
+        client->cancel();
+        require(!client->busy(), "cancellation immediately clears the lookup phase");
+        client->login("https://fixture.invalid/prefix", "reader", "secret", [&](QString error) {
+            require(error.isEmpty(), "a fresh lookup can bypass the cancelled lookup");
+            ++callbacks;
+        });
+        wait(*client);
+        require(callbacks == 1 && network.calls == 1 &&
+                network.last.url() == QUrl("https://fixture.invalid/prefix/users/auth"),
+                "fresh DNS preserves the HTTPS authority and URL prefix");
+        release.release();
+        drainEvents();
+        require(callbacks == 1 && network.calls == 1, "cancelled DNS cannot start a stale HTTP request");
+        client->login("https://127.0.0.1/prefix", "reader", "secret", [&](QString) { ++callbacks; });
+        wait(*client);
+        require(calls == 2, "numeric addresses bypass DNS workers");
+    }
+    {
+        QSemaphore started, release, finished;
+        kosync::HostLookup lookup([&](const QString &host) {
+            started.release();
+            release.acquire();
+            const auto result = resolvedHost(host);
+            finished.release();
+            return result;
+        });
+        Network network;
+        auto client = std::make_unique<kosync::Client>(path, nullptr, &network, &lookup);
+        int callbacks = 0;
+        client->login("https://fixture.invalid", "reader", "secret", [&](QString) { ++callbacks; });
+        require(started.tryAcquire(1, 1000), "client destruction test has a running resolver");
+        client.reset();
+        release.release();
+        require(finished.tryAcquire(1, 1000), "resolver returned after client destruction");
+        drainEvents();
+        require(callbacks == 0 && network.calls == 0 && !lookup.busy(), "client destruction suppresses DNS and HTTP completion");
+    }
+    {
+        QSemaphore started, release, finished;
+        kosync::HostLookup lookup([&](const QString &host) {
+            started.release();
+            release.acquire();
+            const auto result = resolvedHost(host);
+            finished.release();
+            return result;
+        });
+        bool timedOut = false;
+        lookup.start("fixture.invalid", 40, [&](QHostInfo result) { timedOut = result.error() != QHostInfo::NoError; });
+        require(started.tryAcquire(1, 1000), "deadline test started resolver");
+        drainEvents(100);
+        require(timedOut && !lookup.busy(), "lookup deadline returns without waiting for libc");
+        release.release();
+        require(finished.tryAcquire(1, 1000), "release timed out resolver");
+        drainEvents();
+    }
 }
 int liveServer(const QString &server, const QString &certificate) {
     const auto url = kosync::serverUrl(server);
@@ -209,6 +398,7 @@ int main(int argc, char **argv) {
     }
     QTemporaryDir directory;
     require(directory.isValid(), "create profile");
+    lookupChecks(directory.path() + "/lookup.json");
     const auto path = directory.path() + "/kosync.json";
     QBuffer small;
     small.setData("abc");

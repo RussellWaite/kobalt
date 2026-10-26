@@ -1,6 +1,7 @@
 #include "native_sync_network.h"
 #include "native_network_state.h"
 #include "native_dialog_overlay.h"
+#include "support/diagnostics.h"
 #include <dlfcn.h>
 #include <utility>
 
@@ -63,7 +64,10 @@ NativeSyncNetwork::~NativeSyncNetwork() { cancel(); }
 bool NativeSyncNetwork::connected() const { return workflow && bindings.valid() && bindings.ready(); }
 void NativeSyncNetwork::prepare(bool showUi, std::function<void(bool)> done) {
     cancel();
-    if (connected()) { done(true); return; }
+    const bool available = connected();
+    diagnostic("kosync-network-prepare", qt::object({{"interactive", showUi}, {"ready", available},
+        {"bindings_available", bool(workflow) && bindings.valid()}}));
+    if (available) { done(true); return; }
     if (!workflow || !bindings.valid() || (!showUi && bindings.disabled())) { done(false); return; }
     interactive = showUi;
     finished = std::move(done);
@@ -93,6 +97,7 @@ void NativeSyncNetwork::check() {
 void NativeSyncNetwork::failed() { finish(connected()); }
 void NativeSyncNetwork::cancelled() { finish(false); }
 void NativeSyncNetwork::finish(bool ready) {
+    diagnostic("kosync-network-finished", qt::object({{"ready", ready}, {"owned", requested}}));
     poll.stop();
     requested = false;
     auto done = std::move(finished);

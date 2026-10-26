@@ -6,6 +6,10 @@
 #include <QFileInfo>
 #include <QJsonDocument>
 #include <QNetworkReply>
+#include <QSslError>
+#include <QHostAddress>
+#include <QJsonArray>
+#include "support/diagnostics.h"
 #include <QSaveFile>
 #include <QTimer>
 #include <QUuid>
@@ -109,10 +113,14 @@ Reconciler::Action Reconciler::observe(const Progress &remote, const QString &po
     else if (remote.position == position) uploaded_ = position;
     return position.isEmpty() || position == uploaded_ ? Action::Current : Action::Upload;
 }
-Client::Client(QString accountPath, QObject *parent, QNetworkAccessManager *network)
+Client::Client(QString accountPath, QObject *parent, QNetworkAccessManager *network, HostLookup *lookup)
     : QObject(parent), accountPath_(std::move(accountPath)),
-      network_(network ? network : &ownedNetwork_) {
+      network_(network ? network : &ownedNetwork_), lookup_(lookup) {
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
+    if (!lookup_ && !network) lookup_ = &ownedLookup_;
+#endif
     retryTimer_.setSingleShot(true);
+    observeNetworkState();
     deviceId_ = QUuid::createUuid().toString();
     const auto read = storage::readJsonFile(accountPath_);
     if (read.status == storage::ReadStatus::Missing) return;
@@ -139,12 +147,29 @@ Client::Client(QString accountPath, QObject *parent, QNetworkAccessManager *netw
     deviceName_ = object.value("device_name").toString().trimmed();
     filenameMatching_ = object.value("match_method").toString() == "filename";
 }
+void Client::observeNetworkState() {
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0) && !defined(QT_NO_BEARERMANAGEMENT)
+    connect(network_, &QNetworkAccessManager::networkAccessibleChanged, this,
+            [](QNetworkAccessManager::NetworkAccessibility value) {
+        diagnostic("kosync-qt-network-state", qt::object({{"accessible", int(value)}}));
+    });
+#endif
+}
 Client::~Client() { cancel(); }
 void Client::cancel() {
+    if (lookup_) lookup_->cancel();
     retryTimer_.stop();
     disconnect(&retryTimer_, nullptr, this, nullptr);
     if (!reply_) return;
     auto *reply = reply_.data();
+    auto fields = qt::object({{"elapsed_ms", double(requestElapsed_.elapsed())},
+                              {"network_error", int(reply->error())}, {"finished", reply->isFinished()},
+                              {"http_status", reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt()},
+                              {"encrypted", reply->attribute(QNetworkRequest::ConnectionEncryptedAttribute).toBool()}});
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0) && !defined(QT_NO_BEARERMANAGEMENT)
+    fields["qt_network_accessible"] = int(network_->networkAccessible());
+#endif
+    diagnostic("kosync-request-cancelled", fields);
     reply_ = nullptr;
     disconnect(reply, nullptr, this, nullptr);
     reply->abort();
@@ -225,7 +250,55 @@ void Client::request(const QByteArray &method, const QString &path, const QUrl &
 }
 void Client::requestAttempt(const QByteArray &method, const QString &path, const QUrl &server,
                             const QString &username, const QByteArray &key, const QJsonObject &body,
-                            Response done, int attempt) {
+                            Response done, int attempt, int lookupAttempt) {
+    if (requestElapsed_.elapsed() >= 10000) { done(0, {}, message("kosync.network_error")); return; }
+    if (!lookup_ || !QHostAddress(server.host()).isNull()) {
+        sendRequest(method, path, server, username, key, body, std::move(done), attempt);
+        return;
+    }
+    const int remaining = qMax(1, 10000 - int(requestElapsed_.elapsed()));
+    // A lookup begun during Wi-Fi reconnection can outlive the connection
+    // change. Leave time for one fresh lookup before any HTTP is sent.
+    const int lookupBudget = lookupAttempt == 0 ? qMin(1000, remaining) : remaining;
+    diagnostic("kosync-lookup-started", qt::object({{"attempt", attempt}, {"lookup_attempt", lookupAttempt}}));
+    lookup_->start(server.host(), lookupBudget,
+        [this, method, path, server, username, key, body, done, attempt, lookupAttempt](QHostInfo result) {
+            diagnostic("kosync-lookup-finished", qt::object({{"error", int(result.error())},
+                {"elapsed_ms", double(requestElapsed_.elapsed())}, {"attempt", attempt},
+                {"lookup_attempt", lookupAttempt}}));
+            if (result.error() != QHostInfo::NoError || result.addresses().isEmpty()) {
+                // This is safe for manual reads and uploads too: no HTTP
+                // request has started, and the overall deadline is unchanged.
+                if (lookupAttempt == 0 && requestElapsed_.elapsed() < 10000) {
+                    requestAttempt(method, path, server, username, key, body, done, attempt, 1);
+                    return;
+                }
+                if (!retryRequest(method, path, server, username, key, body, done, attempt))
+                    done(0, {}, message("kosync.network_error"));
+                return;
+            }
+            // fromName fills Qt's ordinary hostname cache. Keep the URL intact
+            // so HTTP authority, TLS SNI and certificate checks remain intact.
+            sendRequest(method, path, server, username, key, body, done, attempt);
+        });
+}
+bool Client::retryRequest(const QByteArray &method, const QString &path, const QUrl &server,
+                          const QString &username, const QByteArray &key, const QJsonObject &body,
+                          Response done, int attempt) {
+    static const int delays[] = {500, 1500, 3000};
+    if (method != "GET" || attempt >= 3 || requestElapsed_.elapsed() + delays[attempt] >= 10000) return false;
+    network_->clearAccessCache();
+    disconnect(&retryTimer_, nullptr, this, nullptr);
+    connect(&retryTimer_, &QTimer::timeout, this, [this, method, path, server, username, key, body, done, attempt] {
+        disconnect(&retryTimer_, nullptr, this, nullptr);
+        requestAttempt(method, path, server, username, key, body, done, attempt + 1);
+    });
+    retryTimer_.start(delays[attempt]);
+    return true;
+}
+void Client::sendRequest(const QByteArray &method, const QString &path, const QUrl &server,
+                         const QString &username, const QByteArray &key, const QJsonObject &body,
+                         Response done, int attempt) {
     if (requestElapsed_.elapsed() >= 10000) { done(0, {}, message("kosync.network_error")); return; }
     QUrl url = server;
     url.setPath(server.path() + path);
@@ -240,6 +313,13 @@ void Client::requestAttempt(const QByteArray &method, const QString &path, const
     auto *reply = method == "GET" ? network_->get(request)
                                   : network_->put(request, QJsonDocument(body).toJson(QJsonDocument::Compact));
     reply_ = reply;
+    diagnostic("kosync-request-started", qt::object({{"method", QString::fromLatin1(method)}, {"attempt", attempt}}));
+    connect(reply, &QNetworkReply::encrypted, this, [] { diagnostic("kosync-tls-connected"); });
+    connect(reply, &QNetworkReply::sslErrors, this, [](const QList<QSslError> &errors) {
+        QJsonArray codes;
+        for (const auto &error : errors) codes.append(int(error.error()));
+        diagnostic("kosync-tls-errors", qt::object({{"codes", codes}}));
+    });
     auto *timeout = new QTimer(reply);
     timeout->setSingleShot(true);
     connect(timeout, &QTimer::timeout, reply, &QNetworkReply::abort);
@@ -257,27 +337,28 @@ void Client::requestAttempt(const QByteArray &method, const QString &path, const
         reply_ = nullptr;
         reply->deleteLater();
         const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        {
+            auto fields = qt::object({{"network_error", int(reply->error())}, {"http_status", status},
+                                      {"method", QString::fromLatin1(method)}, {"attempt", attempt},
+                                      {"elapsed_ms", double(requestElapsed_.elapsed())}});
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0) && !defined(QT_NO_BEARERMANAGEMENT)
+            fields["qt_network_accessible"] = int(network_->networkAccessible());
+#endif
+            // Keep URLs, authentication, response bodies and book IDs out of diagnostics.
+            diagnostic("kosync-request-finished", fields);
+        }
         if (status == 401) { done(status, {}, message("kosync.auth_error")); return; }
         // Retry only reads whose transport failed. A PUT may already have reached
         // the server; authentication, TLS and HTTP failures need an explicit fix.
-        static const int delays[] = {500, 1500, 3000};
-        if (method == "GET" && status == 0 && transientNetworkError(reply->error()) && attempt < 3 &&
-            requestElapsed_.elapsed() + delays[attempt] < 10000) {
-            network_->clearAccessCache();
-            disconnect(&retryTimer_, nullptr, this, nullptr);
-            connect(&retryTimer_, &QTimer::timeout, this, [this, method, path, server, username, key, body, done, attempt] {
-                disconnect(&retryTimer_, nullptr, this, nullptr);
-                requestAttempt(method, path, server, username, key, body, done, attempt + 1);
-            });
-            retryTimer_.start(delays[attempt]);
-            return;
-        }
+        if (status == 0 && transientNetworkError(reply->error()) &&
+            retryRequest(method, path, server, username, key, body, done, attempt)) return;
         if (reply->error() != QNetworkReply::NoError || status != 200 || bytes->size() > storage::maxJsonBytes) {
             done(status, {}, message("kosync.network_error")); return;
         }
         QJsonParseError error;
         const auto document = QJsonDocument::fromJson(*bytes, &error);
         if (error.error != QJsonParseError::NoError || !document.isObject()) {
+            diagnostic("kosync-response-invalid", qt::object({{"stage", "json"}, {"parse_error", int(error.error)}}));
             done(status, {}, message("kosync.invalid_response")); return;
         }
         done(status, document.object(), {});
@@ -304,7 +385,10 @@ void Client::pull(const QByteArray &document, std::function<void(Progress, QStri
     request("GET", "/syncs/progress/" + QString::fromLatin1(document), server_, username_, key_, {},
             [done](int, QJsonObject object, QString error) {
                 Progress progress;
-                if (error.isEmpty() && !parseProgress(object, &progress)) error = message("kosync.invalid_response");
+                if (error.isEmpty() && !parseProgress(object, &progress)) {
+                    diagnostic("kosync-response-invalid", qt::object({{"stage", "progress"}}));
+                    error = message("kosync.invalid_response");
+                }
                 done(progress, error);
             }, retryTransient);
 }

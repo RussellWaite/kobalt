@@ -1,4 +1,5 @@
 #pragma once
+#include "kosync_lookup.h"
 #include <QJsonObject>
 #include <QDateTime>
 #include <QElapsedTimer>
@@ -45,10 +46,11 @@ private:
 // One reader owns one client. Requests are bounded, cancellable and never redirect credentials.
 class Client : public QObject {
 public:
-    explicit Client(QString accountPath, QObject *parent = nullptr, QNetworkAccessManager *network = nullptr);
+    explicit Client(QString accountPath, QObject *parent = nullptr, QNetworkAccessManager *network = nullptr,
+                    HostLookup *lookup = nullptr);
     ~Client() override;
     bool signedIn() const { return !key_.isEmpty(); }
-    bool busy() const { return !reply_.isNull() || retryTimer_.isActive(); }
+    bool busy() const { return !reply_.isNull() || retryTimer_.isActive() || (lookup_ && lookup_->busy()); }
     bool automatic() const { return automatic_; }
     QString server() const { return server_.toString(); }
     QString username() const { return username_; }
@@ -73,10 +75,16 @@ public:
 
 private:
     using Response = std::function<void(int, QJsonObject, QString)>;
+    void observeNetworkState();
     void request(const QByteArray &method, const QString &path, const QUrl &server,
                  const QString &username, const QByteArray &key, const QJsonObject &body, Response done, bool retryTransient = true);
     void requestAttempt(const QByteArray &method, const QString &path, const QUrl &server,
-                        const QString &username, const QByteArray &key, const QJsonObject &body, Response done, int attempt);
+                        const QString &username, const QByteArray &key, const QJsonObject &body, Response done, int attempt,
+                        int lookupAttempt = 0);
+    void sendRequest(const QByteArray &method, const QString &path, const QUrl &server,
+                     const QString &username, const QByteArray &key, const QJsonObject &body, Response done, int attempt);
+    bool retryRequest(const QByteArray &method, const QString &path, const QUrl &server,
+                      const QString &username, const QByteArray &key, const QJsonObject &body, Response done, int attempt);
     QTimer retryTimer_;
     QElapsedTimer requestElapsed_;
     bool save(const QUrl &server, const QString &username, const QByteArray &key, bool automatic,
@@ -91,5 +99,7 @@ private:
     QNetworkAccessManager ownedNetwork_;
     QNetworkAccessManager *network_;
     QPointer<QNetworkReply> reply_;
+    HostLookup ownedLookup_;
+    HostLookup *lookup_;
 };
 }

@@ -377,7 +377,7 @@ if(BUILD_TESTING)
                     "${KOBALT_ROOT}/platforms/kobo/common/window_presentation.cpp"
                     "${KOBALT_ROOT}/platforms/kobo/common/native_wifi.cpp")
                 target_include_directories(kobalt-${name}-tests PRIVATE "${KOBALT_ROOT}" "${source}")
-                target_link_libraries(kobalt-${name}-tests PRIVATE Qt6::Widgets Qt6::Network)
+                target_link_libraries(kobalt-${name}-tests PRIVATE kobalt-regression-runtime Qt6::Widgets Qt6::Network)
                 set_target_properties(kobalt-${name}-tests PROPERTIES AUTOMOC ON ENABLE_EXPORTS ON)
             elseif(check STREQUAL "native_progress")
                 target_sources(kobalt-${name}-tests PRIVATE "${KOBALT_ROOT}/platforms/kobo/common/native_progress.cpp"

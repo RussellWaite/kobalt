@@ -4,6 +4,7 @@
 #include "reader_inputs.h"
 #include "interfaces/reader/ui/style/fonts.h"
 #include "interfaces/reader/ui/style/styles.h"
+#include "interfaces/reader/ui/style/theme.h"
 #include <QApplication>
 #include <QLineEdit>
 #include <QFontInfo>
@@ -214,6 +215,10 @@ int main(int argc, char **argv) {
     require(sync->visibleRegion().boundingRect() == sync->rect() &&
             logout->visibleRegion().boundingRect() == logout->rect(), "signed-in controls fit on one page");
     require(lastSync->visibleRegion().boundingRect() == lastSync->rect(), "last sync fits on the signed-in page");
+    auto *status = page->findChild<QLabel *>("rrKosyncStatus");
+    require(status->palette().color(QPalette::WindowText) == ui::noteColor(status) &&
+            lastSync->palette().color(QPalette::WindowText) == ui::noteColor(lastSync),
+            "sync status and last sync use the same ink as list descriptions");
     if (argc > 1) require(window.grab().save(QString::fromLocal8Bit(argv[1])), "save account settings capture");
     page->setNativeCloudSync(true);
     page->setAccount("https://sync.example/prefix", "reader", true, true);

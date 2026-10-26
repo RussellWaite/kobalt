@@ -31,6 +31,7 @@
 #include "reading/sleep_screen.h"
 #include "reading/reader_session.h"
 #include "reading/kosync.h"
+#include "support/diagnostics.h"
 #include <QLocale>
 #include "engine/crengine/engine_activity.h"
 #include "storage/profile_database.h"
@@ -3188,7 +3189,13 @@ private slots:
         host.window()->pageButton(1);
         QTRY_VERIFY(!host.session()->busy() && host.session()->page() > page);
     }
+    void kosyncManualConnection_data() {
+        QTest::addColumn<QString>("connection");
+        for (const auto *connection : {"permission", "connected", "desktop"})
+            QTest::newRow(connection) << QString::fromLatin1(connection);
+    }
     void kosyncManualConnection() {
+        QFETCH(QString, connection);
         QTcpServer stalled;
         QVERIFY(stalled.listen(QHostAddress::LocalHost));
         QSignalSpy attempts(&stalled, &QTcpServer::newConnection);
@@ -3199,9 +3206,10 @@ private slots:
             {"device_id", "test-device"}, {"automatic", false}}));
         auto network = std::make_shared<SyncNetworkState>();
         ReaderFixture host(paths, testFonts, testPlaceholder);
-        host.configureServices = [network](ReaderHostServices &services) {
-            services.syncNetwork = [network] { return std::make_unique<TestSyncNetwork>(network); };
-        };
+        if (connection != "desktop")
+            host.configureServices = [network](ReaderHostServices &services) {
+                services.syncNetwork = [network] { return std::make_unique<TestSyncNetwork>(network); };
+            };
         CloseHost cleanup{host};
         QSignalSpy opened(&host, &ReaderFixture::opened);
         host.open(fixture(), nativeSize);
@@ -3210,20 +3218,48 @@ private slots:
         canvas.resize(900, 900);
         canvas.show();
         QVERIFY(QTest::qWaitForWindowExposed(&canvas));
-        host.window()->findChild<QPushButton *>("rrKosyncNow")->click();
-        QCOMPARE(network->requests, 1);
-        QVERIFY(network->interactive);
-        QEventLoop permission;
-        QTimer::singleShot(11200, &permission, &QEventLoop::quit);
-        permission.exec();
-        QVERIFY(bool(network->completed));
-        QVERIFY(!host.window()->findChild<QPushButton *>("rrKosyncServer")->isEnabled());
-        QCOMPARE(network->cancellations, 0);
-        QCOMPARE(attempts.count(), 0);
-        auto completed = std::move(network->completed);
-        network->completed = {};
-        completed(false);
+        host.window()->findChild<QPushButton *>("rrSettings")->click();
+        host.window()->findChild<QPushButton *>("rrSettingsKosync")->click();
+        auto *settings = host.window()->findChild<QWidget *>("rrGeneralSettings");
+        QTRY_VERIFY(settings->isVisible());
+        QVERIFY(click(canvas, host.window()->findChild<QPushButton *>("rrKosyncNow")));
+        if (connection != "desktop") {
+            QCOMPARE(network->requests, 1);
+            QVERIFY(network->interactive);
+            QVERIFY(!host.window()->findChild<QWidget *>("rrKosyncOpening"));
+            QEventLoop permission;
+            QTimer::singleShot(connection == "permission" ? 11200 : 100, &permission, &QEventLoop::quit);
+            permission.exec();
+            QVERIFY(bool(network->completed));
+            QVERIFY(!host.window()->findChild<QPushButton *>("rrKosyncServer")->isEnabled());
+            QCOMPARE(network->cancellations, 0);
+            QCOMPARE(attempts.count(), 0);
+            auto completed = std::move(network->completed);
+            network->completed = {};
+            network->connected = connection == "connected";
+            completed(network->connected);
+        }
+        if (connection != "permission") {
+            QPointer<QWidget> popup = host.window()->findChild<QWidget *>("rrKosyncOpening");
+            QVERIFY(popup && popup->isVisible());
+            QTRY_VERIFY(attempts.count() > 0);
+            const auto capture = qEnvironmentVariable("KOBALT_KOSYNC_MANUAL_CAPTURE");
+            if (!capture.isEmpty() && connection == "connected") QVERIFY(host.window()->grab().save(capture));
+            const auto page = host.session()->page();
+            host.window()->pageButton(1);
+            QCOMPARE(host.session()->page(), page);
+            auto *cancel = popup->findChild<QPushButton *>("rrKosyncCancel");
+            QVERIFY(cancel && click(canvas, cancel));
+            QTRY_VERIFY(!popup || !popup->isVisible());
+            const auto count = attempts.count();
+            QTest::qWait(600);
+            QCOMPARE(attempts.count(), count);
+            QCOMPARE(host.window()->findChild<QLabel *>("rrKosyncStatus")->text(), strings::get("kosync.skipped"));
+        }
+        QVERIFY(settings->isVisible());
         QVERIFY(host.window()->findChild<QPushButton *>("rrKosyncServer")->isEnabled());
+        QVERIFY(click(canvas, host.window()->findChild<QPushButton *>("rrSettingsClose")));
+        QTRY_VERIFY(!settings->isVisible());
     }
     void kosyncNetwork_data() {
         QTest::addColumn<QString>("scenario");
@@ -3249,6 +3285,10 @@ private slots:
             QTest::newRow("https-filename-close") << "https-filename-close" << false;
             QTest::newRow("https-filename-sleep") << "https-filename-sleep" << false;
             QTest::newRow("https-wake-recovery") << "https-wake-recovery" << false;
+            for (const auto *state : {"handoff", "busy", "cancel", "deadline", "sleep"}) {
+                const auto name = QByteArray("https-manual-") + state;
+                QTest::newRow(name.constData()) << QString::fromLatin1(name) << false;
+            }
             QTest::newRow("https-switch-close") << "https-switch-close" << false;
             for (const auto *decision : {"keep", "resume", "dismiss", "invalid"}) {
                 const auto name = QByteArray("https-choice-") + decision;
@@ -3262,6 +3302,7 @@ private slots:
         const bool live = transition.startsWith("https-");
         if (live) transition.remove(0, 6);
         if (live && transition == "wake-recovery") { verifyKosyncWakeRecovery(); return; }
+        if (live && transition.startsWith("manual-")) { verifyKosyncManualHandoff(transition.mid(7)); return; }
         if (live && transition.startsWith("choice-")) {
             verifyKosyncChoice(transition.mid(7));
             return;
@@ -4235,6 +4276,97 @@ private slots:
     }
 
 private:
+    void verifyKosyncManualHandoff(const QString &state) {
+        auto paths = testPaths();
+        QVERIFY(storage::writeJson(paths.syncAccount(), {
+            {"schema", 1}, {"server", qEnvironmentVariable("KOBALT_KOSYNC_TEST_SERVER")},
+            {"username", qEnvironmentVariable("KOBALT_KOSYNC_TEST_USER")}, {"key", QString(32, 'a')},
+            {"device_id", "manual-handoff"}, {"automatic", false}}));
+        auto network = std::make_shared<SyncNetworkState>();
+        bool suspended = false;
+        ReaderFixture host(paths, testFonts, testPlaceholder);
+        host.configureServices = [&](ReaderHostServices &services) {
+            services.syncNetwork = [network] { return std::make_unique<TestSyncNetwork>(network); };
+            services.suspended = [&] { return suspended; };
+        };
+        CloseHost cleanup{host};
+        struct ResumeEngine { ~ResumeEngine() { engineActivity().pause(false); } } resume;
+        QSignalSpy opened(&host, &ReaderFixture::opened);
+        host.open(textBook, nativeSize);
+        QTRY_COMPARE_WITH_TIMEOUT(opened.count(), 1, 30000);
+        kosync::Client seed(paths.syncAccount());
+        bool seeded = false;
+        QString failure;
+        seed.push(host.session()->syncDigest(), {host.session()->state().value("position").toString(), {}, {}, 0},
+                  [&](QString error) { failure = error; seeded = true; });
+        QTRY_VERIFY_WITH_TIMEOUT(seeded, 12000);
+        QVERIFY2(failure.isEmpty(), qPrintable(failure));
+        initializeDiagnostics(paths.directory + "/diagnostics");
+        pauseDiagnostics(false);
+        struct PauseDiagnostics { ~PauseDiagnostics() { pauseDiagnostics(true); } } diagnostics;
+        const auto events = [&] {
+            QFile file(paths.directory + "/diagnostics/events.jsonl");
+            if (!file.open(QIODevice::ReadOnly)) return QByteArray();
+            return file.readAll();
+        };
+        Canvas canvas(host.window(), nativeSize);
+        canvas.resize(900, 900);
+        canvas.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&canvas));
+        auto *status = host.window()->findChild<QLabel *>("rrKosyncStatus");
+        if (state == "busy") {
+            engineActivity().pause(true);
+            QVERIFY(host.session()->go(host.session()->page() + 1));
+            QVERIFY(host.session()->busy());
+        }
+        host.window()->findChild<QPushButton *>("rrKosyncNow")->click();
+        QCOMPARE(network->requests, 1);
+        QVERIFY(!host.window()->findChild<QWidget *>("rrKosyncOpening"));
+        // Native connection completion can precede restoring the reader.
+        suspended = state != "busy";
+        if (suspended) host.window()->hide();
+        network->connected = true;
+        auto completed = std::move(network->completed);
+        network->completed = {};
+        completed(true);
+        QTRY_VERIFY_WITH_TIMEOUT(events().contains("\"event\":\"kosync-reader-wait\""), 3000);
+        QCOMPARE(status->text(), strings::get("kosync.syncing"));
+        QVERIFY(!host.window()->findChild<QPushButton *>("rrKosyncServer")->isEnabled());
+        QVERIFY(!kosync::Client(paths.syncAccount()).lastSync().isValid());
+        QPointer<QWidget> popup = host.window()->findChild<QWidget *>("rrKosyncOpening");
+        QVERIFY(popup);
+        if (state == "deadline") {
+            QTRY_COMPARE_WITH_TIMEOUT(status->text(), strings::get("kosync.saved_locally"), 11000);
+        } else if (state == "cancel") {
+            host.window()->show();
+            QVERIFY(click(canvas, popup->findChild<QPushButton *>("rrKosyncCancel")));
+        } else if (state == "sleep") {
+            QElapsedTimer elapsed;
+            elapsed.start();
+            host.window()->sleepReader();
+            QTRY_VERIFY_WITH_TIMEOUT(!host.window()->pendingNetworkSync(), 2100);
+            QVERIFY(elapsed.elapsed() < 2100);
+        }
+        suspended = false;
+        engineActivity().pause(false);
+        host.window()->show();
+        if (state == "cancel" || state == "deadline" || state == "sleep") {
+            QTest::qWait(400);
+            QVERIFY(!kosync::Client(paths.syncAccount()).lastSync().isValid());
+        } else {
+            QTRY_COMPARE_WITH_TIMEOUT(status->text(), strings::get("kosync.up_to_date"), 3000);
+            QVERIFY(kosync::Client(paths.syncAccount()).lastSync().isValid());
+        }
+        QTRY_VERIFY(!popup || !popup->isVisible());
+        QCOMPARE(network->requests, 1);
+        int reads = 0;
+        for (const auto &line : events().split('\n')) {
+            const auto event = QJsonDocument::fromJson(line).object();
+            if (event.value("event").toString() == "kosync-request-started" && event.value("method").toString() == "GET")
+                ++reads;
+        }
+        QCOMPARE(reads, 1);
+    }
     void verifyKosyncNetwork(const QString &scenario) {
         QTcpServer stalled;
         QVERIFY(stalled.listen(QHostAddress::LocalHost));

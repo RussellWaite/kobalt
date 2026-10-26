@@ -82,13 +82,13 @@ KosyncPage::KosyncPage(QWidget *parent, QWidget *overlayParent, KeyboardFactory 
     status_->setObjectName("rrKosyncStatus");
     status_->setTextFormat(Qt::PlainText);
     status_->setWordWrap(true);
-    ui::readerStyle(status_, "color:palette(mid);" + ui::styles::font(m::chrome::descriptionText));
+    ui::readerStyle(status_, "color:palette(placeholder-text);" + ui::styles::font(m::chrome::descriptionText));
     informationRows->addWidget(status_);
     lastSync_ = new ui::InterfaceLabel(syncInformation_);
     lastSync_->setObjectName("rrKosyncLastSync");
     lastSync_->setTextFormat(Qt::PlainText);
     lastSync_->setWordWrap(true);
-    ui::readerStyle(lastSync_, "color:palette(mid);" + ui::styles::font(m::chrome::descriptionText));
+    ui::readerStyle(lastSync_, "color:palette(placeholder-text);" + ui::styles::font(m::chrome::descriptionText));
     informationRows->addWidget(lastSync_);
     rows->addWidget(syncInformation_);
     setLastSync({});

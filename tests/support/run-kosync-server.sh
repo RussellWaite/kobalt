@@ -73,7 +73,7 @@ curl --silent --show-error --fail --max-time 10 --cacert "$scratch/ca.crt" \
 KOBALT_KOSYNC_TEST_SERVER="https://localhost:$port" KOBALT_KOSYNC_TEST_CA="$scratch/ca.crt" \
     KOBALT_KOSYNC_TEST_USER="$username" \
     cmake "-DTEST_EXECUTABLE=$root/build/desktop-mac/kobalt-reader-lifecycle-tests" \
-    "-DTEST_ARGUMENTS=kosyncFinal:https-close;kosyncFinal:https-sleep;kosyncFinal:https-filename-close;kosyncFinal:https-filename-sleep;kosyncFinal:https-switch-close;kosyncFinal:https-choice-keep;kosyncFinal:https-choice-resume;kosyncFinal:https-choice-dismiss;kosyncFinal:https-choice-invalid;kosyncFinal:https-wake-recovery" \
+    "-DTEST_ARGUMENTS=kosyncFinal:https-close;kosyncFinal:https-sleep;kosyncFinal:https-filename-close;kosyncFinal:https-filename-sleep;kosyncFinal:https-switch-close;kosyncFinal:https-choice-keep;kosyncFinal:https-choice-resume;kosyncFinal:https-choice-dismiss;kosyncFinal:https-choice-invalid;kosyncFinal:https-wake-recovery;kosyncFinal:https-manual-handoff;kosyncFinal:https-manual-busy;kosyncFinal:https-manual-cancel;kosyncFinal:https-manual-deadline;kosyncFinal:https-manual-sleep" \
     "-DTEST_TMP_ROOT=$root/build/desktop-mac/test-tmp" -DTEST_TIMEOUT=120 \
     -P "$root/platforms/desktop/run-test.cmake"
 echo 'Local KOsync HTTPS integration passed.'
