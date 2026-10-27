@@ -4,7 +4,6 @@
 #include "platforms/kobo/common/native_lifecycle.h"
 #include "platforms/kobo/common/native_authorization.h"
 #include "platforms/kobo/common/native_dictionary.h"
-#include "platforms/kobo/common/native_keyboard.h"
 #include "platforms/kobo/common/native_light.h"
 #include "platforms/kobo/display/page_animation.h"
 #include <NickelHook.h>
@@ -28,12 +27,6 @@ bool firmwareSupported() {
 }
 using namespace kobalt::nickel5;
 static nh_hook readerHooks[] = {
-    {.sym = "_ZN10VirtualKey11repaintFastEb",
-     .sym_new = "kobalt_keyboard_repaint",
-     .lib = "libnickel.so.1.0.0",
-     .out = nh_symoutptr(kobalt::nativeKeyboardRepaint),
-     .desc = "Theme Kobalt keyboard key repaints",
-     .optional = true},
     {.sym =
          "_ZN16ActionProxyMixin17setupBookListMenuEP28AbstractNickelMenuControllerRK6VolumeP15NickelTouchMenuRK7QStringS9_bRK3Tab",
      .sym_new = "kobalt_book_menu",

@@ -806,6 +806,9 @@ LibraryView::LibraryView(const Index &index, std::function<QString(const QString
         pages->page = 0;
         rebuild(false);
     });
+    connect(query, &QLineEdit::returnPressed, this, [this] {
+        if (keyboard) keyboard->hide();
+    });
     connect(more, &QPushButton::clicked, this, &LibraryView::showMoreSheet);
     connect(sort, &QPushButton::clicked, this, [this] {
         if (sortSheet && sortSheet->isVisible()) {
@@ -873,6 +876,13 @@ LibraryView::LibraryView(const Index &index, std::function<QString(const QString
     rebuild(false);
 }
 LibraryView::~LibraryView() = default;
+void LibraryView::setKeyboardFactory(KeyboardFactory factory) {
+    keyboard = factory ? factory(this, query) : nullptr;
+    if (!keyboard) return;
+    keyboard->setSubmitText(strings::get("search_panel.search"));
+    keyboard->submitted = [this] { query->clearFocus(); };
+    if (searching) keyboard->show();
+}
 
 QWidget *LibraryView::buildEmpty() {
     // Short windows, such as a phone in landscape, scroll this page.
@@ -1037,10 +1047,12 @@ void LibraryView::setSearching(bool value) {
     if (value) {
         closeOverlay();
         query->setFocus();
-        QGuiApplication::inputMethod()->show();
+        if (keyboard) keyboard->show();
+        else QGuiApplication::inputMethod()->show();
     } else {
         query->clear();
-        QGuiApplication::inputMethod()->hide();
+        if (keyboard) keyboard->hide();
+        else QGuiApplication::inputMethod()->hide();
     }
     arrange();
     rebuild(false);
@@ -1151,6 +1163,11 @@ void LibraryView::resizeEvent(QResizeEvent *) {
     pages->dirty = true;
     arrange();
     rebuild(true);
+    if (keyboard) keyboard->place();
+}
+void LibraryView::hideEvent(QHideEvent *event) {
+    if (keyboard) keyboard->hide();
+    ui::Panel::hideEvent(event);
 }
 void LibraryView::paintEvent(QPaintEvent *event) {
     ui::Panel::paintEvent(event);

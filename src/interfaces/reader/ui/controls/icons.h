@@ -79,7 +79,10 @@ enum class ControlIcon {
     WifiLow,
     WifiMedium,
     WifiHigh,
-    WifiDisconnected
+    WifiDisconnected,
+    KeyboardShift,
+    KeyboardBackspace,
+    KeyboardReturn
 };
 // Paint vectors at the target resolution without an intermediate icon bitmap.
 void paintOpeningIcon(QPainter &painter, ControlIcon icon, const QRectF &bounds, QColor color);

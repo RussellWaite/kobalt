@@ -1,3 +1,4 @@
+#include "interfaces/reader/ui/controls/keyboard.h"
 #include "assets/assets.h"
 #include "assets/bundled_fonts.h"
 #include "interfaces/reader/ui/style/fonts.h"
@@ -58,6 +59,7 @@
 #include <QFileInfo>
 #include <QFileDialog>
 #include <QFontDatabase>
+#include <QFontInfo>
 #include <QGraphicsView>
 #include <QLabel>
 #include <QLineEdit>
@@ -561,16 +563,26 @@ bool hasText(const QImage &source) {
     return paper > 100 && ink > 100;
 }
 
-bool capture(Fixture &fixture, const QString &name) {
+bool capture(Fixture &fixture, const QString &name, QWidget *nativeScreen = nullptr) {
     // Model state and visibility can settle before queued layouts and proxy
     // cache updates. Deliver those updates before rendering the visible frame.
     QCoreApplication::processEvents();
     QString error;
-    const auto path = fixture.window.saveScreenshot(captureDirectory, &error);
     const auto destination = captureDirectory + '/' + name + ".png";
-    if (path.isEmpty() || !QFile::rename(path, destination)) {
-        qCritical() << "Cannot save screenshot:" << name << error;
-        return false;
+    if (nativeScreen) {
+        // Render reader pixels directly, without the desktop preview transform.
+        QImage image(nativeScreen->size(), QImage::Format_ARGB32_Premultiplied);
+        image.fill(Qt::transparent);
+        image.setDotsPerMeterX(qRound(300 / 0.0254));
+        image.setDotsPerMeterY(qRound(300 / 0.0254));
+        nativeScreen->render(&image);
+        if (!image.save(destination)) return false;
+    } else {
+        const auto path = fixture.window.saveScreenshot(captureDirectory, &error);
+        if (path.isEmpty() || !QFile::rename(path, destination)) {
+            qCritical() << "Cannot save screenshot:" << name << error;
+            return false;
+        }
     }
     const QImage image(destination);
     QFile file(destination);
@@ -880,6 +892,9 @@ void tour(Fixture &fixture, const QString &name, bool screenshots) {
     QTRY_VERIFY(fixture.visible("rrSearchQuery"));
     auto *query = fixture.window.readerWindow()->findChild<QLineEdit *>("rrSearchQuery");
     QVERIFY(query);
+    auto *searchDone = fixture.widget("rrSearch")->findChild<QPushButton *>("widgetKeyboardDone");
+    QVERIFY(searchDone && searchDone->isVisible());
+    QCOMPARE(searchDone->text(), strings::get("search_panel.search"));
     query->setText("Trevelyan");
     QVERIFY(fixture.press("rrSearchSubmit"));
     QTRY_VERIFY_WITH_TIMEOUT(fixture.visible("rrSearchResult0"), 30000);
@@ -1766,6 +1781,14 @@ private slots:
         QVERIFY(saveCapture("definition"));
         QVERIFY(fixture.press("rrDictionaryEdit"));
         QTRY_VERIFY(query->isVisible());
+        QPushButton *dictionaryDone = nullptr;
+        for (auto *button : reader->findChildren<QPushButton *>("widgetKeyboardDone")) {
+            if (!button->isVisible()) continue;
+            QVERIFY(!dictionaryDone);
+            dictionaryDone = button;
+        }
+        QVERIFY(dictionaryDone);
+        QCOMPARE(dictionaryDone->text(), QString::fromUtf8("✓"));
         QCOMPARE(query->text(), selected);
         QCOMPARE(fixture.widget("rrDictionary")->y(), 0);
         QCOMPARE(fixture.widget("rrDictionary")->height(), bounds.height());
@@ -4822,6 +4845,80 @@ private slots:
 class ScreenshotTests final : public QObject {
     Q_OBJECT
 private slots:
+    void widgetKeyboard_data() { variants(); }
+    void widgetKeyboard() {
+        QFETCH(int, preset);
+        QFETCH(bool, dark);
+        Fixture fixture(dark, false, true);
+        QVERIFY(fixture.prepared);
+        fixture.window.findChild<QComboBox *>("desktopScreenPicker")->setCurrentIndex(preset);
+        auto *start = fixture.window.findChild<android::StartScreen *>();
+        auto *view = start->library();
+        QTRY_VERIFY(view->isVisible() && view->width() > 600);
+        view->findChild<QPushButton *>("librarySearch")->click();
+        auto *editor = view->findChild<QLineEdit *>("librarySearchQuery");
+        QVERIFY(editor && editor->isVisible());
+        auto *keyboard = view->findChild<QWidget *>("widgetKeyboard");
+        QVERIFY(keyboard && keyboard->isVisible());
+        auto *characterKey = keyboard->findChild<QPushButton *>("widgetKey1_0");
+        QVERIFY(characterKey);
+        QCOMPARE(characterKey->font().family(), ui::interfaceFont().family());
+        QCOMPARE(characterKey->font().pixelSize(), ui::px(48));
+        auto *shift = keyboard->findChild<QPushButton *>("widgetKeyboardShift");
+        QVERIFY(shift);
+        const auto original = shift->grab().toImage();
+        view->setDark(!dark);
+        const auto inverted = shift->grab().toImage();
+        QCOMPARE(inverted.pixelColor(5, 5), ui::themeColors(!dark).paper);
+        QVERIFY(inverted != original);
+        int ink = 0;
+        for (int y = inverted.height() / 4; y < 3 * inverted.height() / 4; ++y)
+            for (int x = inverted.width() / 4; x < 3 * inverted.width() / 4; ++x)
+                if (inverted.pixelColor(x, y) == ui::themeColors(!dark).ink) ++ink;
+        QVERIFY(ink > 4);
+        view->setDark(dark);
+        QCOMPARE(shift->grab().toImage(), original);
+        const auto name = QStringList{"fill", "six-inch", "seven-inch"}.at(preset) +
+                          (dark ? "-dark" : "-light") + "-widget-keyboard";
+        QVERIFY(capture(fixture, name));
+        if (preset == 1) {
+            QCOMPARE(view->size(), QSize(1072, 1448));
+            QVERIFY(capture(fixture, name + "-300ppi", view));
+            const QImage native(captureDirectory + '/' + name + "-300ppi.png");
+            QCOMPARE(native.size(), QSize(1072, 1448));
+            QCOMPARE(native.dotsPerMeterX(), qRound(300 / 0.0254));
+            QCOMPARE(native.dotsPerMeterY(), qRound(300 / 0.0254));
+            const auto family = ui::chromeFont().family();
+            QMap<QPushButton *, QString> originalStyles;
+            for (auto *key : keyboard->findChildren<QPushButton *>()) {
+                if (!key->isVisible() || !key->property("keyboard.character").isValid()) continue;
+                originalStyles[key] = key->property("reader_style").toString();
+                ui::readerStyle(key, QStringLiteral("QPushButton{font-family:\"%1\";font-size:%2px;border-radius:%3px;}")
+                                        .arg(family).arg(ui::px(48)).arg(ui::px(12)));
+                QCOMPARE(key->font().family(), family);
+            }
+            QVERIFY(capture(fixture, name + "-mono-300ppi", view));
+            QVERIFY(QFontDatabase::families().contains(QStringLiteral("Libron")));
+            for (auto it = originalStyles.begin(); it != originalStyles.end(); ++it) {
+                ui::readerStyle(it.key(), QStringLiteral("QPushButton{font-family:\"Libron\";font-size:%1px;border-radius:%2px;}")
+                                             .arg(ui::px(48)).arg(ui::px(12)));
+                QCOMPARE(QFontInfo(it.key()->font()).family(), QString("Libron"));
+            }
+            QVERIFY(capture(fixture, name + "-libron-300ppi", view));
+            for (auto it = originalStyles.begin(); it != originalStyles.end(); ++it)
+                ui::readerStyle(it.key(), it.value());
+        }
+        auto *letter = view->findChild<QPushButton *>("widgetKey2_0");
+        QVERIFY(letter);
+        QTest::mousePress(letter, Qt::LeftButton);
+        QTRY_VERIFY(view->findChild<QWidget *>("widgetKeyboardAccents"));
+        QTest::mouseRelease(letter, Qt::LeftButton);
+        QVERIFY(capture(fixture, name + "-accents"));
+        auto *symbols = view->findChild<QPushButton *>("widgetKeyboardSymbols");
+        QVERIFY(symbols);
+        symbols->click();
+        QVERIFY(capture(fixture, name + "-symbols"));
+    }
     void verticalJustification_data() { variants(); }
     void verticalJustification() {
         QFETCH(int, preset);
@@ -5142,7 +5239,7 @@ int main(int argc, char **argv) {
         return result;
     }
     QFile fixture(book);
-    constexpr int expectedScreenshots = 396;
+    constexpr int expectedScreenshots = 420;
     if (captures.size() != expectedScreenshots)
         qCritical() << "Expected" << expectedScreenshots << "screenshots, captured" << captures.size();
     if (!fixture.open(QIODevice::ReadOnly) || captures.size() != expectedScreenshots) {

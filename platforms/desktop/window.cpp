@@ -291,6 +291,7 @@ Window::Window(storage::Paths paths, EngineFontInputs fonts, QString placeholder
         sizeCanvas();
     });
     start = new android::StartScreen(readerServices().presentation, store);
+    start->library()->setKeyboardFactory(readerServices().keyboard);
     start->setDark(controller.preferences().value("dark_mode").toBool(false));
     connect(start, &android::StartScreen::bookRequested, this, &Window::openBook);
     connect(start, &android::StartScreen::libraryOpenRequested, this, &Window::chooseBook);

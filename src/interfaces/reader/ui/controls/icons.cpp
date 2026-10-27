@@ -41,8 +41,39 @@ Geometry geometry(ControlIcon icon, bool sideButtons) {
         path.moveTo(x1, y1);
         path.lineTo(x2, y2);
     };
-    // Regular-weight Phosphor icons retain their original 256-unit outlines.
-    if (icon == ControlIcon::Export) {
+    // Keyboard symbols use the same 24-unit grid and stroke as our other drawings.
+    if (icon == ControlIcon::KeyboardShift) {
+        result.canvas = 24;
+        result.stroke = 1.5;
+        path.moveTo(12, 3);
+        path.lineTo(21, 12);
+        path.lineTo(16, 12);
+        path.lineTo(16, 21);
+        path.lineTo(8, 21);
+        path.lineTo(8, 12);
+        path.lineTo(3, 12);
+        path.closeSubpath();
+    } else if (icon == ControlIcon::KeyboardBackspace) {
+        result.canvas = 24;
+        result.stroke = 1.5;
+        path.moveTo(8, 5);
+        path.lineTo(22, 5);
+        path.lineTo(22, 19);
+        path.lineTo(8, 19);
+        path.lineTo(1, 12);
+        path.closeSubpath();
+        line(11, 9, 17, 15);
+        line(17, 9, 11, 15);
+    } else if (icon == ControlIcon::KeyboardReturn) {
+        result.canvas = 24;
+        result.stroke = 1.5;
+        path.moveTo(21, 4);
+        path.lineTo(21, 14);
+        path.lineTo(3, 14);
+        line(3, 14, 9, 8);
+        line(3, 14, 9, 20);
+    } else if (icon == ControlIcon::Export) {
+        // Regular-weight Phosphor icons retain their original 256-unit outlines.
         result.canvas = 256;
         result.filled = true;
         phosphorGeometry(QStringLiteral("file-zip"), path);
@@ -396,7 +427,8 @@ QIcon controlIcon(ControlIcon icon, QColor color, bool sideButtons) {
         (int(icon) > int(ControlIcon::System) && icon != ControlIcon::PreviousChapter &&
          icon != ControlIcon::NextChapter && icon != ControlIcon::Sync && icon != ControlIcon::Sort &&
          icon != ControlIcon::ArrowDownRight && icon != ControlIcon::EditHighlight &&
-         (icon < ControlIcon::Rows || icon > ControlIcon::Export)))
+         (icon < ControlIcon::Rows || icon > ControlIcon::Export) &&
+         (icon < ControlIcon::KeyboardShift || icon > ControlIcon::KeyboardReturn)))
         return {};
     return QIcon(new VectorIconEngine(icon, color, sideButtons));
 }

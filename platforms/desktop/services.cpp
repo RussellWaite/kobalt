@@ -1,4 +1,5 @@
 #include "services.h"
+#include "interfaces/reader/ui/controls/keyboard.h"
 #include "interfaces/reader/ui/style/fonts.h"
 #include <QGuiApplication>
 #include <QDesktopServices>
@@ -73,21 +74,7 @@ public:
         return result;
     }
 };
-class Keyboard final : public KeyboardController {
-public:
-    explicit Keyboard(QLineEdit *editor) : editor(editor) {}
-    bool show() override {
-        if (!editor)
-            return false;
-        editor->setFocus();
-        return true;
-    }
-    void hide() override {}
-    void place() override {}
 
-private:
-    QPointer<QLineEdit> editor;
-};
 class Presentation final : public WindowPresentation {
 public:
     void pauseBackground(bool) override {}
@@ -162,9 +149,7 @@ ReaderHostServices readerServices() {
     result.dictionary = [] {
         return std::make_unique<Dictionary>();
     };
-    result.keyboard = [](QWidget *, QLineEdit *editor) {
-        return std::make_unique<Keyboard>(editor);
-    };
+    result.keyboard = ui::makeWidgetKeyboard;
     result.presentation = [](QWidget *) {
         return std::make_unique<Presentation>();
     };

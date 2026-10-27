@@ -68,8 +68,10 @@ void Button::paintEvent(QPaintEvent *) {
             option.icon = QIcon();
             QPainter painter(this);
             style()->drawControl(QStyle::CE_PushButton, &option, &painter, this);
-            const bool active = isEnabled() && (isChecked() || isDown());
-            painter.setPen(palette().color(!isEnabled() ? QPalette::Mid
+            const bool primary = property("reader_primary_action").toBool();
+            const bool active = isEnabled() && (primary ? !isDown() : isChecked() || isDown());
+            const auto colors = primary ? readerPalette(palette(), darkTheme(this)) : palette();
+            painter.setPen(colors.color(!isEnabled() ? QPalette::Mid
                                            : active     ? QPalette::Window
                                                         : QPalette::WindowText));
             painter.setFont(font());

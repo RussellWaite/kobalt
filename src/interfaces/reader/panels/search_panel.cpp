@@ -51,6 +51,7 @@ SearchPanel::SearchPanel(QWidget *parent, KeyboardFactory makeKeyboard) : ui::Pa
     query->setInputMethodHints(Qt::ImhNoPredictiveText | Qt::ImhNoAutoUppercase);
     keyboard = makeKeyboard(this, query);
     Q_ASSERT(keyboard);
+    keyboard->setSubmitText(strings::get("search_panel.search"));
     keyboard->submitted = [this] {
         run();
     };

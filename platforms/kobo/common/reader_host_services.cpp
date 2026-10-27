@@ -1,6 +1,6 @@
 #include "reader_host_services.h"
 #include "native_dictionary.h"
-#include "native_keyboard.h"
+#include "interfaces/reader/ui/controls/keyboard.h"
 #include "native_sync_network.h"
 #include "native_lifecycle.h"
 #include "native_light.h"
@@ -123,39 +123,7 @@ public:
 private:
     NativeDictionary adapter;
 };
-class Keyboard final : public KeyboardController {
-public:
-    Keyboard(QWidget *parent, QLineEdit *editor) : adapter(new NativeKeyboard(parent, editor)) {
-        adapter->submitted = [this] {
-            const auto callback = submitted;
-            if (callback)
-                callback();
-        };
-    }
-    ~Keyboard() override {
-        if (adapter)
-            adapter->submitted = {};
-        delete adapter.data();
-    }
-    bool show() override {
-        return adapter && adapter->show();
-    }
-    void hide() override {
-        if (adapter)
-            adapter->hide();
-    }
-    void place() override {
-        if (adapter)
-            adapter->place();
-    }
-    void setSubmitText(const QString &text) override {
-        if (adapter)
-            adapter->setSubmitText(text);
-    }
 
-private:
-    QPointer<NativeKeyboard> adapter;
-};
 
 }
 ReaderHostServices readerHostServices() {
@@ -199,9 +167,7 @@ ReaderHostServices readerHostServices() {
     result.dictionary = [] {
         return std::make_unique<Dictionary>();
     };
-    result.keyboard = [](QWidget *parent, QLineEdit *editor) {
-        return std::make_unique<Keyboard>(parent, editor);
-    };
+    result.keyboard = ui::makeWidgetKeyboard;
     result.syncNetwork = [] { return std::make_unique<NativeSyncNetwork>(); };
     result.presentation = [](QWidget *reader) {
         return makeWindowPresentation(reader, nativeReaderSleepScreenAvailable());

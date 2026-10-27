@@ -1,6 +1,9 @@
-#include "support/paint_regions.h"
-#include "ui/hold_timer.h"
 #include "interfaces/reader/panels/choice_screen.h"
+#include "ui/hold_timer.h"
+#include "support/paint_regions.h"
+#include "interfaces/reader/ui/controls/keyboard.h"
+#include <QLineEdit>
+#include <QDynamicPropertyChangeEvent>
 #include "assets/bundled_fonts.h"
 #include "interfaces/library/library_view.h"
 #include "interfaces/reader/ui/controls/buttons.h"
@@ -51,6 +54,7 @@
 #include <QStackedLayout>
 #include <QTest>
 #include <QtMath>
+#include <utility>
 
 using namespace kobalt;
 namespace {
@@ -223,6 +227,285 @@ private slots:
         }
         QCOMPARE(widget->pressed, ulong(1000));
         QCOMPARE(widget->released, ulong(2000));
+    }
+    void widgetKeyboardEntry_data() { variants(); }
+    void widgetKeyboardEntry() {
+        QFETCH(bool, dark);
+        QFETCH(int, ppi);
+        ui::setDensity(ppi);
+        QWidget host;
+        host.setProperty("reader_dark", dark);
+        host.resize(ui::px(1072), ui::px(1448));
+        ui::applyReaderPalette(&host, ui::readerPalette(host.palette(), dark));
+        QLineEdit editor(&host), foreign(&host);
+        editor.setGeometry(20, 20, 400, 80);
+        foreign.setGeometry(20, 110, 400, 80);
+        auto keyboard = ui::makeWidgetKeyboard(&host, &editor);
+        host.show();
+        QVERIFY(keyboard->show());
+        auto *panel = host.findChild<QWidget *>("widgetKeyboard");
+        QVERIFY(panel && panel->isVisible());
+        QVERIFY(host.rect().contains(panel->geometry()));
+        QCOMPARE(host.property("reader_keyboard_bounds").toRect(), panel->geometry());
+        auto *firstKey = panel->findChild<QPushButton *>("widgetKey1_0");
+        QVERIFY(firstKey);
+        QCOMPARE(firstKey->font().family(), ui::interfaceFont().family());
+        QCOMPARE(firstKey->font().pixelSize(), ui::px(48));
+        QCOMPARE(panel->findChild<QPushButton *>("widgetKeyboardSymbols")->text(), QString("123"));
+        QCOMPARE(firstKey->grab().toImage().pixelColor(5, 5), ui::themeColors(dark).paper);
+        for (const auto *name : {"widgetKeyboardShift", "widgetKeyboardDelete", "widgetKeyboardDone"}) {
+            auto *key = panel->findChild<QPushButton *>(name);
+            QVERIFY(key && !key->icon().isNull());
+            QVERIFY(!key->accessibleName().isEmpty());
+            for (bool pressed : {false, true}) {
+                key->setDown(pressed);
+                const auto image = key->grab().toImage();
+                const bool primary = key->objectName() == "widgetKeyboardDone";
+                const bool inverted = primary ? !pressed : pressed;
+                const auto background = inverted ? ui::themeColors(dark).ink : ui::themeColors(dark).paper;
+                const auto foreground = inverted ? ui::themeColors(dark).paper : ui::themeColors(dark).ink;
+                QCOMPARE(image.pixelColor(8, image.height() / 2), background);
+                const auto keyboardImage = panel->grab().toImage();
+                const auto corner = key->mapTo(panel, QPoint()) * keyboardImage.devicePixelRatio();
+                QCOMPARE(keyboardImage.pixelColor(corner), ui::themeColors(dark).paper);
+                int ink = 0;
+                const auto area = image.rect().adjusted(image.width() / 4, image.height() / 4,
+                                                       -image.width() / 4, -image.height() / 4);
+                for (int y = area.top(); y <= area.bottom(); ++y)
+                    for (int x = area.left(); x <= area.right(); ++x)
+                        if (image.pixelColor(x, y) == foreground) ++ink;
+                QVERIFY2(ink > 4, name);
+            }
+            key->setDown(false);
+        }
+        auto *shift = panel->findChild<QPushButton *>("widgetKeyboardShift");
+        shift->setChecked(true);
+        const auto selectedShift = shift->grab().toImage();
+        QCOMPARE(selectedShift.pixelColor(8, selectedShift.height() / 2), ui::themeColors(dark).ink);
+        shift->setChecked(false);
+        auto *submit = panel->findChild<QPushButton *>("widgetKeyboardDone");
+        auto *erase = panel->findChild<QPushButton *>("widgetKeyboardDelete");
+        auto *symbols = panel->findChild<QPushButton *>("widgetKeyboardSymbols");
+        QVERIFY(submit->width() > shift->width());
+        QVERIFY(submit->width() > symbols->width());
+        QVERIFY(erase->mapTo(panel, erase->rect().bottomRight()).y() < submit->geometry().top());
+        QVERIFY(submit->geometry().contains(QPoint(erase->mapTo(panel, erase->rect().center()).x(), submit->geometry().center().y())));
+        int letters = 0;
+        for (auto *key : panel->findChildren<QPushButton *>()) {
+            const auto character = key->property("keyboard.character").toString();
+            if (!key->isVisible() || character.isEmpty()) continue;
+            QVERIFY(character.front().isLetter());
+            QCOMPARE(key->size(), firstKey->size());
+            ++letters;
+        }
+        QCOMPARE(letters, 26);
+        QString expected;
+        QSet<QChar> characters;
+        const auto typePage = [&] {
+            for (auto *key : panel->findChildren<QPushButton *>()) {
+                const auto character = key->property("keyboard.character").toString();
+                if (!key->isVisible() || character.isEmpty()) continue;
+                key->click();
+                expected += character;
+                characters.insert(character.front());
+            }
+        };
+        const auto action = [&](const char *name) {
+            auto *key = panel->findChild<QPushButton *>(name);
+            if (key) key->click();
+            return key != nullptr;
+        };
+        typePage();
+        QVERIFY(action("widgetKeyboardShift"));
+        typePage();
+        QVERIFY(action("widgetKeyboardSymbols"));
+        QCOMPARE(panel->findChild<QPushButton *>("widgetKeyboardSymbols")->text(), QString("ABC"));
+        typePage();
+        QVERIFY(action("widgetKeyboardSpace"));
+        expected += ' ';
+        characters.insert(' ');
+        for (ushort value = 32; value < 127; ++value)
+            QVERIFY2(characters.contains(QChar(value)), qPrintable(QString("Missing ASCII key %1").arg(value)));
+        QCOMPARE(editor.text(), expected);
+        QVERIFY(action("widgetKeyboardDelete"));
+        expected.chop(1);
+        QCOMPARE(editor.text(), expected);
+        editor.setText("replace me");
+        editor.selectAll();
+        QVERIFY(action("widgetKeyboardSpace"));
+        QCOMPARE(editor.text(), QString(" "));
+        foreign.setFocus();
+        QVERIFY(action("widgetKeyboardSpace"));
+        QCOMPARE(foreign.text(), QString());
+        QCOMPARE(editor.text(), QString("  "));
+        keyboard->setSubmitText("Search");
+        QCOMPARE(panel->findChild<QPushButton *>("widgetKeyboardDone")->text(), QString("Search"));
+        QCOMPARE(panel->findChild<QPushButton *>("widgetKeyboardDone")->accessibleName(), QString("Search"));
+        int submitted = 0;
+        keyboard->submitted = [&] { ++submitted; };
+        QVERIFY(action("widgetKeyboardDone"));
+        QCOMPARE(submitted, 1);
+        QVERIFY(panel->isHidden());
+        QVERIFY(host.property("reader_keyboard_bounds").toRect().isEmpty());
+        QTest::mouseClick(&editor, Qt::LeftButton);
+        QVERIFY(panel->isVisible());
+        QVERIFY(keyboard->show());
+        host.resize(800, 600);
+        keyboard->place();
+        QVERIFY(host.rect().contains(panel->geometry()));
+        QCOMPARE(host.property("reader_keyboard_bounds").toRect(), panel->geometry());
+        host.hide();
+        QVERIFY(host.property("reader_keyboard_bounds").toRect().isEmpty());
+        host.show();
+        QPointer<QWidget> guardedPanel(panel);
+        keyboard.reset();
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        QVERIFY(!guardedPanel);
+        QVERIFY(host.property("reader_keyboard_bounds").toRect().isEmpty());
+    }
+    void widgetKeyboardAccents_data() { variants(); }
+    void widgetKeyboardAccents() {
+        QFETCH(bool, dark);
+        QFETCH(int, ppi);
+        ui::setDensity(ppi);
+        QWidget host;
+        host.setProperty("reader_dark", dark);
+        host.resize(ui::px(1072), ui::px(1448));
+        ui::applyReaderPalette(&host, ui::readerPalette(host.palette(), dark));
+        QLineEdit editor(&host);
+        auto keyboard = ui::makeWidgetKeyboard(&host, &editor);
+        host.show();
+        QVERIFY(keyboard->show());
+        auto *panel = host.findChild<QWidget *>("widgetKeyboard");
+        auto *e = panel->findChild<QPushButton *>("widgetKey1_2");
+        auto *i = panel->findChild<QPushButton *>("widgetKey1_7");
+        QVERIFY(e && i);
+        const auto send = [](QPushButton *key, QEvent::Type type, ulong stamp) {
+            const auto point = key->rect().center();
+            QMouseEvent event(type, point, key->mapToGlobal(point), Qt::LeftButton,
+                              type == QEvent::MouseButtonPress ? Qt::LeftButton : Qt::NoButton, Qt::NoModifier);
+            event.setTimestamp(stamp);
+            QApplication::sendEvent(key, &event);
+        };
+        // A queued hold and release must open choices without typing the base
+        // letter or choosing a variant underneath the original press point.
+        send(e, QEvent::MouseButtonPress, 1000);
+        send(e, QEvent::MouseButtonRelease, 2000);
+        auto *popup = panel->findChild<QWidget *>("widgetKeyboardAccents");
+        QVERIFY(popup && popup->isVisible());
+        QVERIFY(panel->rect().contains(popup->geometry()));
+        QCOMPARE(editor.text(), QString());
+        auto *acute = popup->findChild<QPushButton *>("widgetAccent00e9");
+        QVERIFY(acute);
+        acute->click();
+        QCOMPARE(editor.text(), QString::fromUtf8("é"));
+        QVERIFY(!panel->findChild<QWidget *>("widgetKeyboardAccents"));
+        panel->findChild<QPushButton *>("widgetKeyboardShift")->click();
+        send(i, QEvent::MouseButtonPress, 3000);
+        send(i, QEvent::MouseButtonRelease, 4000);
+        popup = panel->findChild<QWidget *>("widgetKeyboardAccents");
+        QVERIFY(popup);
+        auto *dotted = popup->findChild<QPushButton *>("widgetAccent0130");
+        QVERIFY(dotted);
+        dotted->click();
+        QCOMPARE(editor.text(), QString::fromUtf8("éİ"));
+        panel->findChild<QPushButton *>("widgetKeyboardDelete")->click();
+        QCOMPARE(editor.text(), QString::fromUtf8("é"));
+        panel->findChild<QPushButton *>("widgetKeyboardShift")->click();
+        QTest::mousePress(e, Qt::LeftButton);
+        QTRY_VERIFY(panel->findChild<QWidget *>("widgetKeyboardAccents"));
+        QEvent cancel(QEvent::TouchCancel);
+        QApplication::sendEvent(e, &cancel);
+        QTest::mouseRelease(e, Qt::LeftButton);
+        QVERIFY(!panel->findChild<QWidget *>("widgetKeyboardAccents"));
+        QCOMPARE(editor.text(), QString::fromUtf8("é"));
+        send(e, QEvent::MouseButtonPress, 4100);
+        send(e, QEvent::MouseButtonRelease, 4700);
+        QVERIFY(panel->findChild<QWidget *>("widgetKeyboardAccents"));
+        QTest::keyClick(&editor, Qt::Key_Escape);
+        QVERIFY(!panel->findChild<QWidget *>("widgetKeyboardAccents"));
+        QCOMPARE(editor.text(), QString::fromUtf8("é"));
+        send(e, QEvent::MouseButtonPress, 4800);
+        QTRY_VERIFY(panel->findChild<QWidget *>("widgetKeyboardAccents"));
+        popup = panel->findChild<QWidget *>("widgetKeyboardAccents");
+        acute = popup->findChild<QPushButton *>("widgetAccent00e9");
+        const auto destination = e->mapFromGlobal(acute->mapToGlobal(acute->rect().center()));
+        QMouseEvent release(QEvent::MouseButtonRelease, destination, e->mapToGlobal(destination),
+                            Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+        release.setTimestamp(4900);
+        QApplication::sendEvent(e, &release);
+        QCOMPARE(editor.text(), QString::fromUtf8("éé"));
+        QVERIFY(!panel->findChild<QWidget *>("widgetKeyboardAccents"));
+        editor.setText(QString::fromUtf8("é"));
+        send(e, QEvent::MouseButtonPress, 5000);
+        send(e, QEvent::MouseButtonRelease, 5050);
+        QCOMPARE(editor.text(), QString::fromUtf8("ée"));
+        send(e, QEvent::MouseButtonPress, 6000);
+        keyboard->hide();
+        send(e, QEvent::MouseButtonRelease, 7000);
+        QCOMPARE(editor.text(), QString::fromUtf8("ée"));
+        QVERIFY(!panel->findChild<QWidget *>("widgetKeyboardAccents"));
+    }
+    void widgetKeyboardLifetime() {
+        QWidget host;
+        auto *editor = new QLineEdit(&host);
+        auto keyboard = ui::makeWidgetKeyboard(&host, editor);
+        host.show();
+        QVERIFY(keyboard->show());
+        delete editor;
+        QVERIFY(!keyboard->show());
+        keyboard->hide();
+        keyboard.reset();
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        QLineEdit survivingEditor;
+        auto *parent = new QWidget;
+        keyboard = ui::makeWidgetKeyboard(parent, &survivingEditor);
+        delete parent;
+        QVERIFY(!keyboard->show());
+        keyboard->hide();
+        keyboard->place();
+        keyboard.reset();
+        auto *nested = new QWidget(&host);
+        keyboard = ui::makeWidgetKeyboard(nested, &survivingEditor);
+        nested->show();
+        QVERIFY(keyboard->show());
+        delete nested;
+        QVERIFY(host.property("reader_keyboard_bounds").toRect().isEmpty());
+        keyboard.reset();
+        QLineEdit submitEditor(&host);
+        keyboard = ui::makeWidgetKeyboard(&host, &submitEditor);
+        QVERIFY(keyboard->show());
+        auto *done = host.findChild<QPushButton *>("widgetKeyboardDone");
+        QVERIFY(done);
+        int submissions = 0;
+        keyboard->submitted = [&] { ++submissions; keyboard.reset(); };
+        done->click();
+        QVERIFY(!keyboard);
+        QVERIFY(!done->isVisible());
+        done->click();
+        QCOMPARE(submissions, 1);
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        class CloseOnBounds final : public QObject {
+        public:
+            std::function<void()> close;
+            bool eventFilter(QObject *object, QEvent *event) override {
+                if (event->type() == QEvent::DynamicPropertyChange &&
+                    static_cast<QDynamicPropertyChangeEvent *>(event)->propertyName() == "reader_keyboard_bounds" &&
+                    !object->property("reader_keyboard_bounds").toRect().isEmpty()) {
+                    const auto callback = std::exchange(close, {});
+                    if (callback) callback();
+                }
+                return false;
+            }
+        } closer;
+        keyboard = ui::makeWidgetKeyboard(&host, &submitEditor);
+        closer.close = [&] { keyboard.reset(); };
+        host.installEventFilter(&closer);
+        QVERIFY(!keyboard->show());
+        QVERIFY(!keyboard);
+        QVERIFY(host.property("reader_keyboard_bounds").toRect().isEmpty());
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        QVERIFY(!host.findChild<QWidget *>("widgetKeyboard"));
     }
     void cancelledCanvasTouchRestoresSlider_data() {
         QTest::addColumn<bool>("secondFinger");

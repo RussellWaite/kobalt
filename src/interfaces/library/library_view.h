@@ -1,6 +1,7 @@
 #pragma once
 #include "interfaces/reader/ui/controls/panels.h"
 #include "library/library_index.h"
+#include "platform/api/keyboard_controller.h"
 #include <functional>
 
 class QLineEdit;
@@ -30,6 +31,7 @@ public:
     void refresh();
     void setScanning(bool scanning, int found);
     void setDark(bool dark);
+    void setKeyboardFactory(KeyboardFactory factory);
     void showNotice(const QString &title, const QString &message);
     // The system back action: closes the topmost layer. False when only the
     // library itself is left.
@@ -46,6 +48,7 @@ public:
 
 protected:
     void resizeEvent(QResizeEvent *) override;
+    void hideEvent(QHideEvent *) override;
     void paintEvent(QPaintEvent *) override;
 
 private:
@@ -54,6 +57,7 @@ private:
     ui::CellButton *search, *more, *closeSearch;
     QVector<ui::CellButton *> modes;
     QLineEdit *query;
+    std::unique_ptr<KeyboardController> keyboard;
     QPushButton *sort;
     ui::LoadingIndicator *progress;
     BookPages *pages;
