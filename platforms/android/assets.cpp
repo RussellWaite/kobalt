@@ -8,6 +8,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QSaveFile>
+#include <QRegularExpression>
 
 namespace kobalt::android {
 namespace {
@@ -16,6 +17,14 @@ bool write(const QString &path, const QByteArray &bytes) {
         return false;
     QSaveFile file(path);
     return file.open(QIODevice::WriteOnly) && file.write(bytes) == bytes.size() && file.commit();
+}
+void removeOldBundles(const QString &directory, const QString &current) {
+    if (QFileInfo(directory).isSymLink())
+        return;
+    const QRegularExpression digest(QStringLiteral("^[0-9a-f]{64}$"));
+    for (const auto &entry : QDir(directory).entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot | QDir::NoSymLinks))
+        if (entry.fileName() != current && digest.match(entry.fileName()).hasMatch())
+            QDir(entry.absoluteFilePath()).removeRecursively();
 }
 }
 std::unique_ptr<AssetBundle> installAssets(const QString &applicationData) {
@@ -29,8 +38,10 @@ std::unique_ptr<AssetBundle> installAssets(const QString &applicationData) {
     const auto digest = QCryptographicHash::hash(bytes, QCryptographicHash::Sha256).toHex();
     const auto root = applicationData + "/assets/" + digest;
     auto bundle = std::make_unique<AssetBundle>(root, QStringLiteral(KOBALT_VERSION));
-    if (bundle->available())
+    if (bundle->available()) {
+        removeOldBundles(applicationData + "/assets", QString::fromLatin1(digest));
         return bundle;
+    }
     const auto entries = QJsonDocument::fromJson(bytes).object().value("files").toArray();
     if (entries.isEmpty())
         return {};
@@ -51,6 +62,7 @@ std::unique_ptr<AssetBundle> installAssets(const QString &applicationData) {
     }
     if (!write(root + "/manifest.json", bytes) || !bundle->available())
         return {};
+    removeOldBundles(applicationData + "/assets", QString::fromLatin1(digest));
     return bundle;
 }
 }

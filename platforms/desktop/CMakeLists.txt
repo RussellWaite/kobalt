@@ -403,6 +403,19 @@ if(BUILD_TESTING)
             else()
                 target_link_libraries(kobalt-${name}-tests PRIVATE kobalt-regression-runtime)
             endif()
+            if(check STREQUAL "android_assets")
+                target_sources(kobalt-${name}-tests PRIVATE "${KOBALT_ROOT}/platforms/android/assets.cpp")
+                target_include_directories(kobalt-${name}-tests PRIVATE "${KOBALT_ROOT}")
+                set(fixture "${CMAKE_CURRENT_BINARY_DIR}/android-asset-fixture")
+                file(MAKE_DIRECTORY "${fixture}/hyph")
+                set(pattern "fixture patterns\n")
+                string(SHA256 hash "${pattern}")
+                string(LENGTH "${pattern}" size)
+                file(WRITE "${fixture}/hyph/fixture.pattern" "${pattern}")
+                file(WRITE "${fixture}/manifest.json" "{\"schema\":1,\"version\":\"${KOBALT_VERSION}\",\"files\":[{\"path\":\"hyph/fixture.pattern\",\"size\":${size},\"sha256\":\"${hash}\"}]}")
+                qt_add_resources(kobalt-${name}-tests android_asset_fixture PREFIX "/android-assets" BASE "${fixture}"
+                    FILES "${fixture}/manifest.json" "${fixture}/hyph/fixture.pattern")
+            endif()
             target_compile_definitions(kobalt-${name}-tests PRIVATE
                 KOBALT_TEST_ASSET_ROOT="${KOBALT_ASSETS}" KOBALT_FONT_DIRECTORY="${KOBALT_ASSETS}/fonts"
                 KOBALT_INSTALLED_FONTS)
@@ -458,7 +471,7 @@ if(BUILD_TESTING)
                 ENVIRONMENT "${headless_environment}" LABELS "${group};${lane}" TIMEOUT ${ctest_timeout})
         endforeach()
     endfunction()
-    kobalt_regressions(model storage_assets profile_storage record_writer reading_history bookmark_store highlight_store annotation_database appearance_settings header_footer
+    kobalt_regressions(model storage_assets android_assets profile_storage record_writer reading_history bookmark_store highlight_store annotation_database appearance_settings header_footer
         layout_cache resource_cache layout_compatibility reading_pace reading_speed engine_activity
         local_resources zip_resource diagnostics dictionary_store image_damage page_pixels
         logical_word_counter brightness_gesture qt_compat page_refresh_regions screen_refresh plain_archive reading_progress
