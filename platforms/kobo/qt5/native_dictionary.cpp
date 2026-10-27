@@ -55,8 +55,8 @@ struct Dictionary {
     }
 };
 struct ContentSettings {
-    // Firmware 4.46.23836 requires 68 bytes for this ScObject value.
-    // Round up for alignment; Nickel constructs the return value here.
+    // The native value has a 72-byte array stride, including alignment padding.
+    // Nickel constructs the return value here.
     alignas(8) char bytes[72];
     ContentSettings(const ContentSettings &) = delete;
     ~ContentSettings() {
