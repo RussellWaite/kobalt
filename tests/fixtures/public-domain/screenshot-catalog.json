@@ -1,0 +1,82 @@
+[
+  {
+    "language": "el",
+    "file": "el.json",
+    "sha256": "cf7cb3ffd2665b659c60962c2934326acb5026d8f61821a7970509de986ead7f"
+  },
+  {
+    "language": "ru",
+    "file": "ru.json",
+    "sha256": "e41b630c12a1c852d36491192d7e3bdfadb95ba846d483fe94361f517f518568"
+  },
+  {
+    "language": "hi",
+    "file": "hi.json",
+    "sha256": "d8ca5bd84e66e5d5917613e155d35d71c5f1e82817fe04ef8777c5c38e773f96"
+  },
+  {
+    "language": "bn",
+    "file": "bn.json",
+    "sha256": "4ab88da7ab4b048a63bd658614dc9c18d8e8642e372fedbbe76e35cc52098bfd"
+  },
+  {
+    "language": "ta",
+    "file": "ta.json",
+    "sha256": "4ec8f782d63adecad82a77933fd2a2070a24fb347ce980a7727ef6c75780a090"
+  },
+  {
+    "language": "th",
+    "file": "th.json",
+    "sha256": "7aea644ad3f7761dfa978b9da0ec2f17b0962730d490d56ba839d48b824a97fc"
+  },
+  {
+    "language": "he",
+    "file": "he.json",
+    "sha256": "3281c1cd07697c9a799841e377838e1cdc7e5b5283cb32958e940c3ba00bf8f1"
+  },
+  {
+    "language": "de",
+    "file": "de.json",
+    "sha256": "a6660e498a428db5f71639e8cd5c5a4c3131f4293dcc48db0a54b6460fa99d4a"
+  },
+  {
+    "language": "ar",
+    "file": "ar.json",
+    "sha256": "68b9647d62744d78cda6e7ffc980f962845e465318f52b68b607a095a177ef13"
+  },
+  {
+    "language": "zh-Hant",
+    "file": "zh-Hant.json",
+    "sha256": "27eece3fd98d474746408f7015b53c4e905d9a268ef201a2bea654f548c1f721"
+  },
+  {
+    "language": "zh-Hans",
+    "file": "zh-Hans.json",
+    "sha256": "c99505a0020ec4ea1fc7b2f1353eae560756d1f7f77a9aba50cc52148a713697"
+  },
+  {
+    "language": "vi",
+    "file": "vi.json",
+    "sha256": "0e5b7d004c0c80378450550fabc96dd2e944906a02c595fe69e0a603f4f6be97"
+  },
+  {
+    "language": "ja",
+    "file": "ja.json",
+    "sha256": "99ca8503e51a91349048ddaff22ba63da16046cbcfdd9dcd8ea4182310485a79"
+  },
+  {
+    "language": "ko",
+    "file": "ko.json",
+    "sha256": "eefb1474d1ec8df0d66bca10b5bf13577ad9ca8bb4d16771b320eb964e0811e9"
+  },
+  {
+    "language": "hy",
+    "file": "hy.json",
+    "sha256": "8a419e86a62d32754ce7a44c7029a307286cc4e3d1c2c430e4be920e9d3c3ac7"
+  },
+  {
+    "language": "ka",
+    "file": "ka.json",
+    "sha256": "0e4d5a8a1d0766f8075cd4259441926f10a60d7fb4e8411f3deebc88d8138827"
+  }
+]

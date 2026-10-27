@@ -1,0 +1,260 @@
+#pragma once
+#include <QFile>
+#include <QFileInfo>
+#include <QCryptographicHash>
+#include <QDebug>
+#include <QImage>
+#include <QJsonArray>
+#include <QJsonObject>
+#include <QMap>
+#include <QRegularExpression>
+#include <QString>
+#include <QStringList>
+#include <QSet>
+
+namespace kobalt::test {
+inline QString screenshotGroup(const QString &scene) {
+    if (scene.startsWith("international-")) return "International books";
+    if (scene.startsWith("library-")) return "Library";
+    if (scene == "dictionaries" || scene.startsWith("dictionary-")) return "Dictionary";
+    if (scene.startsWith("links-") || scene.startsWith("footnotes-") || scene.startsWith("tappable-links-")) return "Links and footnotes";
+    if (scene.startsWith("search")) return "Search";
+    if (scene.startsWith("settings") || scene == "about" || scene == "acknowledgments" || scene.startsWith("license")) return "Settings and About";
+    if (scene.startsWith("annotation") || scene == "annotating" || scene.startsWith("bookmark")) return "Bookmarks and annotations";
+    if (scene.startsWith("vertical-") || scene == "layout" || scene == "header-footer") return "Layout";
+    if (scene.startsWith("fonts") || scene.startsWith("text") || scene.startsWith("bionic") || scene.startsWith("embedded-")) return "Typography";
+    if (scene.startsWith("maths")) return "Mathematics";
+    if (scene.startsWith("stats")) return "Statistics";
+    return "Reading";
+}
+
+inline QString screenshotTitle(const QString &scene, const QJsonObject &book) {
+    if (scene.startsWith("international-")) {
+        auto language = book["language_name"].toString();
+        if (book["language"] == "zh-Hans") language = "Simplified Chinese";
+        if (book["language"] == "zh-Hant") language = "Traditional Chinese";
+        const bool vertical = scene.contains("-vertical-");
+        const auto panel = scene.endsWith("-reading") ? "Reading" : scene.endsWith("-chapters") ? "Chapter list" : "Font picker";
+        return language + " · " + panel + (vertical ? " (vertical)" : "");
+    }
+    static const QMap<QString, QString> titles{
+        {"about", "About Kobalt"},
+        {"acknowledgments", "Acknowledgments"},
+        {"alice-reading", "Alice in Wonderland"},
+        {"annotating", "Annotation mode"},
+        {"annotation-actions", "Selection actions"},
+        {"annotation-edit", "Edit a highlight"},
+        {"annotation-export-confirmation", "Confirm annotation export"},
+        {"annotation-export-list", "Annotations ready to export"},
+        {"annotation-export-menu", "Export annotations"},
+        {"annotation-export-pressed", "Export action pressed"},
+        {"annotation-export-saved", "Export complete"},
+        {"annotation-saved", "Saved highlight"},
+        {"annotation-start", "Start a selection"},
+        {"annotations", "Empty annotation list"},
+        {"bionic-reading", "Bold reading"},
+        {"bionic-setting", "Bold reading setting"},
+        {"bookmark-remove", "Remove a bookmark"},
+        {"bookmarked", "Bookmarked page"},
+        {"bookmarks", "Saved bookmarks"},
+        {"chapters", "Chapter list"},
+        {"cover", "Book cover"},
+        {"dictionaries", "Manage dictionaries"},
+        {"dictionary-choices", "Choose a dictionary"},
+        {"dictionary-definition", "Dictionary definition"},
+        {"dictionary-definition-page-2", "Dictionary definition · Page 2"},
+        {"dictionary-edit", "Edit a lookup"},
+        {"dictionary-font-sizes", "Dictionary text size"},
+        {"dictionary-long-definition", "Long dictionary definition"},
+        {"dictionary-no-definition", "No definition found"},
+        {"dictionary-ui", "Dictionary appearance settings"},
+        {"dictionary-unavailable", "Dictionary unavailable"},
+        {"embedded-fonts", "Publisher font picker"},
+        {"embedded-reading", "Reading with a publisher font"},
+        {"finish-book", "Finish reading confirmation"},
+        {"fonts", "Font picker"},
+        {"footnotes-long-preview", "Long footnote"},
+        {"footnotes-page-2", "Footnote · Page 2"},
+        {"footnotes-preview", "Footnote preview"},
+        {"header-footer", "Headers and footers"},
+        {"layout", "Page layout"},
+        {"library-book-menu", "Book actions"},
+        {"library-empty", "Welcome to the library"},
+        {"library-folders", "Book folders"},
+        {"library-folders-empty", "No book folders"},
+        {"library-grid", "All books"},
+        {"library-grid-large", "Large covers"},
+        {"library-grid-last", "All books · Last page"},
+        {"library-grid-new", "Books not yet started"},
+        {"library-grid-small", "Small covers"},
+        {"library-grid-sort", "Sort the cover grid"},
+        {"library-home", "Continue reading"},
+        {"library-home-empty", "No books in progress"},
+        {"library-list", "Book list"},
+        {"library-list-next", "Book list · Next page"},
+        {"library-list-series", "Books by series"},
+        {"library-more", "Library options"},
+        {"library-new-book-menu", "New book actions"},
+        {"library-opening-error", "Book could not be opened"},
+        {"library-pressed", "Pressed book cover"},
+        {"library-reading-book-menu", "Reading book actions"},
+        {"library-remove-confirmation", "Remove a book"},
+        {"library-scanning", "Scanning for books"},
+        {"library-search-empty", "No matching books"},
+        {"library-search-results", "Matching books"},
+        {"library-sort", "Sort the book list"},
+        {"license", "License text"},
+        {"links-website", "Open a website"},
+        {"maths-equations", "Equations"},
+        {"maths-reading", "Calculus Made Easy"},
+        {"menu", "Reading menu"},
+        {"reading", "Reading"},
+        {"search", "Search results"},
+        {"search-empty", "Search this book"},
+        {"search-no-results", "No matching passages"},
+        {"settings", "Reader settings"},
+        {"settings-controls", "Controls settings"},
+        {"settings-defaults", "Default settings"},
+        {"settings-display", "Display settings"},
+        {"settings-kosync", "Sync settings"},
+        {"settings-styling", "Styling settings"},
+        {"settings-system", "System settings"},
+        {"stats", "Reading statistics"},
+        {"stats-dense-graph", "Dense chapter graph"},
+        {"stats-dense-reading", "Moby Dick"},
+        {"stats-dense-setting", "Dense graph setting"},
+        {"tappable-links-all", "Direct links and footnotes"},
+        {"tappable-links-choices", "Direct link choices"},
+        {"tappable-links-footnotes", "Direct footnotes only"},
+        {"tappable-links-off", "Direct links off"},
+        {"tappable-links-settings", "Direct link settings"},
+        {"text", "Text controls"},
+        {"text-size-preview", "Text size preview"},
+        {"text-spacing-preview", "Line spacing preview"},
+        {"text-weight-preview", "Text weight preview"},
+        {"vertical-center", "Centered page text"},
+        {"vertical-choices", "Page spacing choices"},
+        {"vertical-columns-center", "Centered text in columns"},
+        {"vertical-columns-expand", "Expanded text in columns"},
+        {"vertical-columns-off", "Columns without page spacing"},
+        {"vertical-expand", "Expanded page text"},
+        {"vertical-off", "Page spacing off"},
+        {"vertical-scope", "Page spacing scope"},
+        {"vertical-settings", "Page spacing settings"},
+    };
+    if (titles.contains(scene)) return titles[scene];
+    const auto page = QRegularExpression("^(.+)-(\\d+)$").match(scene);
+    if (page.hasMatch() && titles.contains(page.captured(1)))
+        return titles[page.captured(1)] + " · Page " + page.captured(2);
+    return {};
+}
+
+inline QPair<QString, int> screenshotIdentity(const QString &scene) {
+    if (scene == "dictionary-definition-page-2") return {"dictionary-long-definition", 2};
+    if (scene == "footnotes-page-2") return {"footnotes-long-preview", 2};
+    const auto page = QRegularExpression("^(.+)-(\\d+)$").match(scene);
+    if (page.hasMatch() && !screenshotTitle(page.captured(1), {}).isEmpty())
+        return {page.captured(1), page.captured(2).toInt()};
+    return {scene, 1};
+}
+
+inline QByteArray screenshotGallery(const QString &directory, const QJsonArray &captures, const QJsonObject &manifest) {
+    QFile source(":/screenshot-gallery.html");
+    if (!source.open(QIODevice::ReadOnly)) return {};
+    const auto page = QString::fromUtf8(source.readAll());
+    const auto escape = [](const QString &value) { return value.toHtmlEscaped(); };
+    QMap<QString, QJsonObject> scenes, books;
+    QMap<QString, QMap<QString, QSet<int>>> variants;
+    QString images;
+    for (const auto &value : captures) {
+        const auto shot = value.toObject();
+        const auto file = shot["file"].toString();
+        const auto scene = shot["scene"].toString();
+        const auto screen = shot["screen"].toString();
+        const int capturePage = shot["capture_page"].toInt();
+        const auto device = shot["device"].toString();
+        const auto theme = shot["theme"].toString();
+        if (QFileInfo(file).fileName() != file || !file.endsWith(".png") || QFileInfo(directory + '/' + file).isSymLink() ||
+            (device != "six-inch" && device != "seven-inch") || (theme != "light" && theme != "dark") ||
+            shot["capture"] != "screen" || shot["ppi"].toInt() != 300 || screen.isEmpty() || capturePage < 1) return {};
+        const auto variant = device + '/' + theme;
+        if (variants[screen][variant].contains(capturePage)) return {};
+        variants[screen][variant].insert(capturePage);
+        scenes[screen] = shot;
+        const auto book = shot["book"].toObject();
+        const auto title = book["title"].toString();
+        if (!title.isEmpty()) books[title + book["writing_mode"].toString()] = book;
+        QFile image(directory + '/' + file);
+        if (!image.open(QIODevice::ReadOnly)) return {};
+        const auto bytes = image.readAll();
+        const auto checksum = QString::fromLatin1(QCryptographicHash::hash(bytes, QCryptographicHash::Sha256).toHex());
+        const auto decoded = QImage::fromData(bytes, "PNG");
+        if (checksum != shot["sha256"].toString() || decoded.isNull() ||
+            decoded.width() != shot["width"].toInt() || decoded.height() != shot["height"].toInt() ||
+            decoded.dotsPerMeterX() != 11811 || decoded.dotsPerMeterY() != 11811) {
+            qCritical().noquote() << "Screenshot bytes, dimensions or density differ from the manifest:" << file;
+            return {};
+        }
+        images += QString("<img data-scene=\"%1\" data-page=\"%9\" data-device=\"%2\" data-theme=\"%3\" data-file=\"%4\" data-sha256=\"%5\" src=\"data:image/png;base64,%6\" width=\"%7\" height=\"%8\" alt=\"\">")
+            .arg(escape(screen), escape(device), escape(theme), escape(file), escape(shot["sha256"].toString()),
+                 QString::fromLatin1(bytes.toBase64()), QString::number(shot["width"].toInt()), QString::number(shot["height"].toInt()), QString::number(capturePage));
+    }
+    QMap<QString, QString> sections;
+    for (auto it = scenes.cbegin(); it != scenes.cend(); ++it) {
+        const auto &pages = variants[it.key()];
+        if (pages.size() != 4) return {};
+        for (const auto &device : {QString("six-inch"), QString("seven-inch")}) {
+            const auto light = pages.value(device + "/light");
+            if (light != pages.value(device + "/dark")) return {};
+            for (int page = 1; page <= light.size(); ++page)
+                if (!light.contains(page)) return {};
+        }
+        const auto shot = it.value();
+        const auto book = shot["book"].toObject();
+        const auto title = screenshotTitle(it.key(), book);
+        if (title.isEmpty()) return {};
+        const auto group = shot["group"].toString();
+        const auto subtitle = it.key().startsWith("international-") ? book["title"].toString() : QString();
+        const auto search = (title + ' ' + it.key() + ' ' + group + ' ' + book["title"].toString()).toLower();
+        sections[group] += QString("<figure data-group=\"%1\" data-scene=\"%2\" data-title=\"%3\" data-search=\"%4\">"
+            "<button class=\"capture\" type=\"button\" aria-label=\"Inspect %3\"><img loading=\"lazy\" alt=\"%3\"></button>"
+            "<div class=\"caption\"><figcaption>%3<small>%5</small></figcaption><span class=\"tag\"></span></div></figure>")
+            .arg(escape(group), escape(it.key()), escape(title), escape(search), escape(subtitle));
+    }
+    QString groups, options, credits;
+    for (const auto &group : QStringList{"Reading", "International books", "Mathematics", "Typography", "Layout",
+                                        "Links and footnotes", "Dictionary", "Bookmarks and annotations", "Statistics",
+                                        "Search", "Settings and About", "Library"}) {
+        if (!sections.contains(group)) continue;
+        groups += "<section class=\"group\"><div class=\"group-title\"><h2>" + escape(group) + "</h2></div><div class=\"screens\">" + sections[group] + "</div></section>";
+        options += "<option value=\"" + escape(group) + "\">" + escape(group) + "</option>";
+    }
+    for (const auto &book : books) {
+        auto title = escape(book["title"].toString());
+        const auto source = book["source"].toString();
+        if (source.startsWith("https://")) title = "<a href=\"" + escape(source) + "\">" + title + "</a>";
+        credits += "<p>" + title + " · " + escape(book["author"].toString()) + "<br>" +
+            escape(book["rights"].toString()) + " " + escape(book["license"].toString()) + "</p>";
+        for (const auto &chapter : book["chapters"].toArray()) {
+            const auto item = chapter.toObject();
+            const auto url = item["source"].toString();
+            if (url.startsWith("https://")) credits += "<p><a href=\"" + escape(url) + "\">" + escape(item["title"].toString()) + "</a></p>";
+        }
+    }
+    const QMap<QString, QString> values{{"GROUPS", groups}, {"OPTIONS", options}, {"IMAGES", images},
+        {"COUNT", QString::number(scenes.size())}, {"CAPTURES", QString::number(captures.size())}, {"BOOKS", credits},
+        {"BUILD", escape("Source " + manifest["commit"].toString() + (manifest["modified"].toBool() ? " (modified)" : "") +
+                         " · Qt " + manifest["qt"].toString() + " · " + manifest["version"].toString())}};
+    QString result;
+    const QRegularExpression token("@@([A-Z]+)@@");
+    auto matches = token.globalMatch(page);
+    qsizetype last = 0;
+    while (matches.hasNext()) {
+        const auto match = matches.next();
+        if (!values.contains(match.captured(1))) return {};
+        result += page.mid(last, match.capturedStart() - last) + values[match.captured(1)];
+        last = match.capturedEnd();
+    }
+    return (result + page.mid(last)).toUtf8();
+}
+}

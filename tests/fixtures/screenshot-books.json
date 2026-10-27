@@ -1,0 +1,34 @@
+{
+  "alice": {
+    "download": "https://mirror.cs.odu.edu/gutenberg-epub/11/pg11-images-3.epub",
+    "source": "https://www.gutenberg.org/ebooks/11",
+    "sha256": "4f81245d31380ac1d6eafb9a321e3691369bc70985736ae4bccf849a4f784036",
+    "bytes": 189249,
+    "filename": "pg11-epub3.epub",
+    "title": "Alice's Adventures in Wonderland",
+    "author": "Lewis Carroll",
+    "rights": "Public domain in the United States; Project Gutenberg edition"
+  },
+  "maths": {
+    "download": "https://mirror.cs.odu.edu/gutenberg-epub/33283/pg33283-images-3.epub",
+    "source": "https://www.gutenberg.org/ebooks/33283",
+    "sha256": "a82a353c67ddedeef19267fe225ff29077fe989c8909734054fbbc78365e123b",
+    "bytes": 13215877,
+    "filename": "pg33283-epub3.epub",
+    "title": "Calculus Made Easy / Being a very-simplest introduction to those beautiful methods which are generally called by the terrifying names of the Differential Calculus and the Integral Calculus",
+    "beta_one_sha256": "ab238aead539930b920ddd9ffe9efb7f8427ecbe08c96aeac627e70190fcbdd4",
+    "author": "Silvanus P. Thompson",
+    "rights": "Public domain in the United States; Project Gutenberg edition"
+  },
+  "moby-dick": {
+    "download": "https://mirror.cs.odu.edu/gutenberg-epub/2701/pg2701-images-3.epub",
+    "source": "https://www.gutenberg.org/ebooks/2701",
+    "sha256": "1bc88e79ef7cf9d5325abe0071e6302265b708df56d3af07db124c81e84197f6",
+    "bytes": 814023,
+    "filename": "pg2701-epub3.epub",
+    "title": "Moby Dick; Or, The Whale",
+    "beta_one_sha256": "e886f7a74985f5cf3606ae44dada8f46d9c8d8e5501c3dffb4db69b0f2f6ae94",
+    "author": "Herman Melville",
+    "rights": "Public domain in the United States; Project Gutenberg edition"
+  }
+}

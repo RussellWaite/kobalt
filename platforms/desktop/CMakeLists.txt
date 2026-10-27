@@ -183,6 +183,11 @@ if(BUILD_TESTING)
         "-DTEST_TMP_ROOT=${CMAKE_CURRENT_BINARY_DIR}/test-tmp"
         -P "${KOBALT_ROOT}/platforms/strings-test.cmake")
     set_tests_properties(build.strings PROPERTIES LABELS "fast;build" TIMEOUT 30)
+    add_test(NAME build.screenshotBooks COMMAND "${CMAKE_COMMAND}"
+        "-DTEST_ROOT=${CMAKE_CURRENT_BINARY_DIR}/screenshot-book-test"
+        "-DPREPARE_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/prepare-screenshot-books.cmake"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/test-screenshot-books.cmake")
+    set_tests_properties(build.screenshotBooks PROPERTIES LABELS "fast;build" TIMEOUT 30)
     find_program(KOBALT_TEST_ZIP zip REQUIRED)
     set(test_book "${KOBALT_ROOT}/tests/fixtures/trevelyans-type-tester.kepub.epub")
     file(SHA256 "${test_book}" test_book_hash)
@@ -197,13 +202,18 @@ if(BUILD_TESTING)
     endif()
     set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${test_variable_font}")
     add_executable(kobalt-desktop-tests "${KOBALT_ROOT}/tests/desktop.cpp")
+    qt_add_resources(kobalt-desktop-tests "screenshot-gallery" PREFIX "/"
+        BASE "${CMAKE_CURRENT_SOURCE_DIR}" FILES "${CMAKE_CURRENT_SOURCE_DIR}/screenshot-gallery.html")
     target_link_libraries(kobalt-desktop-tests PRIVATE kobalt-desktop kobalt-core Qt6::Test)
     target_compile_definitions(kobalt-desktop-tests PRIVATE
         KOBALT_TEST_ASSETS="${KOBALT_ASSETS}" KOBALT_TEST_ZIP="${KOBALT_TEST_ZIP}" KOBALT_TEST_BOOK="${test_book}"
+        KOBALT_TEST_CORPUS="${KOBALT_ROOT}/tests/fixtures/public-domain"
+        KOBALT_SCREENSHOT_BOOKS="${KOBALT_ROOT}/build/screenshot-books"
+        KOBALT_SCREENSHOT_REFERENCES="${KOBALT_ROOT}/tests/fixtures/screenshot-books.json"
         KOBALT_TEST_VARIABLE_FONT="${test_variable_font}")
     file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-tmp")
     set(headless_environment "QT_QPA_PLATFORM=minimal:enable_fonts:freetype" "QT_STYLE_OVERRIDE=Fusion" "TMPDIR=${CMAKE_CURRENT_BINARY_DIR}/test-tmp")
-    foreach(check sameProcessReadersDoNotRecoverEachOther standaloneHistorySourceKeys verticalJustification startup libraryOnboarding reading errors diagnostics storageDiagnostics features stylesheet bookmarks bookmarkMerge annotations annotationModeFeedback annotationSelection coordinateProbeSerialization annotationGripMenus annotationCrossPageDrag selectionCrossPageDrag annotationCrossPageOverlap annotationOverlap touchCursor touchCursorOutsideReader links tappableLinks bookmarkCornerLinks
+    foreach(check galleryIntegrity sameProcessReadersDoNotRecoverEachOther standaloneHistorySourceKeys verticalJustification startup libraryOnboarding reading errors diagnostics storageDiagnostics features stylesheet bookmarks bookmarkMerge annotations annotationModeFeedback annotationSelection coordinateProbeSerialization annotationGripMenus annotationCrossPageDrag selectionCrossPageDrag annotationCrossPageOverlap annotationOverlap touchCursor touchCursorOutsideReader links tappableLinks bookmarkCornerLinks
             annotationSectionBoundary headerFooterDismissal settings advancedText globalLayout columns fullWidthPanels dictionaryRedraw dictionaryAppearance dictionaryEditing dictionaryDismissal opticalSize desktopControls navigation bookmarkReturn booxMenuDismissalRefresh booxRetirementFrame annotationTwoFingerTapConsumesWholeSequence annotationRightClickRejectsChords library libraryTextInheritance libraryGridRows libraryHold libraryAtStart)
         set(lane fast)
         if(check MATCHES "^(sameProcessReadersDoNotRecoverEachOther|standaloneHistorySourceKeys|verticalJustification|features|diagnostics|stylesheet|bookmarks|bookmarkMerge|annotations|annotationModeFeedback|annotationSelection|coordinateProbeSerialization|annotationGripMenus|annotationCrossPageDrag|annotationSectionBoundary|selectionCrossPageDrag|annotationCrossPageOverlap|annotationOverlap|touchCursor|touchCursorOutsideReader|links|tappableLinks|bookmarkCornerLinks|headerFooterDismissal|settings|advancedText|globalLayout|columns|fullWidthPanels|dictionaryRedraw|dictionaryAppearance|dictionaryEditing|dictionaryDismissal|opticalSize|desktopControls|navigation|bookmarkReturn|booxMenuDismissalRefresh|booxRetirementFrame|library|libraryTextInheritance|libraryGridRows|libraryHold|libraryAtStart)$")
@@ -493,9 +503,18 @@ if(BUILD_TESTING)
     target_compile_definitions(kobalt-multilingual-tests PRIVATE
         KOBALT_TEST_ZIP="${KOBALT_TEST_ZIP}" KOBALT_TEST_CORPUS="${KOBALT_ROOT}/tests/fixtures/public-domain")
     add_custom_target(screenshots
+        COMMAND "${CMAKE_COMMAND}" "-DOUTPUT=${KOBALT_ROOT}/build/screenshot-books"
+            "-DREFERENCES=${KOBALT_ROOT}/tests/fixtures/screenshot-books.json"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/prepare-screenshot-books.cmake"
         COMMAND "${CMAKE_COMMAND}" "-DTEST_EXECUTABLE=$<TARGET_FILE:kobalt-desktop-tests>"
             "-DTEST_ARGUMENTS=--screenshots;${KOBALT_ROOT}/build/screenshots/mac"
-            "-DTEST_TMP_ROOT=${CMAKE_CURRENT_BINARY_DIR}/test-tmp" "-DTEST_TIMEOUT=120"
+            "-DTEST_TMP_ROOT=${CMAKE_CURRENT_BINARY_DIR}/test-tmp" "-DTEST_TIMEOUT=300"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/run-test.cmake"
+        DEPENDS kobalt-desktop-tests USES_TERMINAL VERBATIM)
+    add_custom_target(screenshot-gallery
+        COMMAND "${CMAKE_COMMAND}" "-DTEST_EXECUTABLE=$<TARGET_FILE:kobalt-desktop-tests>"
+            "-DTEST_ARGUMENTS=--gallery;${KOBALT_ROOT}/build/screenshots/mac"
+            "-DTEST_TMP_ROOT=${CMAKE_CURRENT_BINARY_DIR}/test-tmp" "-DTEST_TIMEOUT=30"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/run-test.cmake"
         DEPENDS kobalt-desktop-tests USES_TERMINAL VERBATIM)
 endif()
