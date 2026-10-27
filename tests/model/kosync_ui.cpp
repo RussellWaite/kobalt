@@ -92,6 +92,7 @@ int main(int argc, char **argv) {
     ui::ChoiceModal reference(&window, {"A regular alert.", "Alert", {}},
                               {"Cancel", "rrReferenceCancel"}, {"OK", "rrReferenceOK"});
     reference.fitCard();
+    reference.card()->rows()->activate();
     auto *card = page->editorDialog->card();
     auto *cancel = card->findChild<QPushButton *>("rrKosyncEditCancel");
     auto *save = card->findChild<QPushButton *>("rrKosyncEditSave");
