@@ -1567,6 +1567,25 @@ exit 7
         QCOMPARE(returnTitle->parentWidget(), exit->parentWidget());
         QCOMPARE(returnTitle->height(), exit->height());
         QVERIFY(returnTitle->geometry().left() >= exit->geometry().right());
+        const auto originalCaption = returnTitle->text();
+        for (const auto &caption : {strings::get("reader.exit"), strings::get("library.exit_to_library")}) {
+            returnTitle->setText(caption);
+            const auto image = returnTitle->grab().toImage();
+            int first = image.height(), last = -1;
+            for (int y = 0; y < image.height(); ++y)
+                for (int x = 0; x < image.width(); ++x) {
+                    const auto pixel = image.pixel(x, y);
+                    if (qAlpha(pixel) > 128 && (dark ? qGray(pixel) > 128 : qGray(pixel) < 128)) {
+                        first = qMin(first, y);
+                        last = qMax(last, y);
+                    }
+                }
+            QVERIFY(last >= first);
+            QVERIFY2(qAbs(first + last - (image.height() - 1)) <= 2,
+                     qPrintable(QString("%1 ink center is %2 px from the toolbar center")
+                                    .arg(caption).arg((first + last - image.height() + 1) / 2.0)));
+        }
+        returnTitle->setText(originalCaption);
         QVERIFY(fixture.click(exit));
         QTRY_VERIFY_WITH_TIMEOUT(fixture.window.idle(), 30000);
         fixture.window.openBook(book);

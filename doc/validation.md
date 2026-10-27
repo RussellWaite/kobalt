@@ -1,6 +1,6 @@
 # Native validation
 
-Return-header checks require a separate back cell and title, the Library label for standalone readers, and the default Exit Kobalt label for the native host. Close/reopen tests retain the saved position. Existing menu captures show the shared header in both themes and reader sizes.
+Return-header checks require a separate back cell and title, the Library label for standalone readers, and the default Exit Kobalt label for the native host. Pixel checks require the visible letters in both return captions to sit on the toolbar vertical center in both themes and screen sizes. Close/reopen tests retain the saved position. Existing menu captures show the shared header in both themes and reader sizes.
 
 Use the installed Qt 6.11.3 SDK. Configure once as described in [Building](building.md#mac). Run the commands below from `platforms/desktop/`. They use this checkout's code, assets and incremental cache. No device, firmware, Python or private service is required.
 

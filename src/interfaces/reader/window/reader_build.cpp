@@ -23,6 +23,7 @@
 #include "reading/page_navigation.h"
 #include <QApplication>
 #include <QGridLayout>
+#include <QPainter>
 #include <QHBoxLayout>
 #include <QSlider>
 #include <QScreen>
@@ -44,6 +45,20 @@ using kobalt::Choice;
 using kobalt::ChoiceScreen;
 
 namespace {
+class ReturnTitle final : public ui::InterfaceLabel {
+public:
+    using ui::InterfaceLabel::InterfaceLabel;
+
+protected:
+    void paintEvent(QPaintEvent *) override {
+        QPainter painter(this);
+        painter.setFont(font());
+        painter.setPen(palette().color(isEnabled() ? QPalette::WindowText : QPalette::Mid));
+        const auto bounds = contentsRect().adjusted(margin(), margin(), -margin(), -margin());
+        // Font line boxes include padding above and below the visible letters.
+        ui::drawOpticalText(painter, bounds, text(), true);
+    }
+};
 kobalt::ui::Button *iconButton(QWidget *parent, QBoxLayout *layout, const char *name, const QString &label,
                                ControlIcon icon, std::function<void()> action) {
     auto *button = static_cast<kobalt::ui::Button *>(makeButton(parent, layout, name, {}, std::move(action)));
@@ -455,7 +470,7 @@ void Reader::buildToolbar() {
     back->setFixedWidth(m::chrome::cellWidth);
     back->setAccessibleName(returnLabel);
     returnRow->addWidget(back);
-    auto *returnTitle = new ui::InterfaceLabel(returnLabel, returnHeader);
+    auto *returnTitle = new ReturnTitle(returnLabel, returnHeader);
     returnTitle->setObjectName("rrReturnTitle");
     returnTitle->setAlignment(Qt::AlignCenter);
     returnTitle->setContentsMargins(m::chrome::inset, 0, m::chrome::inset, 0);
