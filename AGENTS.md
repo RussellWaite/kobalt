@@ -26,6 +26,8 @@ When adding a UI screen that needs screenshot coverage, include its scenes in th
 
 ## Execution and cleanup
 
+For repeated development deployments, it is imperative to assess only the changes since the last validated build and reuse applicable validation results. Do not automatically rerun the full test suite or a smoke test for every minor change. Small UI spacing or styling adjustments may need only a build and visual inspection. Use focused checks when the change warrants them, and do not delay an explicitly requested deployment with redundant validation. Keep full release validation separate. State which checks were run, reused or skipped.
+
 Run native Qt commands outside the agent sandbox on the development Mac. Headless Qt tools still need CPU capabilities that the sandbox can hide. Container commands need access to the engine socket. Keep outputs and caches in the authorized workspace.
 
 Do not open a visible app or run visible UI tests without authorization. Prefer native headless validation while editing, then validate Kobo and Android integrations last. Reuse prepared SDKs and verified dependencies.
