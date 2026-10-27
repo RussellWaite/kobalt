@@ -1443,7 +1443,7 @@ void Reader::showControls() {
     }
     updateLinkReturn();
     syncNavigation();
-    if (!annotationMode && !appearanceEdit.panelDestination()) {
+    if (!appearanceEdit.panelDestination()) {
         switch (pageNavigation::menuView(preferences)) {
         case pageNavigation::MenuView::Seek:
             seekOpen = true;

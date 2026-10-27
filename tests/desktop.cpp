@@ -4640,6 +4640,73 @@ private slots:
             QVERIFY(!android::takeRefreshFrame(reader, canvas->viewport(), damage).clean);
         }
     }
+    void annotationDefaultView_data() {
+        QTest::addColumn<bool>("dark");
+        QTest::addColumn<QString>("menuView");
+        for (bool dark : {false, true})
+            for (const auto *view : {"stats", "seek"})
+                QTest::newRow(qPrintable(QString("%1-%2").arg(view, dark ? "dark" : "light")))
+                    << dark << QString::fromLatin1(view);
+    }
+    void annotationDefaultView() {
+        QFETCH(bool, dark);
+        QFETCH(QString, menuView);
+        Fixture fixture(dark);
+        QVERIFY(fixture.prepared);
+        auto preferences = storage::readJson(fixture.paths.preferences());
+        preferences["default_menu_view"] = menuView;
+        QVERIFY(storage::writeJson(fixture.paths.preferences(), preferences));
+        QSignalSpy opened(&fixture.window, &desktop::Window::bookOpened);
+        fixture.window.openBook(book);
+        QTRY_COMPARE_WITH_TIMEOUT(opened.count(), 1, 10000);
+        QTRY_VERIFY(!fixture.state().value("busy").toBool());
+        openPrologueBody(fixture);
+        auto *page = static_cast<ReadingPage *>(fixture.widget("rrPage"));
+        auto *toggle = qobject_cast<QAbstractButton *>(fixture.widget("rrAnnotate"));
+        QVERIFY(page && toggle);
+        const auto position = fixture.state().value("position");
+        QVERIFY(fixture.press("rrPage"));
+        QVERIFY(fixture.press("rrAnnotate"));
+        QTRY_VERIFY(!fixture.visible("rrControlsTop"));
+        QVERIFY(toggle->isChecked());
+        for (int pass = 0; pass < 2; ++pass) {
+            QVERIFY(fixture.press("rrPage"));
+            QTRY_VERIFY(fixture.visible(menuView == "stats" ? "rrChapterGraph" : "rrPageScrubber"));
+            QVERIFY(toggle->isChecked());
+            QCOMPARE(fixture.state().value("position"), position);
+            QVERIFY(fixture.press("rrNavChapters"));
+            QTRY_VERIFY(fixture.visible("rrChoices"));
+            QVERIFY(!fixture.visible("rrChapterGraph"));
+            QVERIFY(!fixture.visible("rrPageScrubber"));
+            QVERIFY(fixture.press("rrContentsClose"));
+            QTRY_VERIFY(!fixture.visible("rrChoices"));
+            QTRY_VERIFY(fixture.visible(menuView == "stats" ? "rrChapterGraph" : "rrPageScrubber"));
+            if (menuView == "seek") {
+                auto *scrubber = dynamic_cast<ui::PageScrubber *>(fixture.widget("rrPageScrubber"));
+                QVERIFY(scrubber);
+                QTRY_VERIFY(scrubber->previewReady());
+                QVERIFY(fixture.click(scrubber, scrubber->previewBounds().center()));
+            } else {
+                QVERIFY(fixture.press("rrPage"));
+            }
+            QTRY_VERIFY(!fixture.visible("rrControlsTop"));
+            QCOMPARE(fixture.state().value("position"), position);
+            QVERIFY(toggle->isChecked());
+            const auto currentWord = fixture.wordPoint(0);
+            QVERIFY(currentWord.x() >= 0);
+            QVERIFY(fixture.selectWord(page, currentWord));
+            QTRY_VERIFY(!page->annotationHandleRect(true).isEmpty());
+            QVERIFY(!fixture.visible("rrChapterGraph"));
+            QVERIFY(!fixture.visible("rrChoices"));
+            QVERIFY(!fixture.visible("rrDictionary"));
+            QVERIFY(fixture.click(page, currentWord));
+            QTRY_VERIFY(fixture.visible("rrAnnotationCancel"));
+            QVERIFY(fixture.press("rrAnnotationCancel"));
+            QTRY_VERIFY(page->annotationHandleRect(true).isEmpty());
+            QCOMPARE(fixture.state().value("position"), position);
+        }
+        QCOMPARE(storage::readJson(fixture.paths.preferences()).value("default_menu_view").toString(), menuView);
+    }
     void bookmarkReturn_data() {
         QTest::addColumn<bool>("dark");
         QTest::addColumn<QString>("menuView");
