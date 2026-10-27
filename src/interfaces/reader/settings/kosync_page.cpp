@@ -71,6 +71,7 @@ KosyncPage::KosyncPage(QWidget *parent, QWidget *overlayParent, KeyboardFactory 
         field->setFixedHeight(m::chrome::actionHeight);
     }
     for (auto *action : {login_, sync_, logout_, learnMore_}) {
+        static_cast<ui::Button *>(action)->setContentAlignment(Qt::AlignLeft);
         ui::readerStyle(action, rowStyle + QString("QPushButton{min-height:%1px;max-height:%1px;border-bottom:1px solid palette(light);}").arg(int(m::chrome::actionHeight) - 1));
         action->setFixedHeight(m::chrome::actionHeight);
     }

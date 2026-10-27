@@ -490,6 +490,9 @@ QVector<QPair<int, int>> samplePrefixes(const QString &text) {
     return result;
 }
 
+void drawOpticalText(QPainter &painter, const QRectF &area, const QString &text, bool centered) {
+    drawOpticalText(painter, area, text, centered, {-1, QStringLiteral("off")});
+}
 void drawOpticalText(QPainter &painter, const QRectF &area, const QString &text, bool centered,
                      SampleAppearance appearance) {
     if (needsPrivateText(text, painter.font())) {

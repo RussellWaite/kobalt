@@ -12,6 +12,8 @@
 #include <QElapsedTimer>
 #include <QVariant>
 #include <QStyleFactory>
+#include <QDir>
+#include <QImage>
 
 using namespace kobalt;
 namespace {
@@ -33,7 +35,54 @@ int main(int argc, char **argv) {
     QApplication app(argc, argv);
     app.setStyle(QStyleFactory::create("Fusion"));
     app.setPalette(ui::readerPalette(app.palette(), false));
+    ui::setInterfaceWeight(ui::heavierTextSteps);
     require(ui::initializeInterfaceFonts(test::readerAssets()), "load the production interface fonts");
+    {
+        const int savedDensity = ui::density();
+        for (int ppi : {212, 300})
+            for (bool dark : {false, true}) {
+                ui::setDensity(ppi);
+                QWidget host;
+                host.setProperty("reader_dark", dark);
+                host.setFont(ui::interfaceFont());
+                ui::applyReaderPalette(&host, ui::readerPalette(host.palette(), dark));
+                ui::readerStyle(&host, ui::styles::reader());
+                reader::KosyncPage page(&host, &host, {});
+                host.resize(ui::px(800), ui::px(2000));
+                page.resize(host.size());
+                host.show();
+                page.show();
+                for (const auto *name : {"rrKosyncLogin", "rrKosyncNow", "rrKosyncLogout", "rrKosyncLearnMore"}) {
+                    auto *action = page.findChild<QPushButton *>(name);
+                    require(action, "Sync action is missing");
+                    action->setEnabled(true);
+                    action->show();
+                    QApplication::processEvents();
+                    action->ensurePolished();
+                    action->resize(ui::px(700), ui::metrics::chrome::actionHeight);
+                    QImage image(action->size(), QImage::Format_RGB32);
+                    image.fill(dark ? Qt::black : Qt::white);
+                    action->render(&image);
+                    QRect ink;
+                    const auto area = image.rect().adjusted(ui::px(8), ui::px(8), -ui::px(8), -ui::px(8));
+                    for (int y = area.top(); y <= area.bottom(); ++y)
+                        for (int x = area.left(); x <= area.right(); ++x)
+                            if (dark ? qGray(image.pixel(x, y)) > 192 : qGray(image.pixel(x, y)) < 64)
+                                ink |= QRect(x, y, 1, 1);
+                    require(!ink.isEmpty() && qAbs(ink.left() - int(ui::metrics::chrome::inset)) <= ui::px(4),
+                            "Sync action label is not left-aligned with the Settings rows");
+                    require(qAbs(ink.center().y() - image.rect().center().y()) <= 2,
+                            "Sync action label is not vertically centered");
+                    const auto output = qEnvironmentVariable("KOBALT_TEST_CAPTURE_DIR");
+                    if (!output.isEmpty()) {
+                        require(QDir().mkpath(output), "Cannot create Sync capture directory");
+                        require(image.save(output + QString("/%1-%2-%3.png").arg(name).arg(ppi).arg(dark ? "dark" : "light")),
+                                "Cannot save Sync action capture");
+                    }
+                }
+            }
+        ui::setDensity(savedDensity);
+    }
     QWidget window;
     window.setFont(ui::interfaceFont());
     window.resize(800, 1136);

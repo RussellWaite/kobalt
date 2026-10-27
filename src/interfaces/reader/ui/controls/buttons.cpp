@@ -87,7 +87,9 @@ void Button::paintEvent(QPaintEvent *) {
                 drawOpticalText(painter, QRect(0, area.bottom() + 1 + gap, width(), capital), text(), true);
                 return;
             }
-            const int left = contentAlignment == Qt::AlignLeft ? px(24) : (width() - glyph.width() - gap - labelWidth) / 2;
+            const int left = contentAlignment == Qt::AlignLeft
+                ? qMax(int(px(24)), style()->subElementRect(QStyle::SE_PushButtonContents, &option, this).left())
+                : (width() - glyph.width() - gap - labelWidth) / 2;
             icon().paint(
                 &painter, QRect(left, (height() - glyph.height()) / 2, glyph.width(), glyph.height()),
                 Qt::AlignCenter, isEnabled() ? QIcon::Normal : QIcon::Disabled, active ? QIcon::On : QIcon::Off);
@@ -337,18 +339,16 @@ void DropdownButton::paintEvent(QPaintEvent *) {
                palette().color(isEnabled() ? QPalette::WindowText : QPalette::Midlight));
     painter.setPen(ink);
     painter.setFont(labelFont());
-    // Forward choices center their label in the whole button. Reserve the
-    // chevron's space on both sides so it cannot shift that center.
-    const int inset = forward ? qMax(int(m::choices::fontButtonLeft),
-                                     int(m::choices::fontButtonWidthReserve) - int(m::choices::fontButtonLeft))
-                              : int(m::choices::fontButtonLeft);
-    const QRect label(inset, 0, qMax(0, width() - (forward ? 2 * inset : int(m::choices::fontButtonWidthReserve))), height());
+    const QRect label(m::choices::fontButtonLeft, 0,
+                      qMax(0, width() - int(m::choices::fontButtonWidthReserve)), height());
     // Profile labels center their visible ink, not the font's full line box.
-    if (opticalLabel() || forward)
-        drawOpticalText(painter, label, text(), forward, sampleAppearance());
+    if (opticalLabel())
+        drawOpticalText(painter, label, text(), false, sampleAppearance());
+    else if (forward)
+        drawOpticalText(painter, label, text());
     else
         drawInterfaceText(painter, label, elideInterfaceText(text(), painter.font(), label.width()),
-                          (forward ? Qt::AlignHCenter : Qt::AlignLeft) | Qt::AlignVCenter);
+                          Qt::AlignLeft | Qt::AlignVCenter);
     const int size = m::choices::fontArrowSize;
     const auto arrow = forward                             ? ControlIcon::Next
                        : property("opens_upward").toBool() ? ControlIcon::Up
@@ -498,7 +498,7 @@ void CaptionButton::paintEvent(QPaintEvent *) {
         if (previewWidth) {
             painter.setFont(previewFont);
             drawOpticalText(painter, QRect(width() - c::actionRight - previewWidth, 0, previewWidth, height()),
-                            QStringLiteral("Aa"), true);
+                            QStringLiteral("Aa"), true, {});
         }
         if (!note.isEmpty()) {
             painter.setFont(noteFont);

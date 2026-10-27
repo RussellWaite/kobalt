@@ -72,8 +72,10 @@ protected:
 private:
     SampleAppearance appearance;
 };
-void drawOpticalText(QPainter &painter, const QRectF &area, const QString &text, bool centered = false,
-                     SampleAppearance appearance = {});
+// UI labels inherit the interface weight. Font samples pass their own appearance.
+void drawOpticalText(QPainter &painter, const QRectF &area, const QString &text, bool centered = false);
+void drawOpticalText(QPainter &painter, const QRectF &area, const QString &text, bool centered,
+                     SampleAppearance appearance);
 QFont fontSample(const QString &face);
 // Page counts such as 5 / 33 keep half-width spaces around the slash. A
 // Unicode thin space still takes a full cell in mono fonts, so the painter

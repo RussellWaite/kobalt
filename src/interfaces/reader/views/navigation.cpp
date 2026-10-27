@@ -100,7 +100,7 @@ protected:
         painter.setPen(color);
         if (glyph == ui::ControlIcon::Typography) {
             painter.setFont(sample);
-            ui::drawOpticalText(painter, QRect(0, icon.top(), width(), icon.height()), QStringLiteral("Aa"), true);
+            ui::drawOpticalText(painter, QRect(0, icon.top(), width(), icon.height()), QStringLiteral("Aa"), true, {});
         } else
             ui::controlIcon(glyph, color).paint(&painter, icon);
         if (labelsHidden)

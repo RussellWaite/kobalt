@@ -161,6 +161,49 @@ int main(int argc, char **argv) {
     checkPrivateInterfaceText(kobalt::test::readerAssets());
     {
         using namespace kobalt::ui;
+        const int savedWeight = interfaceWeight();
+        const int savedDensity = density();
+        for (int ppi : {212, 300}) {
+            setDensity(ppi);
+            for (bool dark : {false, true})
+                for (const auto &font : {interfaceFont(px(40)), chromeFont(px(40)), brandFont(px(40))}) {
+                    const auto render = [&](int weight, bool sample, int sampleWeight = 0) {
+                        setInterfaceWeight(weight);
+                        QImage image(px(600), px(100), QImage::Format_RGB32);
+                        image.fill(dark ? Qt::black : Qt::white);
+                        QPainter painter(&image);
+                        painter.setFont(font);
+                        painter.setPen(dark ? Qt::white : Qt::black);
+                        if (sample)
+                            drawOpticalText(painter, image.rect(), "Exit Kobalt", false,
+                                            {sampleWeight, QStringLiteral("off")});
+                        else
+                            drawOpticalText(painter, image.rect(), "Exit Kobalt");
+                        painter.end();
+                        return image;
+                    };
+                    const auto regular = render(0, false);
+                    const auto heavier = render(heavierTextSteps, false);
+                    const auto output = qEnvironmentVariable("KOBALT_TEST_CAPTURE_DIR");
+                    if (!output.isEmpty()) {
+                        require(QDir().mkpath(output), "Cannot create interface text capture directory");
+                        require(heavier.save(output + QString("/text-%1-%2-%3.png")
+                            .arg(font.family()).arg(ppi).arg(dark ? "dark" : "light")),
+                            "Cannot save interface text capture");
+                    }
+                    require(regular != heavier, "Optical UI labels ignored the default interface weight");
+                    require(heavier == render(heavierTextSteps, true, heavierTextSteps),
+                            "Optical UI labels used a different weight from interface labels");
+                    for (int weight : {0, 4})
+                        require(render(0, true, weight) == render(heavierTextSteps, true, weight),
+                                "Font samples inherited the interface weight instead of their explicit weight");
+                }
+        }
+        setDensity(savedDensity);
+        setInterfaceWeight(savedWeight);
+    }
+    {
+        using namespace kobalt::ui;
         QWidget host;
         Button button("Theme", &host);
         LightSwipeNotice notice(&host);
@@ -327,8 +370,8 @@ int main(int argc, char **argv) {
                             for (int x = area.left(); x <= area.right(); ++x)
                                 if (dark ? qGray(image.pixel(x, y)) > 192 : qGray(image.pixel(x, y)) < 64)
                                     ink |= QRect(x, y, 1, 1);
-                        require(!ink.isEmpty() && qAbs(ink.center().x() - image.rect().center().x()) <= px(4),
-                                "Forward profile label is not horizontally centered");
+                        require(!ink.isEmpty() && qAbs(ink.left() - int(metrics::choices::fontButtonLeft)) <= px(4),
+                                "Forward profile label is not left-aligned");
                         require(qAbs(ink.center().y() - image.rect().center().y()) <= 1,
                                 "Forward profile label is not vertically centered");
                     }
