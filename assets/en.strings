@@ -24,6 +24,10 @@
 "kosync.automatic" = "Automatic sync";
 "kosync.automatic_description" = "Sync on open, close, sleep and wake, and while reading. Ask before moving to a synced position.";
 "kosync.sync_now" = "Sync now";
+"kosync.show_password" = "Show";
+"kosync.hide_password" = "Hide";
+"kosync.show_password_accessible" = "Show password";
+"kosync.hide_password_accessible" = "Hide password";
 "kosync.signed_in" = "Signed in.";
 "kosync.account_changed" = "Sign in to apply the server or username change.";
 "kosync.signed_out" = "Not signed in.";

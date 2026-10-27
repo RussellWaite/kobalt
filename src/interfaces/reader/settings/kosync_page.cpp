@@ -12,6 +12,7 @@
 #include <QStyle>
 #include <QTimer>
 #include <QVBoxLayout>
+#include <QApplication>
 
 namespace kobalt::reader {
 namespace m = ui::metrics;
@@ -96,6 +97,9 @@ KosyncPage::KosyncPage(QWidget *parent, QWidget *overlayParent, KeyboardFactory 
     setFilenameMatching(false);
     rows->addStretch(1);
     overlayParent_->window()->installEventFilter(this);
+    connect(qApp, &QGuiApplication::applicationStateChanged, this, [this](Qt::ApplicationState state) {
+        if (state != Qt::ApplicationActive) maskPassword();
+    });
     setAccount({}, {}, false, true);
 }
 KosyncPage::~KosyncPage() { dismissEditor(); }
@@ -201,7 +205,31 @@ void KosyncPage::edit(int field) {
     if (field == 0) editor->setPlaceholderText(QStringLiteral("https://"));
     if (field == 3) editor->setPlaceholderText(defaultDeviceName_);
     editor->setMinimumHeight(m::chrome::actionHeight);
-    card->rows()->insertWidget(1, editor);
+    if (field == 2) {
+        auto *row = new QWidget(card);
+        auto *layout = new QHBoxLayout(row);
+        layout->setContentsMargins(0, 0, m::notice::cardMargins.right(), 0);
+        layout->setSpacing(0);
+        layout->addWidget(editor, 1);
+        auto *reveal = ui::makeButton(row, layout, "rrKosyncPasswordReveal", strings::get("kosync.show_password"), [] {});
+        reveal->setCheckable(true);
+        ui::readerStyle(reveal, ui::styles::outlined() + "QPushButton{" + ui::styles::font(m::chrome::labelText) + "}");
+        reveal->ensurePolished();
+        const int showWidth = reveal->sizeHint().width();
+        reveal->setText(strings::get("kosync.hide_password"));
+        reveal->setFixedWidth(qMax(showWidth, reveal->sizeHint().width()));
+        reveal->setText(strings::get("kosync.show_password"));
+        reveal->setAccessibleName(strings::get("kosync.show_password_accessible"));
+        connect(reveal, &QPushButton::toggled, editor, [editor, reveal](bool visible) {
+            editor->setEchoMode(visible ? QLineEdit::Normal : QLineEdit::Password);
+            editor->setInputMethodHints(Qt::ImhNoPredictiveText | Qt::ImhNoAutoUppercase | Qt::ImhSensitiveData);
+            reveal->setText(strings::get(visible ? "kosync.hide_password" : "kosync.show_password"));
+            reveal->setAccessibleName(strings::get(visible ? "kosync.hide_password_accessible" : "kosync.show_password_accessible"));
+        });
+        card->rows()->insertWidget(1, row);
+    } else {
+        card->rows()->insertWidget(1, editor);
+    }
     auto *cancel = dialog->secondaryButton();
     auto *save = dialog->primaryButton();
     const auto submit = [this, field, editor] {
@@ -245,6 +273,11 @@ void KosyncPage::dismissEditor() {
     keyboard_.reset();
     editorDialog->deleteLater();
     editorDialog = nullptr;
+}
+void KosyncPage::maskPassword() {
+    if (editorDialog)
+        if (auto *reveal = editorDialog->findChild<QPushButton *>("rrKosyncPasswordReveal"))
+            reveal->setChecked(false);
 }
 void KosyncPage::showMatchingChoices() {
     if (matchingDialog_) return;
@@ -315,6 +348,8 @@ void KosyncPage::placeEditor() {
     editorDialog->setCardArea(QRect(0, 0, editorDialog->width(), qMax(1, bottom)));
 }
 bool KosyncPage::eventFilter(QObject *object, QEvent *event) {
+    if (object == editorDialog && event->type() == QEvent::Hide)
+        maskPassword();
     if (object == editorDialog && event->type() == QEvent::Resize && keyboard_) {
         keyboard_->place();
         editorDialog->fitCard();

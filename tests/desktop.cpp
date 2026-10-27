@@ -4988,6 +4988,23 @@ private slots:
         openPrologueBody(fixture);
         QVERIFY(capture(fixture, name + "-reading"));
         tour(fixture, name, true);
+        reader = fixture.window.readerWindow();
+        QVERIFY(reader);
+        QVERIFY(fixture.press("rrBookmarkListClose"));
+        QTRY_VERIFY(!fixture.visible("rrBookmarkList"));
+        QTRY_VERIFY(fixture.visible("rrSettings"));
+        QVERIFY(fixture.press("rrSettings"));
+        QVERIFY(fixture.press("rrSettingsKosync"));
+        QVERIFY(fixture.press("rrKosyncPassword"));
+        QTRY_VERIFY(fixture.visible("rrKosyncInput"));
+        auto *input = reader->findChild<QLineEdit *>("rrKosyncInput");
+        QVERIFY(input);
+        input->setText("sample-password");
+        QVERIFY(capture(fixture, name + "-kosync-password-masked"));
+        QVERIFY(fixture.press("rrKosyncPasswordReveal"));
+        QCOMPARE(input->echoMode(), QLineEdit::Normal);
+        QVERIFY(capture(fixture, name + "-kosync-password-shown"));
+        QVERIFY(fixture.press("rrKosyncEditCancel"));
     }
     void library_data() { variants(); }
     void library() {
@@ -5239,7 +5256,7 @@ int main(int argc, char **argv) {
         return result;
     }
     QFile fixture(book);
-    constexpr int expectedScreenshots = 420;
+    constexpr int expectedScreenshots = 432;
     if (captures.size() != expectedScreenshots)
         qCritical() << "Expected" << expectedScreenshots << "screenshots, captured" << captures.size();
     if (!fixture.open(QIODevice::ReadOnly) || captures.size() != expectedScreenshots) {

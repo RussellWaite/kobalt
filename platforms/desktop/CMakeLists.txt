@@ -279,7 +279,7 @@ if(BUILD_TESTING)
             sleepSnapshotReplacesEachClockWithoutChangingTheReadingPage sleepTimeLeftUsesHoursAboveTwoHours
             sleepScreenModesKeepTheStockDefaultAndMigrateTheOptIn sleepCoverFitsWithoutCroppingOrDimming
             sleepCoverDecodingIsBoundedAndHonorsSourceCancellation wifiStatus remoteKeyActivityRequiresActiveReading
-            finishChoiceSurvivesSleepAndRequiresActiveReader progressPercentagesAgree kosyncAccountGating kosyncOpening kosyncNetwork kosyncManualConnection kosyncFinal nativeProgressWaitsForSleep positionSavesWaitForQuietInput usbFinalSave
+            finishChoiceSurvivesSleepAndRequiresActiveReader progressPercentagesAgree kosyncAccountGating kosyncOpening kosyncNetwork kosyncManualConnection kosyncPasswordSleep kosyncFinal nativeProgressWaitsForSleep positionSavesWaitForQuietInput usbFinalSave
             progressChoiceKeepAndGo finishedSyncWithoutPositionKeepsLocalReading
             progressChoiceForOlderAlert progressChoiceUnavailablePosition
             appearanceOpeningDoesNotRepaintToolbar annotationFramesKeepFirstPaintComplete annotationListResolvesPagesOnDemand)
@@ -484,6 +484,7 @@ if(BUILD_TESTING)
     kobalt_regressions(engine vertical_spacing source_index columns advanced_text alignment indentation page_layout vertical_writing mathml line_breaking
         fallback_styles svg_limits whitespace links search word_selection reader publisher_markup local_reader document_word_count document_cache)
     kobalt_regressions(component ui acknowledgments font_data font_registration kosync_ui)
+    target_link_libraries(kobalt-kosync-ui-tests PRIVATE Qt6::Test)
     kobalt_regressions(session reading_book bookmark_session highlight_session reader_session)
     kobalt_regressions(resource image_policy resource_provider)
     kobalt_regressions(corpus multilingual)

@@ -3260,6 +3260,36 @@ private slots:
         host.window()->pageButton(1);
         QTRY_VERIFY(!host.session()->busy() && host.session()->page() > page);
     }
+    void kosyncPasswordSleep() {
+        ReaderFixture host(testPaths(), testFonts, testPlaceholder);
+        CloseHost cleanup{host};
+        QSignalSpy opened(&host, &ReaderFixture::opened);
+        host.open(fixture(), nativeSize);
+        QTRY_COMPARE_WITH_TIMEOUT(opened.count(), 1, 30000);
+        host.window()->findChild<QPushButton *>("rrSettings")->click();
+        host.window()->findChild<QPushButton *>("rrSettingsKosync")->click();
+        host.window()->findChild<QPushButton *>("rrKosyncPassword")->click();
+        QPointer<QLineEdit> input = host.window()->findChild<QLineEdit *>("rrKosyncInput");
+        QVERIFY(input);
+        input->setText("unfinished-password");
+        host.window()->findChild<QPushButton *>("rrKosyncPasswordReveal")->click();
+        QCOMPARE(input->echoMode(), QLineEdit::Normal);
+        host.window()->sleepReader();
+        QTRY_VERIFY(!input || !input->isVisible());
+        QVERIFY(!input || input->echoMode() == QLineEdit::Password);
+        host.window()->sleepViewReady();
+        host.window()->wakeReader();
+        QTRY_VERIFY(!host.window()->findChild<QLineEdit *>("rrKosyncInput"));
+        auto *settings = host.window()->findChild<QWidget *>("rrGeneralSettings");
+        if (!settings->isVisible())
+            host.window()->findChild<QPushButton *>("rrSettings")->click();
+        host.window()->findChild<QPushButton *>("rrSettingsKosync")->click();
+        host.window()->findChild<QPushButton *>("rrKosyncPassword")->click();
+        input = host.window()->findChild<QLineEdit *>("rrKosyncInput");
+        QVERIFY(input);
+        QCOMPARE(input->echoMode(), QLineEdit::Password);
+        QVERIFY(input->text().isEmpty());
+    }
     void kosyncManualConnection_data() {
         QTest::addColumn<QString>("connection");
         for (const auto *connection : {"permission", "connected", "desktop"})

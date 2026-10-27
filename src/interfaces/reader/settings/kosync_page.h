@@ -35,6 +35,7 @@ protected:
 private:
     void edit(int field);
     void placeEditor();
+    void maskPassword();
     void updateCaptions();
     void showSyncHelp();
     void dismissSyncHelp();
