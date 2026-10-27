@@ -8,9 +8,13 @@ mkdir -p build/release build/release-source-cache
 stage=$(mktemp -d "$root/build/release-source.XXXXXX")
 trap 'rm -rf "$stage"' EXIT
 bundle="$stage/Kobalt-$version-sources"
-mkdir -p "$bundle/application" "$bundle/upstream"
+mkdir -p "$bundle/application"
 git archive HEAD | tar -xf - -C "$bundle/application"
-jq -s '.[0] + .[1]' dependencies/manifest.json dependencies/release-sources.json > "$bundle/upstream/manifest.json"
+upstream="$bundle/application/upstream"
+mkdir -p "$upstream"
+jq -n --arg commit "$(git rev-parse HEAD)" --arg version "$version" \
+    '{commit:$commit,version:$version}' > "$bundle/application/source-info.json"
+jq -s '.[0] + .[1]' dependencies/manifest.json dependencies/release-sources.json > "$upstream/manifest.json"
 while IFS=$'\t' read -r name url checksum; do
     archive="$root/build/release-source-cache/$checksum.archive"
     if [[ ! -f $archive ]]; then
@@ -21,8 +25,8 @@ while IFS=$'\t' read -r name url checksum; do
     fi
     actual=$(shasum -a 256 "$archive" | awk '{print $1}')
     [[ $actual == "$checksum" ]] || { echo "Invalid cached archive: $name" >&2; exit 1; }
-    cp "$archive" "$bundle/upstream/$name.archive"
-done < <(jq -r 'to_entries[] | [.key,.value.url,.value.sha256] | @tsv' "$bundle/upstream/manifest.json")
+    cp "$archive" "$upstream/$name.archive"
+done < <(jq -r 'to_entries[] | [.key,.value.url,.value.sha256] | @tsv' "$upstream/manifest.json")
 cp platforms/sdk-image.sh "$bundle/SDK.txt"
 printf '%s\n' "Application commit: $(git rev-parse HEAD)" "Version: $version" > "$bundle/SOURCE.txt"
 (cd "$stage" && tar -czf "$root/build/release/Kobalt-sources.tar.gz" "Kobalt-$version-sources")

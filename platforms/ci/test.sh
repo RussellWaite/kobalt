@@ -34,11 +34,55 @@ if [[ $1 == image && $2 == inspect ]]; then
     printf 'arm64 fixture-sdk\n'
 elif [[ $1 != run ]]; then
     exit 1
+elif [[ -n ${KOBALT_TEST_ENGINE_LOG:-} ]]; then
+    printf '%s\n' "$KOBALT_RELEASE_VERSION" "$*" >> "$KOBALT_TEST_ENGINE_LOG"
 fi
 SH
 chmod +x "$scratch/container-engine"
 CONTAINER_ENGINE="$scratch/container-engine" KOBALT_ANDROID_IMAGE=fixture-sdk KOBALT_ANDROID_RELEASE=0 \
     bash platforms/android/build.sh
+# A Git-free source export must not inherit its enclosing checkout's identity.
+exported="$scratch/export/application"
+mkdir -p "$exported/platforms/android" "$exported/platforms/kobo" "$exported/assets"
+cp platforms/source-info.cmake platforms/release-version.cmake platforms/sdk-image.sh "$exported/platforms/"
+cp platforms/android/build.sh "$exported/platforms/android/"
+cp platforms/kobo/build.sh "$exported/platforms/kobo/"
+printf '{"version":"v1.0-beta.1"}\n' > "$exported/assets/manifest.json"
+printf '{"commit":"ffffffffffffffffffffffffffffffffffffffff","version":"v9.8.7-beta.6"}\n' > "$exported/source-info.json"
+[[ $(env -u KOBALT_RELEASE_VERSION cmake -P "$exported/platforms/source-info.cmake") == 'fffffff OFF v9.8.7-beta.6' ]]
+[[ $(KOBALT_RELEASE_VERSION=v9.8.8 cmake -P "$exported/platforms/source-info.cmake") == 'fffffff OFF v9.8.8' ]]
+env -u KOBALT_RELEASE_VERSION CONTAINER_ENGINE="$scratch/container-engine" \
+    KOBALT_TEST_ENGINE_LOG="$scratch/export-engine.log" bash "$exported/platforms/android/build.sh"
+env -u KOBALT_RELEASE_VERSION CONTAINER_ENGINE="$scratch/container-engine" \
+    KOBALT_TEST_ENGINE_LOG="$scratch/export-engine.log" bash "$exported/platforms/kobo/build.sh" qt6
+grep -Fx 'v9.8.7-beta.6' "$scratch/export-engine.log" > /dev/null
+grep -F 'fffffff OFF' "$scratch/export-engine.log" > /dev/null
+if env -u KOBALT_RELEASE_VERSION -u KOBALT_ANDROID_KEYSTORE KOBALT_ANDROID_RELEASE=1 \
+    CONTAINER_ENGINE="$scratch/container-engine" bash platforms/android/build.sh > "$scratch/error" 2>&1; then
+    echo 'Release checkout accepted a missing version' >&2; exit 1
+fi
+grep -F 'Missing KOBALT_RELEASE_VERSION' "$scratch/error" > /dev/null
+if env -u KOBALT_RELEASE_VERSION -u KOBALT_ANDROID_KEYSTORE KOBALT_ANDROID_RELEASE=1 \
+    CONTAINER_ENGINE="$scratch/container-engine" bash "$exported/platforms/android/build.sh" > "$scratch/error" 2>&1; then
+    echo 'Release export accepted a missing keystore' >&2; exit 1
+fi
+grep -F 'Missing KOBALT_ANDROID_KEYSTORE' "$scratch/error" > /dev/null
+# The same metadata reader is used by native CMake configuration.
+cat > "$scratch/provenance.cmake" <<'CMAKE'
+include("$ENV{KOBALT_TEST_EXPORT}/platforms/source-info.cmake")
+kobalt_source_info("$ENV{KOBALT_TEST_EXPORT}")
+if(NOT KOBALT_COMMIT STREQUAL "fffffff" OR KOBALT_COMMIT_MODIFIED)
+    message(FATAL_ERROR "Native configuration lost exported provenance")
+endif()
+CMAKE
+KOBALT_TEST_EXPORT="$exported" cmake -P "$scratch/provenance.cmake"
+printf '{"commit":"invalid","version":"v9.8.7-beta.6"}\n' > "$exported/source-info.json"
+if cmake -P "$exported/platforms/source-info.cmake" > "$scratch/error" 2>&1; then
+    echo 'Accepted invalid source provenance' >&2; exit 1
+fi
+rm "$exported/source-info.json"
+[[ $(env -u KOBALT_RELEASE_VERSION cmake -P "$exported/platforms/source-info.cmake") == 'unknown OFF v1.0-beta.1' ]]
+echo 'PASS: Git-free source provenance, release versions and launchers'
 # Release filenames stay fixed while the tag selects the release and version.
 mkdir -p "$scratch/bin" "$scratch/draft/build/release"
 cat > "$scratch/bin/gh" <<'SH'

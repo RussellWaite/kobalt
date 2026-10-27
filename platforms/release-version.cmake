@@ -1,6 +1,10 @@
 # Application versions can follow a CI tag without editing tracked asset metadata.
 function(kobalt_release_version output fallback)
     set(version "$ENV{KOBALT_RELEASE_VERSION}")
+    if(version STREQUAL "" AND EXISTS "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../source-info.json")
+        file(READ "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../source-info.json" info)
+        string(JSON version GET "${info}" version)
+    endif()
     if(version STREQUAL "")
         set(version "${fallback}")
     endif()

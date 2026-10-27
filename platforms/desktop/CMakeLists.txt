@@ -55,14 +55,8 @@ list(TRANSFORM patterns PREPEND "\"")
 list(TRANSFORM patterns APPEND "\"")
 list(JOIN patterns ", " READER_HYPHENATION_PATTERNS)
 configure_file("${source}/engine/crengine/reader_hyphenation.h.in" reader_hyphenation.h @ONLY)
-execute_process(COMMAND git rev-parse --short HEAD WORKING_DIRECTORY "${KOBALT_ROOT}"
-    OUTPUT_VARIABLE KOBALT_COMMIT OUTPUT_STRIP_TRAILING_WHITESPACE COMMAND_ERROR_IS_FATAL ANY)
-execute_process(COMMAND git status --porcelain WORKING_DIRECTORY "${KOBALT_ROOT}"
-    OUTPUT_VARIABLE modifications COMMAND_ERROR_IS_FATAL ANY)
-set(KOBALT_COMMIT_MODIFIED OFF)
-if(modifications)
-    set(KOBALT_COMMIT_MODIFIED ON)
-endif()
+include("${KOBALT_ROOT}/platforms/source-info.cmake")
+kobalt_source_info("${KOBALT_ROOT}")
 configure_file("${source}/support/build_info.h.in" build_info.h @ONLY)
 
 # Keep portable objects separate so UI edits do not relink standalone checks.
@@ -120,15 +114,17 @@ target_compile_options(kobalt-desktop PRIVATE -Wall -Wextra)
 # run beside other builds, and it opens no file types, so macOS does not offer
 # every branch build for EPUB files. Set KOBALT_MAC_VARIANT to an empty string
 # to build the regular app from a worktree.
-execute_process(COMMAND git rev-parse --path-format=absolute --git-dir --git-common-dir
-    WORKING_DIRECTORY "${KOBALT_ROOT}" OUTPUT_VARIABLE git_dirs OUTPUT_STRIP_TRAILING_WHITESPACE
-    COMMAND_ERROR_IS_FATAL ANY)
-string(REPLACE "\n" ";" git_dirs "${git_dirs}")
-list(GET git_dirs 0 git_dir)
-list(GET git_dirs 1 git_common_dir)
 set(default_variant "")
-if(NOT git_dir STREQUAL git_common_dir)
-    get_filename_component(default_variant "${KOBALT_ROOT}" NAME)
+if(EXISTS "${KOBALT_ROOT}/.git")
+    execute_process(COMMAND git rev-parse --path-format=absolute --git-dir --git-common-dir
+        WORKING_DIRECTORY "${KOBALT_ROOT}" OUTPUT_VARIABLE git_dirs OUTPUT_STRIP_TRAILING_WHITESPACE
+        COMMAND_ERROR_IS_FATAL ANY)
+    string(REPLACE "\n" ";" git_dirs "${git_dirs}")
+    list(GET git_dirs 0 git_dir)
+    list(GET git_dirs 1 git_common_dir)
+    if(NOT git_dir STREQUAL git_common_dir)
+        get_filename_component(default_variant "${KOBALT_ROOT}" NAME)
+    endif()
 endif()
 set(KOBALT_MAC_VARIANT "${default_variant}" CACHE STRING "Name of a side-by-side Mac development build; empty for the regular app")
 if(NOT KOBALT_MAC_VARIANT MATCHES "^[A-Za-z0-9-]*$")

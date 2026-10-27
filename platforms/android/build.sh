@@ -11,6 +11,12 @@ read -r arch sdk_id < <("$engine" image inspect "$image" --format '{{.Architectu
 mkdir -p "$root/build/android-$arch" "$root/build/gradle"
 release=${KOBALT_ANDROID_RELEASE:-0}
 [[ "$release" == 0 || "$release" == 1 ]] || { echo 'KOBALT_ANDROID_RELEASE must be 0 or 1' >&2; exit 2; }
+if [[ $release == 1 && -z ${KOBALT_RELEASE_VERSION:-} && ! -f $root/source-info.json ]]; then
+    echo 'Missing KOBALT_RELEASE_VERSION' >&2; exit 2
+fi
+info=$(cmake -P "$root/platforms/source-info.cmake")
+read -r commit modified KOBALT_RELEASE_VERSION <<< "$info"
+export KOBALT_RELEASE_VERSION
 extra=(--pull=never)
 if [[ "$release" == 1 ]]; then
     for name in KOBALT_RELEASE_VERSION KOBALT_ANDROID_KEYSTORE KOBALT_ANDROID_KEY_ALIAS KOBALT_ANDROID_KEYSTORE_PASSWORD KOBALT_ANDROID_KEY_PASSWORD KOBALT_ANDROID_CERT_SHA256; do
@@ -19,9 +25,6 @@ if [[ "$release" == 1 ]]; then
     [[ -f $KOBALT_ANDROID_KEYSTORE ]] || { echo 'Release keystore is missing' >&2; exit 2; }
     extra+=(--volume "$KOBALT_ANDROID_KEYSTORE:/signing/release.keystore:ro")
 fi
-commit=$(git -C "$root" rev-parse --short HEAD)
-modified=OFF
-if [[ -n $(git -C "$root" status --porcelain) ]]; then modified=ON; fi
 "$engine" run --rm --user "$(id -u):$(id -g)" \
     "${extra[@]}" -e KOBALT_RELEASE_VERSION -e KOBALT_ANDROID_RELEASE="$release" \
     -e KOBALT_ANDROID_KEYSTORE=/signing/release.keystore -e KOBALT_ANDROID_KEY_ALIAS \

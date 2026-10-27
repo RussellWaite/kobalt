@@ -11,9 +11,9 @@ jobs=${JOBS:-2}
 image=$(sh "$root/platforms/sdk-image.sh" "$target")
 engine=${CONTAINER_ENGINE:-docker}
 sdk_id=$("$engine" image inspect "$image" --format '{{.Id}}')
-commit=$(git -C "$root" rev-parse --short HEAD)
-modified=OFF
-if [[ -n $(git -C "$root" status --porcelain) ]]; then modified=ON; fi
+info=$(cmake -P "$root/platforms/source-info.cmake")
+read -r commit modified KOBALT_RELEASE_VERSION <<< "$info"
+export KOBALT_RELEASE_VERSION
 "$engine" run --rm --pull=never --user "$(id -u):$(id -g)" -e HOME=/tmp -e KOBALT_RELEASE_VERSION \
     --volume "$root:/work" \
     --workdir /work/platforms/kobo "$image" bash -euc '

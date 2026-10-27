@@ -103,6 +103,10 @@ jobs:
         env:
           KOBALT_RELEASE_VERSION: ${{ needs.validation.outputs.version }}
         run: bash platforms/ci/source-archive.sh
+      - name: Verify extracted source configuration offline
+        run: |
+          docker pull "$(sh platforms/sdk-image.sh qt6)"
+          bash platforms/ci/check-source-archive.sh
       - uses: actions/upload-artifact@v7
         with:
           name: kobalt-source
