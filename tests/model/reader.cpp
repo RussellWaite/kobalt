@@ -467,7 +467,7 @@ static void checkObfuscatedFonts() {
     const QByteArray idpfAlgorithm = "http://www.idpf.org/2008/embedding";
     const QByteArray adobeAlgorithm = "http://ns.adobe.com/pdf/enc#RC";
     auto book = [&](const QByteArray &fontBytes, const QByteArray &algorithm, const QByteArray &identifier,
-                    const QByteArray &extraIdentifiers = QByteArray()) {
+                    const QByteArray &extraIdentifiers = QByteArray(), const QByteArray &mediaType = "font/ttf") {
         QList<QPair<QByteArray, QByteArray>> members = {
             {"mimetype", "application/epub+zip"},
             {"META-INF/container.xml",
@@ -475,7 +475,7 @@ static void checkObfuscatedFonts() {
             {"book.opf",
              "<package xmlns='http://www.idpf.org/2007/opf' version='3.0' unique-identifier='book-id'><metadata xmlns:dc='http://purl.org/dc/elements/1.1/'><dc:identifier id='book-id'>" +
                  identifier + "</dc:identifier>" + extraIdentifiers +
-                 "</metadata><manifest><item id='font' href='font.ttf' media-type='font/ttf'/><item id='chapter' href='chapter.xhtml' media-type='application/xhtml+xml'/></manifest><spine><itemref idref='chapter'/></spine></package>"},
+                 "</metadata><manifest><item id='font' href='font.ttf' media-type='" + mediaType + "'/><item id='chapter' href='chapter.xhtml' media-type='application/xhtml+xml'/></manifest><spine><itemref idref='chapter'/></spine></package>"},
             {"chapter.xhtml",
              "<html xmlns='http://www.w3.org/1999/xhtml'><head><style>@font-face {font-family: Embedded; src: url(font.ttf);} body {font-family: Embedded;}</style></head><body><p>Embedded font glyphs should match the unobfuscated original.</p></body></html>"},
             {"font.ttf", fontBytes}};
@@ -502,21 +502,27 @@ static void checkObfuscatedFonts() {
     struct FontCase {
         QByteArray algorithm, identifier, extraIdentifiers, key;
         int prefixBytes;
+        QByteArray mediaType = "font/ttf";
     };
     const auto idpfKey = QCryptographicHash::hash("test-identifier", QCryptographicHash::Sha1);
     const auto adobeKey = QByteArray::fromHex("0123456789abcdef0123456789abcdef");
     for (const auto &fixture :
          {FontCase{idpfAlgorithm, "test-identifier", {}, idpfKey, 1040},
+          FontCase{idpfAlgorithm, "test-identifier", {}, idpfKey, 1040, "font/sfnt"},
+          FontCase{idpfAlgorithm, "test-identifier", {}, idpfKey, 1040, "vendor/unknown"},
           FontCase{idpfAlgorithm, " test-\tiden\n tifier\r ", {}, idpfKey, 1040},
           FontCase{adobeAlgorithm, "urn:uuid:01234567-89ab-cdef-0123-456789abcdef", {}, adobeKey, 1024},
           FontCase{adobeAlgorithm, "test-identifier",
                    "<dc:identifier id='font-id'>urn:uuid:01234567-89ab-cdef-0123-456789abcdef</dc:identifier>",
-                   adobeKey, 1024}}) {
+                   adobeKey, 1024, "application/x-font-truetype"},
+          FontCase{adobeAlgorithm, "urn:uuid:01234567-89ab-cdef-0123-456789abcdef", {}, adobeKey, 1024,
+                   "application/octet-stream"}}) {
         auto obfuscated = original;
         for (int i = 0; i < qMin(fixture.prefixBytes, int(obfuscated.size())); ++i) {
             obfuscated[i] = char(uchar(obfuscated[i]) ^ uchar(fixture.key[i % fixture.key.size()]));
         }
-        const auto bytes = book(obfuscated, fixture.algorithm, fixture.identifier, fixture.extraIdentifiers);
+        const auto bytes =
+            book(obfuscated, fixture.algorithm, fixture.identifier, fixture.extraIdentifiers, fixture.mediaType);
         QTemporaryDir cache;
         require(cache.isValid(), "create obfuscated font cache");
         const auto fingerprint = QCryptographicHash::hash(bytes, QCryptographicHash::Sha256).toHex();

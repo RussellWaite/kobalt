@@ -5,6 +5,8 @@
 #include "support/diagnostics.h"
 #include "support/qt_compat.h"
 #include "check.h"
+#include "reader_inputs.h"
+#include <QCryptographicHash>
 #include <QCoreApplication>
 #include <QBuffer>
 #include <QEvent>
@@ -289,13 +291,24 @@ int main(int argc, char **argv) {
     require(!server->open(path, factory) && counts.opened == 0, "encryption metadata reached resource provider");
     require(inspectionError() == "error.this_publication_needs_unsupported_font_or_resource_handling",
             "encryption metadata lost inspection reason");
+    const auto fontBytes = test::readerAssets().fontData("InstrumentSerif-Regular.ttf");
+    require(!fontBytes.isEmpty(), "read real embedded font fixture");
+    const auto obfuscate = [](QByteArray bytes, const QByteArray &key, int prefix) {
+        for (int i = 0; i < qMin(prefix, int(bytes.size())); ++i)
+            bytes[i] = char(uchar(bytes[i]) ^ uchar(key[i % key.size()]));
+        return bytes;
+    };
+    const auto idpfKey = QCryptographicHash::hash("testidentifier", QCryptographicHash::Sha1);
+    const auto adobeKey = QByteArray::fromHex("0123456789abcdef0123456789abcdef");
+    const auto idpfFont = obfuscate(fontBytes, idpfKey, 1040);
+    const auto adobeFont = obfuscate(fontBytes, adobeKey, 1024);
     QMap<QString, QByteArray> obfuscatedFiles = {
         {"mimetype", "application/epub+zip"},
         {"META-INF/container.xml",
          "<container xmlns='urn:oasis:names:tc:opendocument:xmlns:container'><rootfiles><rootfile full-path='book.opf' media-type='application/oebps-package+xml'/></rootfiles></container>"},
         {"book.opf",
          "<package xmlns='http://www.idpf.org/2007/opf' unique-identifier='book-id'><metadata xmlns:dc='http://purl.org/dc/elements/1.1/'><dc:identifier id='book-id'> test identifier </dc:identifier></metadata><manifest><item id='font' href='font.otf' media-type='application/vnd.ms-opentype'/></manifest></package>"},
-        {"font.otf", "obfuscated font bytes"},
+        {"font.otf", idpfFont},
         {"META-INF/encryption.xml",
          "<encryption xmlns='urn:oasis:names:tc:opendocument:xmlns:container' xmlns:enc='http://www.w3.org/2001/04/xmlenc#'><enc:EncryptedData><enc:EncryptionMethod Algorithm='http://www.idpf.org/2008/embedding'/><enc:CipherData><enc:CipherReference URI='font.otf'/></enc:CipherData></enc:EncryptedData></encryption>"}};
     Publication inspection;
@@ -309,9 +322,73 @@ int main(int argc, char **argv) {
     adobePackage.replace(
         "</metadata>",
         "<dc:identifier id='font-id'>urn:uuid:01234567-89ab-cdef-0123-456789abcdef</dc:identifier></metadata>");
+    for (const auto &metadata : {validMetadata, adobeMetadata}) {
+        obfuscatedFiles["META-INF/encryption.xml"] = metadata;
+        obfuscatedFiles["font.otf"] = metadata == validMetadata ? idpfFont : adobeFont;
+        for (const auto *mediaType : {"application/vnd.ms-opentype", "application/x-font-ttf",
+                                     "application/x-font-truetype", "application/x-font-opentype",
+                                     "application/font-sfnt", "font/sfnt", "font/otf", "font/ttf",
+                                     "application/octet-stream", "application/xhtml+xml", "vendor/unknown", ""}) {
+            obfuscatedFiles["book.opf"] = adobePackage;
+            obfuscatedFiles["book.opf"].replace("application/vnd.ms-opentype", mediaType);
+            require(inspection.inspect(zip(obfuscatedFiles), &reason), mediaType);
+        }
+        obfuscatedFiles["book.opf"].replace(" media-type=''", "");
+        require(inspection.inspect(zip(obfuscatedFiles), &reason), "accept a font with no media type");
+        obfuscatedFiles["book.opf"].replace("font.otf", "resource.bin");
+        obfuscatedFiles["META-INF/encryption.xml"].replace("font.otf", "resource.bin");
+        obfuscatedFiles["resource.bin"] = obfuscatedFiles.take("font.otf");
+        require(inspection.inspect(zip(obfuscatedFiles), &reason), "identify a font without its extension");
+        obfuscatedFiles["font.otf"] = obfuscatedFiles.take("resource.bin");
+        obfuscatedFiles["book.opf"] = adobePackage;
+        obfuscatedFiles["META-INF/encryption.xml"] = metadata;
+        const bool idpf = metadata == validMetadata;
+        for (const auto &bytes : {QByteArray(), QByteArray("<html><body>Not a font</body></html>"),
+                                  QByteArray("OTTO"), fontBytes.left(100)}) {
+            obfuscatedFiles["font.otf"] = obfuscate(bytes, idpf ? idpfKey : adobeKey, idpf ? 1040 : 1024);
+            require(!inspection.inspect(zip(obfuscatedFiles), &reason), "reject non-font or truncated font bytes");
+        }
+        obfuscatedFiles["font.otf"] = fontBytes;
+        require(!inspection.inspect(zip(obfuscatedFiles), &reason), "reject a font with the wrong obfuscation key");
+    }
     obfuscatedFiles["META-INF/encryption.xml"] = adobeMetadata;
+    obfuscatedFiles["font.otf"] = adobeFont;
     obfuscatedFiles["book.opf"] = adobePackage;
     require(inspection.inspect(zip(obfuscatedFiles), &reason), "accept Adobe font metadata with a separate UUID");
+    {
+        auto corrupted = zip(obfuscatedFiles);
+        const int at = corrupted.indexOf(adobeFont);
+        require(at >= 0, "locate obfuscated font payload");
+        corrupted[at + adobeFont.size() - 1] ^= 1;
+        require(!inspection.inspect(corrupted, &reason), "reject a font with a bad ZIP CRC");
+        auto files = obfuscatedFiles;
+        auto padded = fontBytes + QByteArray(Publication::maxResource - fontBytes.size(), '\0');
+        files["font.otf"] = obfuscate(padded, adobeKey, 1024);
+        require(inspection.inspect(zip(files), &reason), "accept a font at the resource limit");
+        files["font.otf"].append('\0');
+        require(!inspection.inspect(zip(files), &reason), "reject a font over the resource limit");
+        files["font.otf"].chop(1);
+        const auto declaration = adobeMetadata.mid(adobeMetadata.indexOf("<enc:EncryptedData>"),
+            adobeMetadata.indexOf("</encryption>") - adobeMetadata.indexOf("<enc:EncryptedData>"));
+        const auto addFont = [&](const QByteArray &name, const QByteArray &bytes) {
+            files[QString::fromLatin1(name)] = bytes;
+            files["book.opf"].replace("</manifest>", "<item id='" + name + "' href='" + name + "'/></manifest>");
+            auto entry = declaration;
+            entry.replace("font.otf", name);
+            files["META-INF/encryption.xml"].replace("</encryption>", entry + "</encryption>");
+        };
+        for (int i = 1; i < Publication::maxBytes / Publication::maxResource; ++i)
+            addFont("font" + QByteArray::number(i) + ".bin", files.value("font.otf"));
+        QBuffer source;
+        source.setData(zip(files));
+        require(source.open(QIODevice::ReadOnly) && inspection.inspect(source, &reason),
+                "accept fonts at the total inspection budget");
+        source.close();
+        addFont("extra.bin", adobeFont);
+        source.setData(zip(files));
+        require(source.open(QIODevice::ReadOnly) && !inspection.inspect(source, &reason),
+                "reject fonts over the total inspection budget");
+    }
     obfuscatedFiles["book.opf"] = validPackage;
     require(!inspection.inspect(zip(obfuscatedFiles), &reason), "reject Adobe font metadata without a UUID");
     for (const auto &replacement :
@@ -324,6 +401,7 @@ int main(int argc, char **argv) {
         require(!inspection.inspect(zip(obfuscatedFiles), &reason), "reject unsupported Adobe resource handling");
     }
     obfuscatedFiles["book.opf"] = validPackage;
+    obfuscatedFiles["font.otf"] = idpfFont;
     for (const auto &replacement : {QPair<QByteArray, QByteArray>{"http://www.idpf.org/2008/embedding", "urn:unknown"},
                                     {"font.otf", "book.opf"},
                                     {"font.otf", "missing.otf"},
@@ -349,8 +427,7 @@ int main(int argc, char **argv) {
     obfuscatedFiles["META-INF/encryption.xml"] = validMetadata;
     for (const auto &replacement : {QPair<QByteArray, QByteArray>{"http://www.idpf.org/2007/opf", "urn:wrong"},
                                     {"<manifest>", "<manifest xmlns='urn:wrong'>"},
-                                    {"<metadata ", "<outside><metadata "},
-                                    {"application/vnd.ms-opentype", "application/xhtml+xml"}}) {
+                                    {"<metadata ", "<outside><metadata "}}) {
         obfuscatedFiles["book.opf"] = validPackage;
         obfuscatedFiles["book.opf"].replace(replacement.first, replacement.second);
         if (replacement.first == "<metadata ")

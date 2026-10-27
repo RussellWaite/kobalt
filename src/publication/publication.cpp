@@ -11,6 +11,8 @@
 #include <QUrl>
 #include <QtEndian>
 #include <zlib.h>
+#include <ft2build.h>
+#include FT_FREETYPE_H
 
 namespace kobalt {
 namespace {
@@ -43,13 +45,29 @@ bool safeName(const QString &name) {
     // These prefixes belong to Nickel's other HTTP handlers.
     return !name.startsWith("TENG/") && !name.startsWith("FONT_ROUTE/") && !name.startsWith("EPUBPATH");
 }
+bool readableFont(QByteArray bytes, const QByteArray &key, int prefixBytes) {
+    if (bytes.isEmpty() || key.isEmpty())
+        return false;
+    for (int i = 0; i < qMin(prefixBytes, int(bytes.size())); ++i)
+        bytes[i] = char(uchar(bytes[i]) ^ uchar(key[i % key.size()]));
+    FT_Library library = nullptr;
+    if (FT_Init_FreeType(&library))
+        return false;
+    FT_Face face = nullptr;
+    const bool opened = !FT_New_Memory_Face(library, reinterpret_cast<const FT_Byte *>(bytes.constData()),
+                                           bytes.size(), 0, &face);
+    if (face)
+        FT_Done_Face(face);
+    FT_Done_FreeType(library);
+    return opened;
+}
 // Font obfuscation is an EPUB embedding convention, not content encryption.
 // CREngine decodes IDPF and Adobe fonts. Admit only metadata for those paths.
 bool supportedFontMetadata(QIODevice &source, const QMap<QString, qint64> &sizes) {
-    constexpr qint64 limit = 2 * 1024 * 1024;
-    auto read = [&](const QString &name) -> QByteArray {
+    ZipResourceIndex index;
+    auto read = [&](const QString &name, qint64 maximum = 2 * 1024 * 1024) -> QByteArray {
         ZipResource stream;
-        if (sizes.value(name, -1) < 0 || sizes.value(name) > limit || !stream.open(source, name, limit))
+        if (sizes.value(name, -1) < 0 || sizes.value(name) > maximum || !stream.open(source, name, index, maximum))
             return {};
         QByteArray bytes;
         while (stream.valid() && !stream.finished())
@@ -89,17 +107,11 @@ bool supportedFontMetadata(QIODevice &source, const QMap<QString, qint64> &sizes
         return false;
     QXmlStreamReader package(read(packagePath));
     QString identifierId, identifier;
-    bool hasAdobeIdentifier = false;
+    QByteArray adobeKey;
     const QRegularExpression adobeIdentifier(
         "^(?:urn:uuid:)?(?:[0-9a-fA-F]{32}|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$");
     int matchingIdentifiers = 0, depth = 0, metadataDepth = -1, manifestDepth = -1;
-    QSet<QString> fonts, ids, paths;
-    const QSet<QString> fontTypes = {"application/vnd.ms-opentype",
-                                     "application/x-font-ttf",
-                                     "application/x-font-opentype",
-                                     "application/font-sfnt",
-                                     "font/otf",
-                                     "font/ttf"};
+    QSet<QString> ids, paths;
     while (!package.atEnd()) {
         package.readNext();
         if (!cleanXml(package))
@@ -136,7 +148,12 @@ bool supportedFontMetadata(QIODevice &source, const QMap<QString, qint64> &sizes
             }
             // Adobe uses a UUID identifier, which can differ from the IDPF
             // unique identifier. CREngine checks every metadata identifier.
-            hasAdobeIdentifier |= adobeIdentifier.match(text.trimmed()).hasMatch();
+            if (adobeKey.isEmpty() && adobeIdentifier.match(text.trimmed()).hasMatch()) {
+                auto uuid = text.trimmed();
+                uuid.remove(QStringLiteral("urn:uuid:"));
+                uuid.remove('-');
+                adobeKey = QByteArray::fromHex(uuid.toLatin1());
+            }
             --depth;
         } else if (depth == manifestDepth + 1 && manifestDepth == 2 &&
                    package.namespaceUri() == QStringLiteral("http://www.idpf.org/2007/opf") &&
@@ -154,13 +171,12 @@ bool supportedFontMetadata(QIODevice &source, const QMap<QString, qint64> &sizes
                 return false;
             ids.insert(id);
             paths.insert(path);
-            if (fontTypes.contains(attributes.value("media-type").toString()) && sizes.contains(path))
-                fonts.insert(path);
         }
     }
     identifier.remove(QRegularExpression("[ \t\r\n]"));
     if (package.hasError() || matchingIdentifiers != 1 || identifier.isEmpty())
         return false;
+    const auto idpfKey = QCryptographicHash::hash(identifier.toUtf8(), QCryptographicHash::Sha1);
     const auto metadata = read("META-INF/encryption.xml");
     QXmlStreamReader check(metadata);
     while (!check.atEnd()) {
@@ -175,6 +191,7 @@ bool supportedFontMetadata(QIODevice &source, const QMap<QString, qint64> &sizes
         xml.namespaceUri() != QStringLiteral("urn:oasis:names:tc:opendocument:xmlns:container"))
         return false;
     QSet<QString> targets;
+    qint64 remainingFontBytes = Publication::maxBytes;
     while (xml.readNextStartElement()) {
         if (xml.name() != QStringLiteral("EncryptedData") ||
             xml.namespaceUri() != QStringLiteral("http://www.w3.org/2001/04/xmlenc#"))
@@ -204,11 +221,18 @@ bool supportedFontMetadata(QIODevice &source, const QMap<QString, qint64> &sizes
             } else
                 return false;
         }
-        const bool supported = algorithm == QStringLiteral("http://www.idpf.org/2008/embedding") ||
-                               (algorithm == QStringLiteral("http://ns.adobe.com/pdf/enc#RC") && hasAdobeIdentifier);
-        if (methods != 1 || cipherData != 1 || references != 1 || !supported || !safeName(target) ||
-            target.contains('%') || !fonts.contains(target) || targets.contains(target))
+        const bool idpf = algorithm == QStringLiteral("http://www.idpf.org/2008/embedding");
+        const bool adobe = algorithm == QStringLiteral("http://ns.adobe.com/pdf/enc#RC") && !adobeKey.isEmpty();
+        const auto size = sizes.value(target, -1);
+        if (methods != 1 || cipherData != 1 || references != 1 || (!idpf && !adobe) || !safeName(target) ||
+            target.contains('%') || !paths.contains(target) || targets.contains(target) || size <= 0 ||
+            size > Publication::maxResource || size > remainingFontBytes)
             return false;
+        // MIME labels and extensions vary between publishers. Decode a local
+        // copy for the renderer's font parser; leave archive resources unchanged.
+        if (!readableFont(read(target, Publication::maxResource), idpf ? idpfKey : adobeKey, idpf ? 1040 : 1024))
+            return false;
+        remainingFontBytes -= size;
         targets.insert(target);
     }
     while (!xml.atEnd()) {

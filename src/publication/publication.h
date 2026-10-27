@@ -7,7 +7,7 @@
 #include <QMap>
 
 namespace kobalt {
-// Lists archive members and validates supported font obfuscation metadata.
+// Lists archive members and checks decoded obfuscated fonts with FreeType.
 // Other payloads come from the selected resource adapter.
 class Publication {
 public:
