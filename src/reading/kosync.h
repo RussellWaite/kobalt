@@ -66,6 +66,8 @@ public:
     using Done = std::function<void(QString error)>;
     void login(const QString &server, const QString &username, const QString &password, Done done);
     bool setAutomatic(bool enabled);
+    bool manualExplanation() const { return manualExplanation_; }
+    bool setManualExplanation(bool enabled);
     bool logout();
     QDateTime lastSync() const { return lastSync_; }
     bool recordSyncSuccess();
@@ -88,7 +90,7 @@ private:
     QTimer retryTimer_;
     QElapsedTimer requestElapsed_;
     bool save(const QUrl &server, const QString &username, const QByteArray &key, bool automatic,
-              const QDateTime &lastSync, const QString &deviceName, bool filenameMatching);
+              const QDateTime &lastSync, const QString &deviceName, bool filenameMatching, bool manualExplanation);
     QString accountPath_, username_, deviceId_, storageError_;
     QString deviceName_, defaultDeviceName_ = QStringLiteral("Kobalt");
     QUrl server_;
@@ -96,6 +98,7 @@ private:
     QByteArray key_;
     bool automatic_ = true, writable_ = true;
     bool filenameMatching_ = false;
+    bool manualExplanation_ = true;
     QNetworkAccessManager ownedNetwork_;
     QNetworkAccessManager *network_;
     QPointer<QNetworkReply> reply_;

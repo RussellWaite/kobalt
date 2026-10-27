@@ -10,6 +10,7 @@
 #include "ui/input.h"
 #include "interfaces/reader/ui/style/fonts.h"
 #include "interfaces/reader/views/sleep_screen.h"
+#include "interfaces/reader/views/kosync_notice.h"
 #include "interfaces/reader/ui/style/styles.h"
 #include "platform/api/kobo_refresh.h"
 #include "reading/appearance_settings.h"
@@ -1325,6 +1326,7 @@ void Reader::syncLinkDiscovery() {
 }
 
 void Reader::syncNavigation() {
+    updateKosyncToolbar();
     syncStatusBoundary();
     if (navigation) {
         navigation->setStatusVisible(!hideNativeStatus());
@@ -1791,6 +1793,10 @@ void Reader::runIdleSave(bool beforeStandby) {
 }
 
 bool Reader::flushBeforeStandby() {
+    // Standby pauses Qt timers. Let the visible confirmation dismiss first.
+    auto *notice = dynamic_cast<KosyncNotice *>(kosyncDialog.data());
+    if (!lifecycleHidden && notice && notice->completing())
+        return false;
     // Let background saves finish their storage syncs before standby.
     if (book->savesPending() || bookmarks->saving() || highlights->saving() ||
         kobalt::storage::profileCheckpointPending())

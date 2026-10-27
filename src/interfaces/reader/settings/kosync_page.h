@@ -16,15 +16,17 @@ public:
     void setLastSync(const QDateTime &time);
     void setDeviceName(const QString &name, const QString &defaultName);
     void setFilenameMatching(bool enabled);
+    void setManualExplanation(bool enabled);
     void setStatus(const QString &status, bool busy);
     QString server() const { return server_; }
     QString username() const { return username_; }
     QString takePassword();
     ui::DescribedOption *automaticOption() const { return automatic_; }
+    ui::DescribedOption *manualExplanationOption() const { return manualExplanation_; }
     void dismissEditor();
     QPointer<ui::ModalOverlay> editorDialog;
     std::function<void()> loginRequested, logoutRequested, syncRequested;
-    std::function<void(bool)> automaticChanged;
+    std::function<void(bool)> automaticChanged, manualExplanationChanged;
     std::function<void(const QString &)> deviceNameChanged;
     std::function<void(bool)> filenameMatchingChanged;
 
@@ -54,7 +56,7 @@ private:
     bool filenameMatching_ = false;
     ui::CaptionButton *serverButton_, *usernameButton_, *passwordButton_, *deviceNameButton_, *matchingButton_;
     QPushButton *login_, *logout_, *sync_, *learnMore_;
-    ui::DescribedOption *automatic_;
+    ui::DescribedOption *automatic_, *manualExplanation_;
     QLabel *description_, *sideloadGuidance_, *status_, *lastSync_;
     QWidget *syncInformation_;
 };

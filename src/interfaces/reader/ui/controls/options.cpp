@@ -51,6 +51,13 @@ void DescribedOption::setPresentation(const Presentation &value) {
 void DescribedOption::setValue(const QString &next) {
     setValue(next, ValueStyle());
 }
+void DescribedOption::setDescription(const QString &text) {
+    if (description == text) return;
+    description = text;
+    setAccessibleDescription(text);
+    updateGeometry();
+    update();
+}
 void DescribedOption::setValue(const QString &next, const ValueStyle &style) {
     if (value == next && valueStyle == style)
         return;

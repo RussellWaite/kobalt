@@ -3162,18 +3162,24 @@ private slots:
         QTRY_COMPARE_WITH_TIMEOUT(opened.count(), 1, 30000);
         auto *timer = host.window()->findChild<QTimer *>("rrKosyncTimer");
         QVERIFY(timer);
+        auto *manual = host.window()->findChild<QPushButton *>("rrKosyncManual");
+        QVERIFY(manual);
+        QCOMPARE(!manual->isHidden(), account == "automatic-off");
         if (account == "logout") {
             QVERIFY(timer->isActive());
             auto *automatic = host.window()->findChild<QCheckBox *>("rrKosyncAutomatic");
             QVERIFY(automatic && automatic->isChecked() && automatic->isEnabled());
             automatic->click();
             QVERIFY(!timer->isActive());
+            QVERIFY(!manual->isHidden());
             automatic->click();
             QVERIFY(timer->isActive());
+            QVERIFY(manual->isHidden());
             auto *logout = host.window()->findChild<QPushButton *>("rrKosyncLogout");
             QVERIFY(logout && logout->isEnabled());
             logout->click();
             QVERIFY(!kosync::Client(paths.syncAccount()).signedIn());
+            QVERIFY(manual->isHidden());
         }
         QVERIFY2(!timer->isActive(), "Inactive accounts must not schedule periodic sync work");
         QCOMPARE(factories, account == "automatic-off" || account == "logout" ? 1 : 0);
@@ -3289,6 +3295,65 @@ private slots:
         QVERIFY(input);
         QCOMPARE(input->echoMode(), QLineEdit::Password);
         QVERIFY(input->text().isEmpty());
+    }
+    void kosyncManualToolbar() {
+        const auto paths = testPaths();
+        QVERIFY(storage::writeJson(paths.syncAccount(), {
+            {"schema", 1}, {"server", "https://127.0.0.1:1"},
+            {"username", "test-reader"}, {"key", QString(32, 'a')},
+            {"device_id", "test-device"}, {"automatic", false}}));
+        auto network = std::make_shared<SyncNetworkState>();
+        ReaderFixture host(paths, testFonts, testPlaceholder);
+        host.configureServices = [network](ReaderHostServices &services) {
+            services.syncNetwork = [network] { return std::make_unique<TestSyncNetwork>(network); };
+        };
+        CloseHost cleanup{host};
+        QSignalSpy opened(&host, &ReaderFixture::opened);
+        host.open(fixture(), nativeSize);
+        QTRY_COMPARE_WITH_TIMEOUT(opened.count(), 1, 30000);
+        Canvas canvas(host.window(), nativeSize);
+        canvas.resize(900, 900);
+        canvas.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&canvas));
+        auto *window = host.window();
+        auto *manual = window->findChild<QPushButton *>("rrKosyncManual");
+        QVERIFY(manual && !manual->isHidden());
+        manual->click();
+        QPointer<QWidget> prompt = window->findChild<QWidget *>("rrKosyncManualPrompt");
+        QVERIFY(prompt && prompt->isVisible());
+        QCOMPARE(network->requests, 0);
+        prompt->findChild<QPushButton *>("rrKosyncManualCancel")->click();
+        QVERIFY(!prompt || !prompt->isVisible());
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        QVERIFY(kosync::Client(paths.syncAccount()).manualExplanation());
+        manual->click();
+        prompt = window->findChild<QWidget *>("rrKosyncManualPrompt");
+        QVERIFY(prompt && prompt->isVisible());
+        prompt->findChild<QPushButton *>("rrKosyncManualConfirm")->click();
+        QCOMPARE(network->requests, 1);
+        QVERIFY(network->interactive);
+        QVERIFY(!kosync::Client(paths.syncAccount()).manualExplanation());
+        QVERIFY(!manual->isEnabled());
+        auto complete = std::move(network->completed);
+        complete(false);
+        QVERIFY(manual->isEnabled());
+        auto *page = static_cast<ReadingPage *>(window->findChild<QWidget *>("rrPage"));
+        QCOMPARE(page->notice, strings::get("kosync.network_error"));
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        manual->click();
+        QCOMPARE(network->requests, 2);
+        QVERIFY(!window->findChild<QWidget *>("rrKosyncManualPrompt"));
+        complete = std::move(network->completed);
+        complete(false);
+        auto *explanation = window->findChild<QCheckBox *>("rrKosyncManualExplanation");
+        QVERIFY(explanation && !explanation->isChecked());
+        explanation->click();
+        QVERIFY(kosync::Client(paths.syncAccount()).manualExplanation());
+        manual->click();
+        QVERIFY(window->findChild<QWidget *>("rrKosyncManualPrompt"));
+        window->sleepReader();
+        QCOMPARE(network->requests, 2);
+        QVERIFY(kosync::Client(paths.syncAccount()).manualExplanation());
     }
     void kosyncManualConnection_data() {
         QTest::addColumn<QString>("connection");
@@ -4520,6 +4585,12 @@ private:
         } else {
             QTRY_COMPARE_WITH_TIMEOUT(status->text(), strings::get("kosync.up_to_date"), 3000);
             QVERIFY(kosync::Client(paths.syncAccount()).lastSync().isValid());
+            QVERIFY(popup && popup->isVisible());
+            QCOMPARE(popup->findChild<QLabel *>("rrModalTitle")->text(), strings::get("kosync.completed"));
+            QVERIFY(!popup->findChild<QPushButton *>("rrKosyncCancel")->isVisible());
+            QVERIFY(!host.window()->flushBeforeStandby());
+            QTest::qWait(1000);
+            QVERIFY(popup && popup->isVisible());
         }
         QTRY_VERIFY(!popup || !popup->isVisible());
         QCOMPARE(network->requests, 1);

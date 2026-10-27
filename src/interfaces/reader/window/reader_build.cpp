@@ -499,6 +499,11 @@ void Reader::buildToolbar() {
         iconButton(topControls, top, "rrSearchOpen", strings::get("reader.search_book"), ControlIcon::Search, [this] {
             activateNavigation(kobalt::NavigationDestination::Search);
         });
+    toolbarComposition.sync =
+        iconButton(topControls, top, "rrKosyncManual", strings::get("kosync.sync_now"), ControlIcon::Sync, [this] {
+            requestManualKosync();
+        });
+    toolbarComposition.sync->hide();
     toolbarComposition.bookmarks =
         iconButton(topControls, top, "rrBookmarks", strings::get("reader.bookmarks"), ControlIcon::Bookmark, [this] {
             openBookmarks();
@@ -540,7 +545,7 @@ void Reader::buildToolbar() {
             continue;
         if (button->objectName() != "rrSettings" && button->objectName() != "rrBookmarks" &&
             button->objectName() != "rrAnnotate" && button->objectName() != "rrFormattingWarning" &&
-            button->objectName() != "rrSearchOpen")
+            button->objectName() != "rrSearchOpen" && button->objectName() != "rrKosyncManual")
             topActions.append(button);
         if (auto *action = dynamic_cast<kobalt::ui::Button *>(button))
             action->setPaintMode(kobalt::ui::ButtonPaintMode::ToolbarSquare);

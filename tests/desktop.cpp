@@ -6,6 +6,7 @@
 #include "interfaces/reader/ui/style/scale.h"
 #include "interfaces/reader/ui/style/theme.h"
 #include "interfaces/reader/views/reading_page.h"
+#include "interfaces/reader/views/kosync_notice.h"
 #include "platforms/desktop/window.h"
 #include "platforms/desktop/services.h"
 #include "platforms/android/start_screen.h"
@@ -5084,6 +5085,45 @@ private slots:
 class ScreenshotTests final : public QObject {
     Q_OBJECT
 private slots:
+    void kosyncManual_data() { screenshotVariants(); }
+    void kosyncManual() {
+        QFETCH(int, preset);
+        QFETCH(bool, dark);
+        Fixture fixture(dark);
+        QVERIFY(fixture.prepared);
+        QVERIFY(storage::writeJson(fixture.paths.syncAccount(), {
+            {"schema", 1}, {"server", "https://sync.example"}, {"username", "reader"},
+            {"key", QString(32, 'a')}, {"device_id", "gallery-device"}, {"automatic", false}}));
+        fixture.window.findChild<QComboBox *>("desktopScreenPicker")->setCurrentIndex(preset);
+        const auto name = QStringList{"fill", "six-inch", "seven-inch"}.at(preset) + (dark ? "-dark" : "-light");
+        QSignalSpy opened(&fixture.window, &desktop::Window::bookOpened);
+        fixture.window.openBook(book);
+        QTRY_COMPARE(opened.count(), 1);
+        QTRY_VERIFY(!fixture.state().value("busy").toBool());
+        openPrologueBody(fixture);
+        if (!fixture.visible("rrControlsTop")) QVERIFY(fixture.press("rrPage"));
+        QTRY_VERIFY(fixture.visible("rrKosyncManual"));
+        const auto *sync = fixture.widget("rrKosyncManual");
+        const auto *search = fixture.widget("rrSearchOpen");
+        QVERIFY(!sync->geometry().intersects(search->geometry()));
+        QVERIFY(capture(fixture, name + "-kosync-manual-toolbar"));
+        QVERIFY(fixture.press("rrKosyncManual"));
+        QTRY_VERIFY(fixture.visible("rrKosyncManualPrompt"));
+        QVERIFY(capture(fixture, name + "-kosync-manual-prompt"));
+        QVERIFY(fixture.press("rrKosyncManualCancel"));
+        QVERIFY(fixture.press("rrSettings"));
+        QVERIFY(fixture.press("rrSettingsKosync"));
+        QVERIFY(capture(fixture, name + "-kosync-manual-settings"));
+        auto *notice = new reader::KosyncNotice(fixture.window.readerWindow());
+        notice->show();
+        notice->raise();
+        notice->fitCard();
+        QVERIFY(capture(fixture, name + "-kosync-syncing"));
+        notice->complete();
+        QVERIFY(capture(fixture, name + "-kosync-completed"));
+        notice->hide();
+        delete notice;
+    }
     void widgetKeyboard_data() { screenshotVariants(); }
     void widgetKeyboard() {
         QFETCH(int, preset);
@@ -5862,7 +5902,7 @@ int main(int argc, char **argv) {
         return result;
     }
     QFile fixture(book);
-    constexpr int expectedScreenshots = 714;
+    constexpr int expectedScreenshots = 734;
     if (captures.size() != expectedScreenshots)
         qCritical() << "Expected" << expectedScreenshots << "screenshots, captured" << captures.size();
     if (!fixture.open(QIODevice::ReadOnly) || captures.size() != expectedScreenshots) {

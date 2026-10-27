@@ -189,6 +189,8 @@ private:
     void buildAppearance(const kobalt::reader::AppearanceLayout &layout);
     void buildSettings();
     void buildKosync();
+    void requestManualKosync();
+    void updateKosyncToolbar();
     void synchronizeKosync(bool interactive = false);
     QByteArray kosyncDocument() const;
     void prepareKosyncPresentation(std::function<void(bool)> finished);

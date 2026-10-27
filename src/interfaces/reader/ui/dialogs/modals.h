@@ -94,7 +94,7 @@ struct ModalAction {
     QString name;
 };
 QPushButton *makeModalButton(QWidget *parent, const ModalAction &action, bool primary);
-class NoticeModal final : public ModalOverlay {
+class NoticeModal : public ModalOverlay {
 public:
     NoticeModal(QWidget *parent, const ModalContent &content, const ModalAction &action);
     QLabel *descriptionLabel() const {

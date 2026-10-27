@@ -10,6 +10,7 @@ class DescribedOption : public QCheckBox {
 public:
     DescribedOption(const QString &text, const QString &description, QWidget *parent);
     int heightForWidth(int width) const override;
+    void setDescription(const QString &text);
     enum class Indicator { Toggle, Square, Radio };
     struct Presentation {
         Presentation();

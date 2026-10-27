@@ -1,4 +1,5 @@
 #include "interfaces/reader/settings/settings_panel.h"
+#include "interfaces/reader/views/kosync_notice.h"
 #include "check.h"
 #include "support/strings.h"
 #include "reader_inputs.h"
@@ -38,6 +39,34 @@ int main(int argc, char **argv) {
     app.setPalette(ui::readerPalette(app.palette(), false));
     ui::setInterfaceWeight(ui::heavierTextSteps);
     require(ui::initializeInterfaceFonts(test::readerAssets()), "load the production interface fonts");
+    {
+        QWidget host;
+        host.resize(1072, 1448);
+        host.show();
+        reader::KosyncNotice notice(&host);
+        notice.show();
+        notice.fitCard();
+        require(notice.primaryButton()->isVisible(), "in-flight sync offers cancellation");
+        int completions = 0;
+        notice.completed = [&] { ++completions; notice.hide(); };
+        QElapsedTimer elapsed;
+        elapsed.start();
+        notice.complete();
+        require(notice.completing(), "success has a pending automatic dismissal");
+        require(notice.findChild<QLabel *>("rrModalTitle")->text() == strings::get("kosync.completed") &&
+                notice.descriptionLabel()->text() == strings::get("kosync.up_to_date") &&
+                !notice.primaryButton()->isVisible(), "successful sync shows confirmation without a button");
+        QTest::qWait(1000);
+        require(notice.isVisible() && completions == 0, "success does not disappear immediately");
+        require(QTest::qWaitFor([&] { return completions == 1; }, 2000) && elapsed.elapsed() >= 1500,
+                "success automatically dismisses after at least 1.5 seconds");
+        notice.show();
+        notice.complete();
+        notice.hide();
+        require(!notice.completing(), "hidden notices release their pending confirmation");
+        QTest::qWait(1600);
+        require(completions == 1, "hiding the success notice cancels its dismissal timer");
+    }
     {
         const int savedDensity = ui::density();
         for (int ppi : {212, 300})
@@ -383,7 +412,24 @@ int main(int argc, char **argv) {
     page->automaticChanged = [&](bool value) { autoChanged = !value; };
     automatic->click();
     require(autoChanged, "automatic sync toggle reaches the owner");
+    auto *explanation = page->findChild<QCheckBox *>("rrKosyncManualExplanation");
+    require(explanation && !explanation->isVisible(), "automatic mode hides the manual explanation preference");
+    page->setAccount("https://sync.example/prefix", "reader", true, false);
+    page->setManualExplanation(true);
+    require(explanation->isVisible() && explanation->isChecked() &&
+            automatic->accessibleDescription() == strings::get("kosync.manual_description"),
+            "manual mode shows its toolbar guidance and explanation preference");
+    bool explanationChanged = false;
+    page->manualExplanationChanged = [&](bool enabled) { explanationChanged = !enabled; };
+    explanation->click();
+    require(explanationChanged, "manual explanation changes reach the owner");
+    page->setStatus({}, true);
+    require(!explanation->isEnabled(), "busy sync blocks explanation changes");
+    page->setNativeCloudSync(true);
+    require(!explanation->isVisible(), "Kobo-managed books hide the manual explanation preference");
+    page->setNativeCloudSync(false);
     page->setAccount({}, {}, false, false);
+    require(!explanation->isVisible(), "signed-out accounts hide the manual explanation preference");
     panel.fitContent(window.size());
     QApplication::processEvents();
     password->click();

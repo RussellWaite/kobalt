@@ -143,6 +143,7 @@ Client::Client(QString accountPath, QObject *parent, QNetworkAccessManager *netw
     key_ = key;
     deviceId_ = object.value("device_id").toString();
     automatic_ = object.value("automatic").toBool();
+    manualExplanation_ = object.value("manual_explanation").toBool(true);
     lastSync_ = QDateTime::fromString(object.value("last_sync").toString(), Qt::ISODate);
     deviceName_ = object.value("device_name").toString().trimmed();
     filenameMatching_ = object.value("match_method").toString() == "filename";
@@ -179,7 +180,7 @@ void Client::cancel() {
     reply->deleteLater();
 }
 bool Client::save(const QUrl &server, const QString &username, const QByteArray &key, bool automatic,
-                  const QDateTime &lastSync, const QString &deviceName, bool filenameMatching) {
+                  const QDateTime &lastSync, const QString &deviceName, bool filenameMatching, bool manualExplanation) {
     if (!writable_) return false;
     const auto previous = storage::readJsonFile(accountPath_);
     if (previous.status != storage::ReadStatus::Missing &&
@@ -194,6 +195,7 @@ bool Client::save(const QUrl &server, const QString &username, const QByteArray 
     object["key"] = QString::fromLatin1(key);
     object["device_id"] = deviceId_;
     object["automatic"] = automatic;
+    object["manual_explanation"] = manualExplanation;
     object["match_method"] = filenameMatching ? QStringLiteral("filename") : QStringLiteral("binary");
     if (deviceName.isEmpty()) object.remove("device_name");
     else object["device_name"] = deviceName;
@@ -216,6 +218,7 @@ bool Client::save(const QUrl &server, const QString &username, const QByteArray 
     username_ = username;
     key_ = key;
     automatic_ = automatic;
+    manualExplanation_ = manualExplanation;
     lastSync_ = lastSync;
     deviceName_ = deviceName;
     filenameMatching_ = filenameMatching;
@@ -227,20 +230,23 @@ void Client::setDefaultDeviceName(const QString &name) {
 }
 bool Client::setDeviceName(const QString &name) {
     if (!validDeviceName(name)) return false;
-    return save(server_, username_, key_, automatic_, lastSync_, name.trimmed(), filenameMatching_);
+    return save(server_, username_, key_, automatic_, lastSync_, name.trimmed(), filenameMatching_, manualExplanation_);
 }
 bool Client::setFilenameMatching(bool enabled) {
     if (busy()) return false;
     if (enabled == filenameMatching_) return true;
-    return save(server_, username_, key_, automatic_, {}, deviceName_, enabled);
+    return save(server_, username_, key_, automatic_, {}, deviceName_, enabled, manualExplanation_);
 }
-bool Client::setAutomatic(bool enabled) { return save(server_, username_, key_, enabled, lastSync_, deviceName_, filenameMatching_); }
+bool Client::setAutomatic(bool enabled) { return save(server_, username_, key_, enabled, lastSync_, deviceName_, filenameMatching_, manualExplanation_); }
+bool Client::setManualExplanation(bool enabled) {
+    return save(server_, username_, key_, automatic_, lastSync_, deviceName_, filenameMatching_, enabled);
+}
 bool Client::logout() {
     cancel();
-    return save(server_, username_, {}, false, lastSync_, deviceName_, filenameMatching_);
+    return save(server_, username_, {}, false, lastSync_, deviceName_, filenameMatching_, manualExplanation_);
 }
 bool Client::recordSyncSuccess() {
-    return signedIn() && save(server_, username_, key_, automatic_, QDateTime::currentDateTimeUtc(), deviceName_, filenameMatching_);
+    return signedIn() && save(server_, username_, key_, automatic_, QDateTime::currentDateTimeUtc(), deviceName_, filenameMatching_, manualExplanation_);
 }
 void Client::request(const QByteArray &method, const QString &path, const QUrl &server,
                      const QString &username, const QByteArray &key, const QJsonObject &body, Response done, bool retryTransient) {
@@ -376,7 +382,7 @@ void Client::login(const QString &server, const QString &username, const QString
             [this, url, username, key, done](int status, QJsonObject object, QString error) {
                 if (error.isEmpty() && (status != 200 || object.value("authorized").toString() != "OK"))
                     error = message("kosync.auth_error");
-                if (error.isEmpty() && !save(url, username, key, true, url == server_ && username == username_ ? lastSync_ : QDateTime{}, deviceName_, filenameMatching_)) error = message("kosync.storage_error");
+                if (error.isEmpty() && !save(url, username, key, true, url == server_ && username == username_ ? lastSync_ : QDateTime{}, deviceName_, filenameMatching_, manualExplanation_)) error = message("kosync.storage_error");
                 done(error);
             });
 }

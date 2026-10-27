@@ -238,7 +238,7 @@ Navigation::Navigation(QWidget *parent, const ToolbarComposition &controls)
     : bar(new BottomNavigation(parent)), toolbar(controls.panel), toolbarRows(controls.rows),
       exitAction(controls.exitAction), settings(controls.settings), bookmarks(controls.bookmarks),
       annotate(controls.annotate), clock(controls.clock), session(controls.session), battery(controls.battery),
-      bluetooth(controls.bluetooth), wifi(controls.wifi), formattingWarning(controls.formattingWarning), search(controls.search) {
+      bluetooth(controls.bluetooth), wifi(controls.wifi), formattingWarning(controls.formattingWarning), search(controls.search), sync(controls.sync) {
     upperEdge = new ReadingRule(parent);
     upperEdge->setObjectName("rrNavigationUpperEdge");
     lowerEdge = new ReadingRule(parent);
@@ -269,6 +269,15 @@ Navigation::Navigation(QWidget *parent, const ToolbarComposition &controls)
         search->setFixedSize(c::cellWidth, c::actionHeight);
         if (auto *button = dynamic_cast<ui::Button *>(search)) {
             searchPaint = button->paintMode();
+            button->setPaintMode(ui::ButtonPaintMode::ToolbarCell);
+        }
+    }
+    if (sync) {
+        syncStyle = sync->styleSheet();
+        ui::readerStyle(sync, "QPushButton{border:none;padding:0;}");
+        sync->setFixedSize(c::cellWidth, c::actionHeight);
+        if (auto *button = dynamic_cast<ui::Button *>(sync)) {
+            syncPaint = button->paintMode();
             button->setPaintMode(ui::ButtonPaintMode::ToolbarCell);
         }
     }
@@ -335,6 +344,11 @@ Navigation::~Navigation() {
         }
     }
     session->setStyleSheet(sessionStyle);
+    if (sync) {
+        sync->setStyleSheet(syncStyle);
+        sync->setFixedSize(ui::metrics::control::toolbarButtonSize, ui::metrics::control::toolbarButtonSize);
+        if (auto *button = dynamic_cast<ui::Button *>(sync)) button->setPaintMode(syncPaint);
+    }
     settings->setStyleSheet(settingsStyle);
     bookmarks->setStyleSheet(bookmarksStyle);
     settings->setFixedSize(ui::metrics::control::toolbarButtonSize, ui::metrics::control::toolbarButtonSize);
@@ -395,12 +409,17 @@ void Navigation::update(QSize size, const NavigationState &state) {
         search->setGeometry(size.width() - (annotate ? 4 : 3) * c::cellWidth, statusHeight(), c::cellWidth,
                             c::actionHeight);
     }
+    const int syncActions = sync && !sync->isHidden() ? 1 : 0;
+    if (sync) {
+        sync->setGeometry(size.width() - ((annotate ? 4 : 3) + (search ? 1 : 0)) * c::cellWidth,
+                          statusHeight(), c::cellWidth, c::actionHeight);
+    }
     if (formattingWarning) {
-        formattingWarning->setGeometry(size.width() - ((annotate ? 4 : 3) + (search ? 1 : 0)) * c::cellWidth,
+        formattingWarning->setGeometry(size.width() - ((annotate ? 4 : 3) + (search ? 1 : 0) + syncActions) * c::cellWidth,
                                        statusHeight(), c::cellWidth, c::actionHeight);
     }
     const int rightActions =
-        (formattingWarning && !formattingWarning->isHidden() ? 3 : 2) + (annotate ? 1 : 0) + (search ? 1 : 0);
+        (formattingWarning && !formattingWarning->isHidden() ? 3 : 2) + (annotate ? 1 : 0) + (search ? 1 : 0) + syncActions;
     if (rules->property("right_actions").toInt() != rightActions) {
         rules->setProperty("right_actions", rightActions);
         rules->update();

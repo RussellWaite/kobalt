@@ -24,6 +24,10 @@
 "kosync.automatic" = "Automatic sync";
 "kosync.automatic_description" = "Sync on open, close, sleep and wake, and while reading. Ask before moving to a synced position.";
 "kosync.sync_now" = "Sync now";
+"kosync.manual_description" = "With automatic sync disabled, a manual sync button is added to the top toolbar.";
+"kosync.manual_explanation" = "Show manual sync explanation";
+"kosync.manual_prompt" = "Would you like to sync progress with KOsync?";
+"kosync.manual_prompt_description" = "This button syncs progress when you choose. Automatic sync is disabled, so Kobalt will not sync on open, close, sleep or wake. Later taps sync immediately. You can show this explanation again in Settings → Sync.";
 "kosync.show_password" = "Show";
 "kosync.hide_password" = "Hide";
 "kosync.show_password_accessible" = "Show password";
@@ -33,6 +37,7 @@
 "kosync.signed_out" = "Not signed in.";
 "kosync.signing_in" = "Signing in…";
 "kosync.opening" = "Syncing…";
+"kosync.completed" = "Sync complete";
 "kosync.cancel_sync" = "Cancel sync";
 "kosync.opening_description" = "Kobalt is syncing your progress. Please wait...";
 "kosync.skipped" = "Sync skipped. Your position is saved locally.";
