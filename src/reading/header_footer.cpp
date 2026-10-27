@@ -1,4 +1,5 @@
 #include "header_footer.h"
+#include "reading_progress.h"
 #include "support/strings.h"
 
 #include <QJsonArray>
@@ -27,9 +28,8 @@ QString timeLeft(qint64 milliseconds, bool learningPace) {
     const auto result = strings::get("header_footer.time_left").arg(time);
     return learningPace ? strings::get("stats.approximate_time").arg(result) : result;
 }
-// How far along: the last page reads 100%.
 QString percentDone(int page, int pages) {
-    return pages > 0 ? strings::get("common.percent").arg(qRound(100.0 * qBound(0, page, pages) / pages)) : QString();
+    return pages > 0 ? strings::get("common.percent").arg(pageProgressPercent(qMax(1, page) - 1, pages)) : QString();
 }
 // Beside a name the page reads 5 of 33, so the slash does not compete with
 // the dot between the two parts.

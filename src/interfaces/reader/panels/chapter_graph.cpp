@@ -5,6 +5,7 @@
 #include "support/qt_font.h"
 #include "support/strings.h"
 #include "chapter_graph.h"
+#include "reading/reading_progress.h"
 #include "interfaces/reader/ui/style/fonts.h"
 #include "interfaces/reader/ui/style/private_text.h"
 #include "interfaces/reader/ui/style/styles.h"
@@ -289,9 +290,8 @@ static QString duration(qint64 milliseconds, bool shortForm = false) {
 }
 void ChapterGraph::refreshCells() {
     const auto &p = progress;
-    const int chapterValue =
-        p.chapterPages > 0 ? int(qint64(qBound(0, p.chapterPage - 1, p.chapterPages)) * 1000 / p.chapterPages) : 0;
-    const int bookValue = p.pages > 0 ? int(qint64(qBound(0, p.page, p.pages)) * 1000 / p.pages) : 0;
+    const int chapterValue = pageProgressPercent(qMax(1, p.chapterPage) - 1, p.chapterPages);
+    const int bookValue = pageProgressPercent(p.page, p.pages);
     const int left = qMax(0, p.chapterPages - p.chapterPage + 1), remaining = qMax(0, p.pages - p.page);
     const auto pagesLeft = [](int count) {
         return count == 1 ? strings::get("stats.page_left") : strings::get("stats.pages_left");
@@ -306,18 +306,18 @@ void ChapterGraph::refreshCells() {
                                               : QString();
     chapterCell->set(p.chapterPages > 0 ? QString::number(left) : QString(),
                      p.chapterPages > 0 ? pagesLeft(left) : QString(), next,
-                     p.chapterPages > 0 ? strings::get("common.percent").arg(chapterValue / 10) : QString(),
+                     p.chapterPages > 0 ? strings::get("common.percent").arg(chapterValue) : QString(),
                      chapterTime >= 0 ? duration(chapterTime, true) : QString());
-    chapterCell->percent->setAccessibleName(strings::get("chapter_graph.chapter_progress").arg(chapterValue / 10));
+    chapterCell->percent->setAccessibleName(strings::get("chapter_graph.chapter_progress").arg(chapterValue));
     // The catalog is English, so group digits the English way on every device.
     const QString bookDetail =
         bookTime >= 0 ? duration(bookTime)
         : words >= 0 ? strings::get("stats.words").arg(QLocale(QLocale::English, QLocale::UnitedStates).toString(words))
                      : QString();
     bookCell->set(QString::number(remaining), pagesLeft(remaining), bookDetail,
-                  strings::get("common.percent").arg(bookValue / 10),
+                  strings::get("common.percent").arg(bookValue),
                   bookTime >= 0 ? duration(bookTime, true) : QString());
-    bookCell->percent->setAccessibleName(strings::get("chapter_graph.book_progress").arg(bookValue / 10));
+    bookCell->percent->setAccessibleName(strings::get("chapter_graph.book_progress").arg(bookValue));
     sessionCell->set(QString::number(qMax(0, minutes)), strings::get("stats.minutes"),
                      strings::get("stats.since_opening"));
 }

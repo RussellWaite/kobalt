@@ -2,6 +2,14 @@
 #include "reading_progress.h"
 
 namespace kobalt {
+double pageProgressFraction(int page, int pages) {
+    if (pages <= 0) return 0;
+    if (pages == 1) return 1;
+    return double(qBound(0, page, pages - 1)) / (pages - 1);
+}
+int pageProgressPercent(int page, int pages) {
+    return qRound(100 * pageProgressFraction(page, pages));
+}
 bool ReadingProgress::samePosition(const ReadingProgress &other) const {
     return valid && other.valid && book == other.book && location == other.location && status == other.status;
 }

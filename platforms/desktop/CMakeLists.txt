@@ -279,7 +279,7 @@ if(BUILD_TESTING)
             sleepSnapshotReplacesEachClockWithoutChangingTheReadingPage sleepTimeLeftUsesHoursAboveTwoHours
             sleepScreenModesKeepTheStockDefaultAndMigrateTheOptIn sleepCoverFitsWithoutCroppingOrDimming
             sleepCoverDecodingIsBoundedAndHonorsSourceCancellation wifiStatus remoteKeyActivityRequiresActiveReading
-            finishChoiceSurvivesSleepAndRequiresActiveReader kosyncAccountGating kosyncOpening kosyncNetwork kosyncManualConnection kosyncFinal nativeProgressWaitsForSleep positionSavesWaitForQuietInput usbFinalSave
+            finishChoiceSurvivesSleepAndRequiresActiveReader progressPercentagesAgree kosyncAccountGating kosyncOpening kosyncNetwork kosyncManualConnection kosyncFinal nativeProgressWaitsForSleep positionSavesWaitForQuietInput usbFinalSave
             progressChoiceKeepAndGo finishedSyncWithoutPositionKeepsLocalReading
             progressChoiceForOlderAlert progressChoiceUnavailablePosition
             appearanceOpeningDoesNotRepaintToolbar annotationFramesKeepFirstPaintComplete annotationListResolvesPagesOnDemand)

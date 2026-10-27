@@ -2481,7 +2481,7 @@ private slots:
         const auto status = chargeState == 2   ? reader::SleepStatus::Charged
                             : chargeState == 1 ? reader::SleepStatus::Charging
                                                : reader::SleepStatus::Sleeping;
-        const int percent = qBound(0, int(100.0 * host.session()->page() / qMax(1, host.session()->pages())), 100);
+        const int percent = pageProgressPercent(host.session()->page(), host.session()->pages());
         // This profile has no native reading pace and has not made forward turns.
         const auto expected = reader::sleepScreenImage(background, strings::get("sleep.percent_read").arg(percent), {},
                                                        dark, 67, status, !useCover);
@@ -4085,6 +4085,61 @@ private slots:
         QCOMPARE(store.highlights().size(), 1999);
     }
 
+    void progressPercentagesAgree_data() {
+        QTest::addColumn<int>("position");
+        QTest::newRow("first") << 0;
+        QTest::newRow("middle") << 1;
+        QTest::newRow("last") << 2;
+    }
+    void progressPercentagesAgree() {
+        QFETCH(int, position);
+        const auto paths = testPaths();
+        QVERIFY(storage::writeJson(paths.preferences(), {{sleep::preferenceKey, "page"}}));
+        auto presentation = std::make_shared<test::SleepPresentationState>();
+        ReaderFixture host(paths, testFonts, testPlaceholder);
+        host.configureServices = [presentation](ReaderHostServices &services) {
+            services.presentation = [presentation](QWidget *) {
+                return std::make_unique<test::HostPresentation>(presentation);
+            };
+        };
+        CloseHost cleanup{host};
+        QSignalSpy opened(&host, &ReaderFixture::opened);
+        host.open(textBook, nativeSize);
+        QTRY_COMPARE_WITH_TIMEOUT(opened.count(), 1, 30000);
+        Canvas canvas(host.window(), nativeSize);
+        canvas.resize(nativeSize);
+        canvas.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&canvas));
+        QVERIFY(host.session()->pages() > 7);
+        const int target = position == 0 ? 0 : position == 2 ? host.session()->pages() - 1 : host.session()->pages() / 7;
+        if (host.session()->page() != target) QVERIFY(host.session()->go(target));
+        QTRY_VERIFY(!host.session()->busy());
+        QCOMPARE(host.session()->page(), target);
+        const int percent = qRound(100.0 * target / (host.session()->pages() - 1));
+        auto *page = dynamic_cast<ReadingPage *>(host.window()->findChild<QWidget *>("rrPage"));
+        QVERIFY(page);
+        QTRY_COMPARE(page->slotContents[5].text, strings::get("common.percent").arg(percent));
+        QCOMPARE(qRound(page->progressFraction * 100), percent);
+        page->tapped(page->rect().center());
+        auto *stats = host.window()->findChild<QPushButton *>("rrNavStats");
+        QVERIFY(stats);
+        stats->click();
+        auto *graph = host.window()->findChild<QWidget *>("rrChapterGraph");
+        QTRY_VERIFY(graph && graph->isVisible());
+        auto *bookPercent = graph->findChild<QLabel *>("rrGraphBookPercent");
+        QVERIFY(bookPercent);
+        QCOMPARE(bookPercent->text(), strings::get("common.percent").arg(percent));
+        stats->click();
+        QTRY_VERIFY(!graph->isVisible());
+        QTRY_VERIFY(host.window()->readyForPresentation());
+        const auto snapshot = host.window()->powerScreenSnapshot();
+        QVERIFY(!snapshot.image.isNull());
+        QCOMPARE(snapshot.percent, percent);
+        QCOMPARE(snapshot.progress, strings::get("sleep.percent_read").arg(percent));
+        host.window()->checkpoint();
+        const auto identity = QUrl::fromLocalFile(QFileInfo(textBook).absoluteFilePath()).toString();
+        QCOMPARE(storage::readBookState(paths, identity).object.value("percent").toInt(-1), percent);
+    }
     void annotationFramesKeepFirstPaintComplete_data() {
         QTest::addColumn<QString>("markup");
         for (const auto *name : {"none", "saved", "draft", "elsewhere", "elsewhere-256", "grayscale"}) {

@@ -3,6 +3,11 @@
 #include <QString>
 
 namespace kobalt {
+// Display progress uses zero-based pages: first is 0%, last is 100%.
+// A one-page book is already on its last page; an unknown length is 0%.
+double pageProgressFraction(int page, int pages);
+int pageProgressPercent(int page, int pages);
+
 struct ReadingProgress {
     QString book, location;
     qint64 modified = 0;

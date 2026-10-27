@@ -16,6 +16,8 @@ Use `ctest --preset mac -N` to list registered tests. Use `-R` to select a test 
 
 The Android asset-installation model check runs the production installer with an embedded fixture. It verifies cleanup after successful installation and cached startup, retention after failed installation, and preservation of unrelated entries and symlink targets.
 
+`lifecycle.progressPercentagesAgree` compares the reading footer, progress bar, Stats, sleep snapshot and saved Library percentage at the first, intermediate and last pages. The progress model checks rounding, unknown and single-page lengths, out-of-range positions and large page counts.
+
 ## KOsync
 
 `lifecycle.kosyncAccountGating` checks missing, signed-out, unauthenticated, malformed and unsupported accounts. It requires no periodic timer, connection preparation, opening delay, sync prompt or HTTP request. It also checks timer changes when automatic sync is disabled and enabled, and when the user signs out.

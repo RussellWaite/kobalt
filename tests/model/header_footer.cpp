@@ -140,8 +140,8 @@ int main() {
     require(battery.batteryIcon && battery.text.isEmpty() && battery.battery == 80, "Battery is not an icon");
     require(content(Field::BatteryPercent, values, false).text == strings::get("common.percent").arg(80),
             "Battery percentage is missing");
-    // Percent done counts the page being read; the last page is 100%.
-    require(content(Field::ChapterPercent, values, false).text == strings::get("common.percent").arg(30),
+    // The first page is 0%; the last page is 100%, with nearest-integer rounding.
+    require(content(Field::ChapterPercent, values, false).text == strings::get("common.percent").arg(26),
             "Percent of chapter is wrong");
     require(content(Field::BookPercent, values, false).text == strings::get("common.percent").arg(3),
             "Percent of book is wrong");

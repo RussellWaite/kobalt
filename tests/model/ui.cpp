@@ -793,7 +793,7 @@ int main(int argc, char **argv) {
         require(graph.findChild<QLabel *>("rrGraphChapterCaption")->text() == "stats.chapter",
                 "Chapter caption does not expose its catalog key");
         graph.setProgress("Title", 4, 10, 12, 25, 100);
-        require(graph.findChild<QLabel *>("rrGraphChapterPercent")->text() == "common.percent [30]",
+        require(graph.findChild<QLabel *>("rrGraphChapterPercent")->text() == "common.percent [33]",
                 "Key mode lost the formatting argument");
         ui::PageNavigation navigation(&host, "keyTest");
         require(navigation.back->text() == "common.back", "Navigation bypasses the string catalog");
@@ -1414,9 +1414,9 @@ int main(int argc, char **argv) {
         require(barPaints.paints > 0, "Changed chapter word count did not repaint the bars");
         graph.setData(chapters, {20, -1, 1, 1}, true, {});
         require(title->text() == "The Second Voyage", "The chapter title is missing");
-        require(text("rrGraphChapterPercent") == get("common.percent").arg(30) && text("rrGraphChapterFigure") == "7" &&
+        require(text("rrGraphChapterPercent") == get("common.percent").arg(33) && text("rrGraphChapterFigure") == "7" &&
                     text("rrGraphChapterUnit") == get("stats.pages_left"),
-                "Chapter progress credited the current unread page");
+                "Chapter progress differs from the shared display rule");
         require(text("rrGraphChapterPosition") == get("stats.page_of").arg(4).arg(10),
                 "Chapter page position is missing");
         require(text("rrGraphNextChapter") == get("chapter_graph.next_chapter").arg(12).arg(get("common.pages")),

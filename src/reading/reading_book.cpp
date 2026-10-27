@@ -274,7 +274,7 @@ bool ReadingBook::checkpoint(QJsonObject *snapshot, bool background) {
     // For the Android and desktop library, which shows progress without
     // opening the book.
     if (model->pages() > 0)
-        state["percent"] = qBound(0, (model->page() + 1) * 100 / model->pages(), 100);
+        state["percent"] = pageProgressPercent(model->page(), model->pages());
     state["native_writeback"] = nativeWriteback;
     state["sync_pending"] = reconciliation.pending();
     state["native_writeback_error"] = nativeWritebackError;

@@ -250,8 +250,7 @@ void Reader::showPageImage(const QImage &nextImage) {
 }
 
 void Reader::paintTurn() {
-    page->progressFraction =
-        model->pages() > 0 ? qBound(qreal(0), qreal(model->page() + 1) / model->pages(), qreal(1)) : 0;
+    page->progressFraction = pageProgressFraction(model->page(), model->pages());
     page->preparedDamage = model->damage();
     page->preparedFrom = model->damageFrom();
     // The Refresh the screen setting decides which turns flash.
@@ -374,8 +373,7 @@ void Reader::syncReadingControls() {
     const auto chapter = model->chapterTitle().isEmpty() ? strings::get("reader.contents") : model->chapterTitle();
     chapterButton->setText(chapter);
     chapterButton->setAccessibleName(strings::get("reader.contents_detail").arg(chapter));
-    page->progressFraction =
-        model->pages() > 0 ? qBound(qreal(0), qreal(model->page() + 1) / model->pages(), qreal(1)) : 0;
+    page->progressFraction = pageProgressFraction(model->page(), model->pages());
     if (!model->busy())
         applyingText = false;
     refreshRenderNotice();

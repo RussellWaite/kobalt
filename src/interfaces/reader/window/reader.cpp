@@ -202,7 +202,7 @@ sleep::Snapshot Reader::captureSleepScreen() {
     auto frame = useCover ? sleepCoverBackground(sleepCover, page->size()) : page->snapshot(true);
     if (frame.isNull())
         return {};
-    const int percent = qBound(0, int(100.0 * model->page() / qMax(1, model->pages())), 100);
+    const int percent = pageProgressPercent(model->page(), model->pages());
     return {std::move(frame), kobalt::shownOrientation(QGuiApplication::primaryScreen()),
             strings::get("sleep.percent_read").arg(percent), sleepTimeLeft(book->estimates().bookMilliseconds),
             darkTheme, mode, !useCover, percent, sleep::tile(preferences)};
