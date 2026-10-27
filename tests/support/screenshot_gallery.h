@@ -15,10 +15,11 @@
 namespace kobalt::test {
 inline QString screenshotGroup(const QString &scene) {
     if (scene.startsWith("international-")) return "International books";
-    if (scene.startsWith("library-")) return "Library";
+    if (scene.startsWith("library-") || scene.startsWith("widget-keyboard")) return "Library";
     if (scene == "dictionaries" || scene.startsWith("dictionary-")) return "Dictionary";
     if (scene.startsWith("links-") || scene.startsWith("footnotes-") || scene.startsWith("tappable-links-")) return "Links and footnotes";
     if (scene.startsWith("search")) return "Search";
+    if (scene.startsWith("kosync-")) return "Settings and About";
     if (scene.startsWith("settings") || scene == "about" || scene == "acknowledgments" || scene.startsWith("license")) return "Settings and About";
     if (scene.startsWith("annotation") || scene == "annotating" || scene.startsWith("bookmark")) return "Bookmarks and annotations";
     if (scene.startsWith("vertical-") || scene == "layout" || scene == "header-footer") return "Layout";
@@ -117,6 +118,8 @@ inline QString screenshotTitle(const QString &scene, const QJsonObject &book) {
         {"settings-defaults", "Default settings"},
         {"settings-display", "Display settings"},
         {"settings-kosync", "Sync settings"},
+        {"kosync-password-masked", "Sync password entry"},
+        {"kosync-password-shown", "Sync password revealed"},
         {"settings-styling", "Styling settings"},
         {"settings-system", "System settings"},
         {"stats", "Reading statistics"},
@@ -141,6 +144,12 @@ inline QString screenshotTitle(const QString &scene, const QJsonObject &book) {
         {"vertical-off", "Page spacing off"},
         {"vertical-scope", "Page spacing scope"},
         {"vertical-settings", "Page spacing settings"},
+        {"widget-keyboard", "Library search keyboard"},
+        {"widget-keyboard-300ppi", "Keyboard at native resolution"},
+        {"widget-keyboard-accents", "Keyboard accented letters"},
+        {"widget-keyboard-libron-300ppi", "Keyboard with Libron"},
+        {"widget-keyboard-mono-300ppi", "Keyboard with interface font"},
+        {"widget-keyboard-symbols", "Keyboard symbols"},
     };
     if (titles.contains(scene)) return titles[scene];
     const auto page = QRegularExpression("^(.+)-(\\d+)$").match(scene);
@@ -212,7 +221,10 @@ inline QByteArray screenshotGallery(const QString &directory, const QJsonArray &
         const auto shot = it.value();
         const auto book = shot["book"].toObject();
         const auto title = screenshotTitle(it.key(), book);
-        if (title.isEmpty()) return {};
+        if (title.isEmpty()) {
+            qCritical().noquote() << "Screenshot has no gallery title:" << it.key();
+            return {};
+        }
         const auto group = shot["group"].toString();
         const auto subtitle = it.key().startsWith("international-") ? book["title"].toString() : QString();
         const auto search = (title + ' ' + it.key() + ' ' + group + ' ' + book["title"].toString()).toLower();

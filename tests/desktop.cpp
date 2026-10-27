@@ -608,6 +608,10 @@ bool capture(Fixture &fixture, const QString &name, QWidget *nativeScreen = null
     const auto parts = QRegularExpression("^(fill|six-inch|seven-inch)-(light|dark)-(.*)$").match(name);
     if (!parts.hasMatch()) return false;
     const auto identity = test::screenshotIdentity(parts.captured(3));
+    if (test::screenshotTitle(identity.first, captureBook).isEmpty()) {
+        qCritical().noquote() << "Screenshot has no gallery title:" << identity.first;
+        return false;
+    }
     for (const auto &value : captures)
         if (value.toObject()["file"].toString() == name + ".png") return false;
     static const auto generalBook = [] {
