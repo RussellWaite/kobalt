@@ -6,7 +6,7 @@
 #include "ui/brightness_gesture.h"
 #include <QWidget>
 #include <QImage>
-#include <QTimer>
+#include "ui/hold_timer.h"
 #include <QRegion>
 #include <QElapsedTimer>
 #include <QHash>
@@ -138,7 +138,7 @@ private:
     void paintFooter(QPainter &painter, bool sleeping = false) const;
     void paintContents(QPainter &painter, bool sleeping = false) const;
     int headerRightWidth() const;
-    QTimer holdTimer;
+    ui::HoldTimer holdTimer;
     QVector<QRect> selection, revealedLinks, draftAnnotations, savedAnnotations, candidateAnnotations;
     QRegion draftContour, annotationColorRegion;
     QPainterPath draftOutline, candidateOutline;
@@ -150,7 +150,8 @@ private:
     bool annotationInputEnabled = false, annotationDragging = false;
     QPoint annotationDragOffset;
     int annotationPointerBoundary = -1;
-    void beginPointer(QPointF point);
+    void beginPointer(QPointF point, const QInputEvent *event);
+    void triggerHold();
     bool annotationVertical = false, installingAnnotationFrame = false;
     QRegion annotationFrameDamage;
     void damageAnnotations(const QRegion &dirty);

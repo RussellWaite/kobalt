@@ -223,6 +223,7 @@ protected:
             QMouseEvent mouse(mouseType, local, target->mapToGlobal(local),
                               type == QEvent::TouchUpdate ? Qt::NoButton : Qt::LeftButton,
                               release ? Qt::NoButton : Qt::LeftButton, touch->modifiers());
+            mouse.setTimestamp(touch->timestamp());
             QApplication::sendEvent(target, &mouse);
             if (release)
                 target.clear();

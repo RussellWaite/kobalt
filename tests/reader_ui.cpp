@@ -1,4 +1,6 @@
 #include "support/paint_regions.h"
+#include "ui/hold_timer.h"
+#include "interfaces/reader/panels/choice_screen.h"
 #include "assets/bundled_fonts.h"
 #include "interfaces/library/library_view.h"
 #include "interfaces/reader/ui/controls/buttons.h"
@@ -94,6 +96,12 @@ bool click(Canvas &canvas, QWidget *widget) {
         return false;
     return clickAt(canvas, point);
 }
+void pointerEvent(QWidget *widget, QEvent::Type type, ulong timestamp, QPoint point) {
+    QMouseEvent event(type, point, widget->mapToGlobal(point), Qt::LeftButton,
+                      type == QEvent::MouseButtonRelease ? Qt::NoButton : Qt::LeftButton, Qt::NoModifier);
+    event.setTimestamp(timestamp);
+    QApplication::sendEvent(widget, &event);
+}
 void variants() {
     QTest::addColumn<bool>("dark");
     QTest::addColumn<int>("ppi");
@@ -107,6 +115,115 @@ void variants() {
 class ReaderUiTests final : public QObject {
     Q_OBJECT
 private slots:
+    void holdSourceTime_data() {
+        QTest::addColumn<quint32>("pressed");
+        QTest::addColumn<quint32>("released");
+        QTest::addColumn<bool>("due");
+        QTest::newRow("short") << quint32(1000) << quint32(1085) << false;
+        QTest::newRow("before-deadline") << quint32(1000) << quint32(1549) << false;
+        QTest::newRow("deadline") << quint32(1000) << quint32(1550) << true;
+        QTest::newRow("hold") << quint32(1000) << quint32(2000) << true;
+        QTest::newRow("wrapped") << quint32(0xfffffff0u) << quint32(0x3d8u) << true;
+        QTest::newRow("backwards") << quint32(1000) << quint32(900) << false;
+    }
+    void holdSourceTime() {
+        QFETCH(quint32, pressed);
+        QFETCH(quint32, released);
+        QFETCH(bool, due);
+        ui::HoldTimer timer;
+        timer.setSingleShot(true);
+        timer.setInterval(550);
+        QMouseEvent press(QEvent::MouseButtonPress, QPointF(), QPointF(), Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+        QMouseEvent release(QEvent::MouseButtonRelease, QPointF(), QPointF(), Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+        press.setTimestamp(pressed);
+        release.setTimestamp(released);
+        timer.start(&press);
+        QCOMPARE(timer.finish(&release), due);
+        QVERIFY(!timer.finish(&release));
+        timer.start(&press);
+        timer.stop();
+        QVERIFY(!timer.finish(&release));
+    }
+    void holdTimerDoesNotRepeatOnRelease() {
+        ui::HoldTimer timer;
+        timer.setSingleShot(true);
+        timer.setInterval(20);
+        QSignalSpy fired(&timer, &QTimer::timeout);
+        QMouseEvent press(QEvent::MouseButtonPress, QPointF(), QPointF(), Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+        QMouseEvent release(QEvent::MouseButtonRelease, QPointF(), QPointF(), Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+        press.setTimestamp(1000);
+        release.setTimestamp(2000);
+        timer.start(&press);
+        QTRY_COMPARE(fired.size(), 1);
+        QVERIFY(!timer.finish(&release));
+    }
+    void fontHoldCancellation_data() { variants(); }
+    void fontHoldCancellation() {
+        QFETCH(bool, dark);
+        QFETCH(int, ppi);
+        ui::setDensity(ppi);
+        QWidget host;
+        host.resize(ui::px(1072), ui::px(1448));
+        ui::applyReaderPalette(&host, ui::readerPalette(host.palette(), dark));
+        ChoiceScreen picker(&host);
+        picker.setFontGeometry(QRect(0, 0, host.width(), picker.fontPanelHeight()));
+        int selected = 0, defaults = 0;
+        picker.selected = [&](const QString &) { ++selected; };
+        picker.defaultRequested = [&](const QString &) { ++defaults; };
+        host.show();
+        picker.showChoices("Font", {{"Libron", "Libron", "holdFont"}}, {}, ChoiceScreen::Mode::Fonts);
+        QCoreApplication::processEvents();
+        auto *cell = picker.findChild<QPushButton *>("holdFont");
+        QVERIFY(cell && cell->isVisible());
+        const auto point = cell->rect().center();
+        pointerEvent(cell, QEvent::MouseButtonPress, 1000, point);
+        QEvent cancel(QEvent::TouchCancel);
+        QApplication::sendEvent(cell, &cancel);
+        pointerEvent(cell, QEvent::MouseButtonRelease, 2000, point);
+        QCOMPARE(selected, 0);
+        QCOMPARE(defaults, 0);
+        QVERIFY(!cell->isDown());
+        pointerEvent(cell, QEvent::MouseButtonPress, 3000, point);
+        pointerEvent(cell, QEvent::MouseButtonRelease, 3085, point);
+        QCOMPARE(selected, 1);
+        QCOMPARE(defaults, 0);
+        pointerEvent(cell, QEvent::MouseButtonPress, 4000, point);
+        pointerEvent(cell, QEvent::MouseButtonRelease, 5000, point);
+        QCOMPARE(selected, 1);
+        QCOMPARE(defaults, 1);
+        pointerEvent(cell, QEvent::MouseButtonRelease, 5100, point);
+        QCOMPARE(defaults, 1);
+    }
+    void holdCallbackCanDeleteReader() {
+        QPointer<ReadingPage> page = new ReadingPage(nullptr, [] {});
+        page->resize(600, 800);
+        page->show();
+        page->held = [page](QPoint) { delete page.data(); };
+        pointerEvent(page, QEvent::MouseButtonPress, 1000, QPoint(300, 400));
+        pointerEvent(page, QEvent::MouseButtonRelease, 2000, QPoint(300, 400));
+        QVERIFY(!page);
+    }
+    void canvasPreservesTouchTime() {
+        class StampWidget final : public QWidget {
+        public:
+            ulong pressed = 0, released = 0;
+            void mousePressEvent(QMouseEvent *event) override { pressed = event->timestamp(); }
+            void mouseReleaseEvent(QMouseEvent *event) override { released = event->timestamp(); }
+        };
+        android::WidgetCanvas canvas(nullptr);
+        auto *widget = new StampWidget;
+        canvas.setContent(widget);
+        auto *device = QTest::createTouchDevice();
+        for (const auto type : {QEvent::TouchBegin, QEvent::TouchEnd}) {
+            QTouchEvent event(type, device, Qt::NoModifier,
+                             {QEventPoint(0, type == QEvent::TouchBegin ? QEventPoint::Pressed : QEventPoint::Released,
+                                          QPointF(), QPointF())});
+            event.setTimestamp(type == QEvent::TouchBegin ? 1000 : 2000);
+            QApplication::sendEvent(canvas.viewport(), &event);
+        }
+        QCOMPARE(widget->pressed, ulong(1000));
+        QCOMPARE(widget->released, ulong(2000));
+    }
     void cancelledCanvasTouchRestoresSlider_data() {
         QTest::addColumn<bool>("secondFinger");
         QTest::newRow("touch-cancel") << false;

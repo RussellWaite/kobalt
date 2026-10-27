@@ -322,7 +322,8 @@ if(BUILD_TESTING)
     target_compile_options(kobalt-reader-ui-tests PRIVATE -Wall -Wextra -Werror)
     target_compile_definitions(kobalt-reader-ui-tests PRIVATE KOBALT_TEST_ASSET_ROOT="${KOBALT_ASSETS}")
     add_dependencies(kobalt-tests kobalt-reader-ui-tests)
-    foreach(check cancelledCanvasTouchRestoresSlider
+    foreach(check holdSourceTime holdTimerDoesNotRepeatOnRelease fontHoldCancellation
+            holdCallbackCanDeleteReader canvasPreservesTouchTime cancelledCanvasTouchRestoresSlider
             canvasCancellationCanDeleteTarget
             canvasCancellationKeepsReentrantGesture
             canvasReleaseCanDeleteWidgets

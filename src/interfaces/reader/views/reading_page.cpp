@@ -16,6 +16,7 @@
 #include <QVariant>
 #include "platform/api/kobo_refresh.h"
 #include <QPainter>
+#include <QPointer>
 #include <QtMath>
 #include <QTransform>
 #include <QTouchEvent>
@@ -462,18 +463,23 @@ ReadingPage::ReadingPage(QWidget *parent, std::function<void()> cancelAnimation)
     textRefresh(this);
     holdTimer.setSingleShot(true);
     holdTimer.setInterval(m::lookup::holdMilliseconds);
-    connect(&holdTimer, &QTimer::timeout, this, [this] {
-        if (!tracking || moved)
-            return;
-        consumed = true;
-        brightnessGesture.cancel();
-        if (annotationInputEnabled && annotationDragStarted) {
-            annotationDragging = annotationDragStarted(origin.toPoint() - QPoint(0, topHeight()), -1);
-            return;
-        }
-        if (held)
-            held(origin.toPoint() - QPoint(0, topHeight()));
-    });
+    connect(&holdTimer, &QTimer::timeout, this, [this] { triggerHold(); });
+}
+
+void ReadingPage::triggerHold() {
+    if (!tracking || moved || consumed)
+        return;
+    consumed = true;
+    brightnessGesture.cancel();
+    if (annotationInputEnabled && annotationDragStarted) {
+        QPointer<ReadingPage> guard(this);
+        const bool dragging = annotationDragStarted(origin.toPoint() - QPoint(0, topHeight()), -1);
+        if (guard)
+            annotationDragging = dragging;
+        return;
+    }
+    if (held)
+        held(origin.toPoint() - QPoint(0, topHeight()));
 }
 
 void ReadingPage::cleanRefresh(bool clean) {
@@ -735,7 +741,7 @@ bool ReadingPage::event(QEvent *event) {
         const auto points = kobalt::ui::touchPositions(static_cast<QTouchEvent *>(event));
         if (event->type() == QEvent::TouchBegin) {
             if (points.size() == 1)
-                beginPointer(points.first());
+                beginPointer(points.first(), static_cast<QTouchEvent *>(event));
             else
                 cancelHold();
         }
@@ -747,8 +753,14 @@ bool ReadingPage::event(QEvent *event) {
         }
         if (!tracking || moved)
             holdTimer.stop();
-        if (event->type() == QEvent::TouchEnd)
+        if (event->type() == QEvent::TouchEnd) {
+            QPointer<ReadingPage> guard(this);
+            if (holdTimer.finish(static_cast<QTouchEvent *>(event)))
+                triggerHold();
+            if (!guard)
+                return true;
             finishGesture();
+        }
         event->accept();
         return true;
     }
@@ -762,7 +774,7 @@ bool ReadingPage::event(QEvent *event) {
     return QWidget::event(event);
 }
 
-void ReadingPage::beginPointer(QPointF point) {
+void ReadingPage::beginPointer(QPointF point, const QInputEvent *event) {
     cancelHold();
     tracking = true;
     moved = consumed = false;
@@ -792,7 +804,7 @@ void ReadingPage::beginPointer(QPointF point) {
         }
     }
     brightnessGesture.begin(origin, size(), brightnessEdge, warmthEdge);
-    holdTimer.start();
+    holdTimer.start(event);
 }
 
 void ReadingPage::mousePressEvent(QMouseEvent *event) {
@@ -809,7 +821,7 @@ void ReadingPage::mousePressEvent(QMouseEvent *event) {
     rightPressed = false;
     if (!kobalt::ui::isPointerMouse(event) || event->button() != Qt::LeftButton)
         return;
-    beginPointer(kobalt::ui::mousePosition(event));
+    beginPointer(kobalt::ui::mousePosition(event), event);
 }
 
 void ReadingPage::mouseMoveEvent(QMouseEvent *event) {
@@ -845,6 +857,11 @@ void ReadingPage::mouseReleaseEvent(QMouseEvent *event) {
         return;
     latest = kobalt::ui::mousePosition(event);
     updatePointer();
+    QPointer<ReadingPage> guard(this);
+    if (holdTimer.finish(event))
+        triggerHold();
+    if (!guard)
+        return;
     finishGesture();
 }
 
