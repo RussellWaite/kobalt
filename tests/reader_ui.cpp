@@ -1291,9 +1291,9 @@ private slots:
         for (int turn = 0; turn < 24 && visited.size() < many.size(); ++turn) {
             for (auto *button : list.findChildren<QPushButton *>()) {
                 const auto name = button->objectName();
-                if (!button->isVisible() || !name.startsWith("rrAnnotation") ||
-                    name.mid(QStringLiteral("rrAnnotation").size()).toInt() < 0 ||
-                    name.contains("Remove") || name == "rrAnnotationsTab")
+                bool numberedRow = false;
+                const int index = name.mid(QStringLiteral("rrAnnotation").size()).toInt(&numberedRow);
+                if (!button->isVisible() || !name.startsWith("rrAnnotation") || !numberedRow || index < 0)
                     continue;
                 button->click();
                 QVERIFY(!visited.contains(selected));
@@ -1444,8 +1444,10 @@ private slots:
         auto displayed = [&]() {
             QStringList ids;
             for (auto *button : list.findChildren<QPushButton *>()) {
-                if (!button->isVisible() || !button->objectName().startsWith("rrAnnotation") ||
-                    button->objectName().contains("Remove") || button->objectName() == "rrAnnotationsTab") continue;
+                const auto name = button->objectName();
+                bool numberedRow = false;
+                const int index = name.mid(QStringLiteral("rrAnnotation").size()).toInt(&numberedRow);
+                if (!button->isVisible() || !name.startsWith("rrAnnotation") || !numberedRow || index < 0) continue;
                 button->click();
                 ids.append(selected);
             }
