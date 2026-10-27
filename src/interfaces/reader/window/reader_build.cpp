@@ -12,6 +12,7 @@
 #include "support/strings.h"
 #include "interfaces/reader/ui/style/styles.h"
 #include "interfaces/reader/ui/style/fonts.h"
+#include "interfaces/reader/ui/style/private_text.h"
 #include "interfaces/reader/window/font_registration.h"
 #include "platform/api/kobo_refresh.h"
 #include "support/diagnostics.h"
@@ -53,11 +54,65 @@ protected:
     void paintEvent(QPaintEvent *) override {
         QPainter painter(this);
         painter.setFont(font());
-        painter.setPen(palette().color(isEnabled() ? QPalette::WindowText : QPalette::Mid));
+        const auto *button = qobject_cast<QPushButton *>(parentWidget());
+        const bool pressed = button && button->isEnabled() && button->isDown();
+        const auto colors = button ? button->palette() : palette();
+        painter.setPen(colors.color(!isEnabled() ? QPalette::Mid : pressed ? QPalette::Window
+                                                                            : QPalette::WindowText));
         const auto bounds = contentsRect().adjusted(margin(), margin(), -margin(), -margin());
         // Font line boxes include padding above and below the visible letters.
-        ui::drawOpticalText(painter, bounds, text(), true);
+        ui::drawOpticalText(painter, bounds.translated(0, m::chrome::returnTitleOffset), text(), true);
     }
+};
+class ReturnButton final : public ui::Button {
+public:
+    ReturnButton(const QString &caption, QWidget *parent) : ui::Button(caption, parent) {
+        QImage mask(glyph, glyph, QImage::Format_ARGB32_Premultiplied);
+        mask.fill(Qt::transparent);
+        QPainter painter(&mask);
+        ui::controlIcon(ControlIcon::Back, Qt::black).paint(&painter, mask.rect());
+        painter.end();
+        for (int y = 0; y < mask.height(); ++y)
+            for (int x = 0; x < mask.width(); ++x)
+                if (qAlpha(mask.pixel(x, y))) arrowInk |= QRect(x, y, 1, 1);
+    }
+    int labelStart(const QFont &captionFont) const {
+        const int arrowLeft = (int(m::chrome::cellWidth) - glyph) / 2;
+        return arrowLeft + arrowInk.right() + 1 + int(m::chrome::returnLabelGap)
+               - ui::interfaceInkBounds(text(), captionFont).left();
+    }
+    QSize sizeHint() const override {
+        ensurePolished();
+        const auto content = layout() ? layout()->sizeHint() : QSize();
+        return {content.width(), qMax(content.height(), int(m::chrome::actionHeight))};
+    }
+
+protected:
+    void paintEvent(QPaintEvent *) override {
+        QPainter painter(this);
+        const bool pressed = isEnabled() && isDown();
+        const auto paper = palette().color(QPalette::Window);
+        const auto ink = palette().color(QPalette::WindowText);
+        painter.fillRect(rect(), pressed ? ink : paper);
+        const QRect iconCell(0, 0, m::chrome::cellWidth, height());
+        ui::paintEdges(painter, rect(), Qt::RightEdge, palette().color(QPalette::Mid));
+        if (!isEnabled()) painter.setOpacity(.45);
+        const auto *title = findChild<QLabel *>("rrReturnTitle");
+        qreal letterOffset = 0;
+        if (title && !title->text().isEmpty()) {
+            const auto word = ui::interfaceInkBounds(title->text(), title->font());
+            const auto first = ui::interfaceInkBounds(title->text().left(1), title->font());
+            letterOffset = (first.top() + first.bottom() - word.top() - word.bottom()) / 2.0;
+        }
+        const int top = qRound((height() - 1) / 2.0 + letterOffset - (arrowInk.top() + arrowInk.bottom()) / 2.0)
+                        + int(m::chrome::returnArrowOffset);
+        ui::controlIcon(ControlIcon::Back, pressed ? paper : ink)
+            .paint(&painter, QRect((iconCell.width() - glyph) / 2, top, glyph, glyph));
+    }
+
+private:
+    const int glyph = m::chrome::backIcon;
+    QRect arrowInk;
 };
 kobalt::ui::Button *iconButton(QWidget *parent, QBoxLayout *layout, const char *name, const QString &label,
                                ControlIcon icon, std::function<void()> action) {
@@ -460,25 +515,29 @@ void Reader::buildToolbar() {
     top->setSpacing(m::panel::toolbarGap);
     updateMenuStatus();
     const auto returnLabel = services.backButtonLabel.isEmpty() ? strings::get("reader.exit") : services.backButtonLabel;
-    auto *returnHeader = new ui::Panel(topControls);
-    returnHeader->setObjectName("rrReturnHeader");
-    auto *returnRow = new QHBoxLayout(returnHeader);
+    auto *back = new ReturnButton(returnLabel, topControls);
+    back->setObjectName("rrReturn");
+    back->setAccessibleName(returnLabel);
+    back->setFocusPolicy(Qt::NoFocus);
+    readerStyle(back, "QPushButton{border:none;padding:0;min-width:0;min-height:0;}");
+    auto *returnRow = new QHBoxLayout(back);
     returnRow->setContentsMargins(0, 0, 0, 0);
     returnRow->setSpacing(0);
-    auto *back = new ui::CellButton(ControlIcon::Back, returnHeader, m::chrome::backIcon);
-    back->setRule(Qt::RightEdge);
-    back->setFixedWidth(m::chrome::cellWidth);
-    back->setAccessibleName(returnLabel);
-    returnRow->addWidget(back);
-    auto *returnTitle = new ReturnTitle(returnLabel, returnHeader);
+
+    auto *returnTitle = new ReturnTitle(returnLabel, back);
     returnTitle->setObjectName("rrReturnTitle");
+    returnTitle->setAttribute(Qt::WA_TransparentForMouseEvents);
     returnTitle->setAlignment(Qt::AlignCenter);
-    returnTitle->setContentsMargins(m::chrome::inset, 0, m::chrome::inset, 0);
+    returnTitle->setContentsMargins(0, 0, m::chrome::inset, 0);
     readerStyle(returnTitle, styles::brand(m::chrome::titleText) + "background:transparent;");
+    returnTitle->ensurePolished();
+    returnRow->addSpacing(back->labelStart(returnTitle->font()));
     returnRow->addWidget(returnTitle, 1);
-    toolbarComposition.exitAction = returnHeader;
-    back->setObjectName("rrReturn");
-    top->addWidget(returnHeader);
+    toolbarComposition.exitAction = back;
+    top->addWidget(back);
+    const auto repaintTitle = [returnTitle] { returnTitle->update(); };
+    connect(back, &QPushButton::pressed, returnTitle, repaintTitle);
+    connect(back, &QPushButton::released, returnTitle, repaintTitle);
     connect(back, &QPushButton::clicked, this, [this] {
         // The chapter list's close cell sits where Exit Kobalt is. A second
         // tap that lands after the list closed must not leave the reader.
@@ -486,7 +545,7 @@ void Reader::buildToolbar() {
             return;
         close();
     });
-    returnHeader->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
+    back->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
     top->addStretch(1);
     auto *lightButton = iconButton(topControls, top, "rrLight", strings::get("reader.brightness_and_warmth"),
                                    ControlIcon::Light, [this] {

@@ -581,6 +581,27 @@ bool hasText(const QImage &source) {
     return paper > 100 && ink > 100;
 }
 
+QRect returnInkBounds(const QImage &image, const QRect &area, bool lightInk) {
+    QRect bounds;
+    const auto clipped = area.intersected(image.rect());
+    for (int y = clipped.top(); y <= clipped.bottom(); ++y)
+        for (int x = clipped.left(); x <= clipped.right(); ++x) {
+            const auto pixel = image.pixel(x, y);
+            if (qAlpha(pixel) > 128 && (lightInk ? qGray(pixel) > 128 : qGray(pixel) < 128))
+                bounds |= QRect(x, y, 1, 1);
+        }
+    return bounds;
+}
+
+bool visibleReturnCaption(const QImage &button, const QLabel *title, const QColor &color) {
+    const auto area = title->contentsRect().translated(title->pos()).intersected(button.rect());
+    int ink = 0;
+    for (int y = area.top(); y <= area.bottom(); ++y)
+        for (int x = area.left(); x <= area.right(); ++x)
+            ink += button.pixelColor(x, y) == color;
+    return ink > 4;
+}
+
 bool capture(Fixture &fixture, const QString &name, QWidget *nativeScreen = nullptr) {
     if (captureDirectory.isEmpty()) return true;
     // Model state and visibility can settle before queued layouts and proxy
@@ -600,6 +621,20 @@ bool capture(Fixture &fixture, const QString &name, QWidget *nativeScreen = null
     QImage pixels(surface->size(), QImage::Format_ARGB32_Premultiplied);
     pixels.fill(Qt::transparent);
     surface->render(&pixels);
+    if (auto *button = surface->findChild<QPushButton *>("rrReturn")) {
+        if (button->isVisible() && QRegularExpression("^(six-inch|seven-inch)-(light|dark)-menu(-return-pressed)?$").match(name).hasMatch()) {
+            auto *title = button->findChild<QLabel *>("rrReturnTitle");
+            const auto at = button->mapTo(surface, QPoint());
+            const auto rendered = pixels.copy(QRect(at, button->size()));
+            const auto &colors = ui::themeColors(button);
+            const bool pressed = button->isDown();
+            if (rendered.pixelColor(5, 5) != (pressed ? colors.ink : colors.paper) ||
+                !title || !visibleReturnCaption(rendered, title, pressed ? colors.paper : colors.ink)) {
+                qCritical() << "Return control is not visible in the composed screenshot:" << name;
+                return false;
+            }
+        }
+    }
     // Density describes the saved screen. It must not change Qt's paint-device
     // metrics while rendering the already laid-out production widget.
     pixels.setDotsPerMeterX(qRound(300 / 0.0254));
@@ -651,6 +686,24 @@ void capturePages(Fixture &fixture, const QString &name, const char *prefix, int
     // Font choices deliberately sample three pages. Other inventories must
     // complete a cycle within their guard rather than silently truncate.
     QVERIFY(limit == 3 || !counter || seen.contains(counter->text()));
+}
+
+void captureReturnPressed(Fixture &fixture, const QString &name) {
+    if (!fixture.visible("rrReturn")) QVERIFY(fixture.press("rrPage"));
+    QTRY_VERIFY(fixture.visible("rrReturn"));
+    auto *button = qobject_cast<QPushButton *>(fixture.widget("rrReturn"));
+    auto *title = qobject_cast<QLabel *>(fixture.widget("rrReturnTitle"));
+    auto *canvas = fixture.window.findChild<QGraphicsView *>();
+    QVERIFY(button && title && canvas);
+    // Panel close briefly guards the same corner against an accidental exit.
+    QTest::qWait(ui::metrics::contents::exitGuardMilliseconds + 10);
+    const auto point = canvas->mapFromScene(title->mapTo(fixture.window.readerWindow(), title->rect().center()));
+    QTest::mousePress(canvas->viewport(), Qt::LeftButton, Qt::NoModifier, point);
+    QTRY_VERIFY(button->isDown());
+    QVERIFY(visibleReturnCaption(button->grab().toImage(), title, button->palette().color(QPalette::Window)));
+    QVERIFY(capture(fixture, name + "-menu-return-pressed"));
+    QTest::mouseRelease(canvas->viewport(), Qt::LeftButton, Qt::NoModifier, point);
+    QTRY_VERIFY(fixture.window.idle());
 }
 
 void advanceIntoBody(Fixture &fixture) {
@@ -1558,15 +1611,16 @@ exit 7
         QVERIFY(fixture.click(reader->findChild<QWidget *>("rrPage")));
         auto *exit = reader->findChild<QPushButton *>("rrReturn");
         QTRY_VERIFY(exit->isVisible());
-        QVERIFY(dynamic_cast<ui::CellButton *>(exit));
+        QVERIFY(dynamic_cast<ui::Button *>(exit));
         QCOMPARE(exit->accessibleName(), strings::get("library.exit_to_library"));
-        QCOMPARE(exit->width(), int(ui::metrics::chrome::cellWidth));
+        QVERIFY(exit->width() > int(ui::metrics::chrome::cellWidth));
+        QVERIFY(exit->findChildren<QPushButton *>().isEmpty());
         auto *returnTitle = reader->findChild<QLabel *>("rrReturnTitle");
         QVERIFY(returnTitle && returnTitle->isVisible());
         QCOMPARE(returnTitle->text(), strings::get("library.exit_to_library"));
-        QCOMPARE(returnTitle->parentWidget(), exit->parentWidget());
+        QCOMPARE(returnTitle->parentWidget(), exit);
+        QVERIFY(returnTitle->testAttribute(Qt::WA_TransparentForMouseEvents));
         QCOMPARE(returnTitle->height(), exit->height());
-        QVERIFY(returnTitle->geometry().left() >= exit->geometry().right());
         const auto originalCaption = returnTitle->text();
         for (const auto &caption : {strings::get("reader.exit"), strings::get("library.exit_to_library")}) {
             returnTitle->setText(caption);
@@ -1580,13 +1634,40 @@ exit 7
                         last = qMax(last, y);
                     }
                 }
+            const auto buttonImage = exit->grab().toImage();
+            const auto arrow = returnInkBounds(buttonImage,
+                QRect(0, 0, returnTitle->x(), exit->height()), dark);
+            const auto textArea = returnTitle->contentsRect().translated(returnTitle->pos());
+            const auto word = returnInkBounds(buttonImage, textArea, dark);
+            const auto firstLetter = returnInkBounds(buttonImage,
+                QRect(textArea.left(), 0, ui::interfaceTextWidth(caption.left(1), returnTitle->font()), exit->height()), dark);
+            QVERIFY(!arrow.isEmpty() && !word.isEmpty() && !firstLetter.isEmpty());
+            const int expectedGap = qRound(6 * ui::density() / 72.0);
+            QVERIFY(qAbs(word.left() - arrow.right() - 1 - expectedGap) <= 2);
+            QVERIFY(qAbs(firstLetter.top() + firstLetter.bottom() + 2 * (int(ui::metrics::chrome::returnArrowOffset) - int(ui::metrics::chrome::returnTitleOffset)) - arrow.top() - arrow.bottom()) <= 2);
             QVERIFY(last >= first);
-            QVERIFY2(qAbs(first + last - (image.height() - 1)) <= 2,
+            QVERIFY2(qAbs(first + last - (image.height() - 1) - 2 * int(ui::metrics::chrome::returnTitleOffset)) <= 2,
                      qPrintable(QString("%1 ink center is %2 px from the toolbar center")
                                     .arg(caption).arg((first + last - image.height() + 1) / 2.0)));
         }
         returnTitle->setText(originalCaption);
-        QVERIFY(fixture.click(exit));
+        auto *canvas = fixture.window.findChild<QGraphicsView *>();
+        QVERIFY(canvas);
+        const auto point = preset == 2 ? QPoint(int(ui::metrics::chrome::cellWidth) / 2, exit->height() / 2)
+                                      : returnTitle->mapTo(exit, returnTitle->rect().center());
+        const auto target = canvas->mapFromScene(exit->mapTo(reader, point));
+        const auto normal = exit->grab().toImage();
+        QCOMPARE(normal.pixelColor(5, 5), ui::themeColors(dark).paper);
+        QTest::mousePress(canvas->viewport(), Qt::LeftButton, Qt::NoModifier, target);
+        QTRY_VERIFY(exit->isDown());
+        const auto pressed = exit->grab().toImage();
+        QCOMPARE(pressed.pixelColor(5, 5), ui::themeColors(dark).ink);
+        QCOMPARE(pressed.pixelColor(int(ui::metrics::chrome::cellWidth) + 5, 5), ui::themeColors(dark).ink);
+        QVERIFY(visibleReturnCaption(pressed, returnTitle, ui::themeColors(dark).paper));
+        QCOMPARE(pressed.pixelColor(int(ui::metrics::chrome::cellWidth) - 1, 5), ui::themeColors(dark).ink);
+        QCOMPARE(pressed.pixelColor(pressed.width() - 1, 5), exit->palette().color(QPalette::Mid));
+        QVERIFY(pressed != normal);
+        QTest::mouseRelease(canvas->viewport(), Qt::LeftButton, Qt::NoModifier, target);
         QTRY_VERIFY_WITH_TIMEOUT(fixture.window.idle(), 30000);
         fixture.window.openBook(book);
         QTRY_COMPARE_WITH_TIMEOUT(opened.count(), 2, 30000);
@@ -5275,6 +5356,7 @@ private slots:
         QVERIFY(fixture.press("rrAnnotationSave"));
         QTRY_COMPARE(fixture.stored("highlights.json", "highlights").size(), 1);
         QTRY_VERIFY(!fixture.visible("rrAnnotationPopover"));
+        captureReturnPressed(fixture, name);
     }
     void widgetKeyboard_data() { screenshotVariants(); }
     void widgetKeyboard() {
@@ -5785,6 +5867,9 @@ private slots:
         QCOMPARE(input->echoMode(), QLineEdit::Normal);
         QVERIFY(capture(fixture, name + "-kosync-password-shown"));
         QVERIFY(fixture.press("rrKosyncEditCancel"));
+        QVERIFY(fixture.press("rrSettingsClose"));
+        QTRY_VERIFY(!fixture.visible("rrGeneralSettings"));
+        captureReturnPressed(fixture, name);
     }
     void library_data() { screenshotVariants(); }
     void library() {
@@ -6075,7 +6160,7 @@ int main(int argc, char **argv) {
         return app.exec();
     }
     QFile fixture(book);
-    const int expectedScreenshots = lightGallery ? 52 : 734;
+    const int expectedScreenshots = lightGallery ? 56 : 738;
     if (captures.size() != expectedScreenshots)
         qCritical() << "Expected" << expectedScreenshots << "screenshots, captured" << captures.size();
     if (!fixture.open(QIODevice::ReadOnly) || captures.size() != expectedScreenshots) {

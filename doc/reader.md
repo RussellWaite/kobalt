@@ -148,7 +148,7 @@ Kobalt also reports reading sessions and page turns to Nickel, including the est
 
 ## Reading interface
 
-The reader's return header uses a separate back button and an optically centered title. Standalone builds show Library and return to Kobalt's library. Kobo shows Exit Kobalt and returns to the stock library. Closing the book remains separate from exiting a standalone app.
+The reader's return control combines the arrow and optically centered title in one button. The arrow and title share a pressed state, with a 6-point gap between the visible arrow and text and a divider after the label. The arrow and label have small optical vertical offsets. Standalone builds show Library and return to Kobalt's library. Kobo shows Exit Kobalt and returns to the stock library. Closing the book remains separate from exiting a standalone app.
 
 Keyboard characters use the larger IBM Plex Sans interface face. The `123` key opens numbers and punctuation. Its label changes to `ABC` to return to letters.
 

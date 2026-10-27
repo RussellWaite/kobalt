@@ -131,6 +131,8 @@ namespace chrome {
 inline constexpr Px statusHeight{60}, actionHeight{112}, heavyRule{3};
 inline constexpr Px headerHeight{statusHeight + actionHeight};
 inline constexpr Px cellWidth{118}, cellIcon{40}, backIcon{44}, inset{36};
+inline constexpr Px returnLabelGap{25}; // 6 points at 300 ppi.
+inline constexpr Px returnArrowOffset{2}, returnTitleOffset{1};
 inline constexpr Px labelText{30}, descriptionText{25}, countText{28}, tabText{26}, titleText{about::exitText};
 // A bottom tab centers its icon and label as one group.
 inline constexpr Px tabIcon{48}, tabGap{10};

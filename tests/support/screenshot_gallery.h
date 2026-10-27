@@ -109,6 +109,7 @@ inline QString screenshotTitle(const QString &scene, const QJsonObject &book) {
         {"maths-equations", "Equations"},
         {"maths-reading", "Calculus Made Easy"},
         {"menu", "Reading menu"},
+        {"menu-return-pressed", "Return button pressed"},
         {"reading", "Reading"},
         {"search", "Search results"},
         {"search-empty", "Search this book"},
