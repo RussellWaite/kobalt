@@ -897,8 +897,14 @@ void Reader::dismissLinkConfirmation() {
 void Reader::dismissLinks() {
     ++linkEpoch;
     linkPending = false;
-    if (linkPanel)
+    if (linkPanel) {
+        const bool wasVisible = linkPanel->isVisible();
         linkPanel->hide();
+        if (wasVisible) {
+            requestFlash("footnote");
+            page->update();
+        }
+    }
     dismissLinkConfirmation();
 }
 
