@@ -23,15 +23,24 @@ void Reader::kosyncStatus(const QString &message) {
 }
 void Reader::buildKosync() {
     kosyncClient = std::make_unique<kosync::Client>(book->paths().syncAccount());
-    if (services.syncNetwork) kosyncNetwork = services.syncNetwork();
+    if (kosyncClient->signedIn() && !book->usesNativeCloudSync() && services.syncNetwork)
+        kosyncNetwork = services.syncNetwork();
     kosyncClient->setDefaultDeviceName(services.deviceName.isEmpty() ? QStringLiteral("Kobalt")
                                                                  : services.deviceName + QStringLiteral(" (Kobalt)"));
     kosyncPage->setNativeCloudSync(book->usesNativeCloudSync());
+    kosyncTimer.setParent(this);
+    kosyncTimer.setObjectName("rrKosyncTimer");
+    kosyncTimer.setInterval(30000);
+    connect(&kosyncTimer, &QTimer::timeout, this, [this] { synchronizeKosync(); });
     const auto account = [this] {
         kosyncPage->setFilenameMatching(kosyncClient->filenameMatching());
         kosyncPage->setDeviceName(kosyncClient->customDeviceName(), kosyncClient->defaultDeviceName());
         kosyncPage->setAccount(kosyncClient->server(), kosyncClient->username(), kosyncClient->signedIn(),
                                kosyncClient->automatic());
+        if (kosyncClient->signedIn() && kosyncClient->automatic() && !book->usesNativeCloudSync())
+            kosyncTimer.start();
+        else
+            kosyncTimer.stop();
     };
     account();
     kosyncPage->filenameMatchingChanged = [this](bool enabled) {
@@ -124,11 +133,6 @@ void Reader::buildKosync() {
     connect(&kosyncReaderRetry, &QTimer::timeout, this, [this] {
         if (kosyncReaderReady) continueKosyncWhenReady(std::move(kosyncReaderReady));
     });
-    kosyncTimer.setParent(this);
-    kosyncTimer.setObjectName("rrKosyncTimer");
-    kosyncTimer.setInterval(30000);
-    connect(&kosyncTimer, &QTimer::timeout, this, [this] { synchronizeKosync(); });
-    kosyncTimer.start();
 }
 void Reader::prepareKosyncPresentation(std::function<void(bool)> finished) {
     if (kosyncStarted || book->usesNativeCloudSync() || !kosyncClient->signedIn() || !kosyncClient->automatic() ||
@@ -187,6 +191,7 @@ void Reader::synchronizeKosync(bool interactive) {
     else startKosyncExchange(false);
 }
 void Reader::prepareKosyncNetwork(bool interactive, std::function<void()> ready) {
+    if (!kosyncNetwork && services.syncNetwork) kosyncNetwork = services.syncNetwork();
     if (!kosyncNetwork) { ready(); return; }
     const auto epoch = kosyncEpoch;
     kosyncConnecting = true;

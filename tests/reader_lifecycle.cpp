@@ -3121,6 +3121,77 @@ private slots:
         }
     }
 
+    void kosyncAccountGating_data() {
+        QTest::addColumn<QString>("account");
+        for (const auto *name : {"missing", "signed-out", "not-authenticated", "malformed", "future-account",
+                                 "automatic-off", "logout"})
+            QTest::newRow(name) << QString::fromLatin1(name);
+    }
+    void kosyncAccountGating() {
+        QFETCH(QString, account);
+        QTcpServer server;
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        QSignalSpy attempts(&server, &QTcpServer::newConnection);
+        const auto paths = testPaths();
+        if (account != "missing") {
+            const bool authenticated = account == "automatic-off" || account == "logout";
+            QVERIFY(storage::writeJson(paths.syncAccount(), {
+                {"schema", account == "future-account" ? 2 : 1},
+                {"server", QString("https://127.0.0.1:%1").arg(server.serverPort())},
+                {"username", account == "signed-out" ? QString() : QStringLiteral("reader")},
+                {"key", authenticated ? QString(32, 'a') : account == "malformed" ? QStringLiteral("invalid") : QString()},
+                {"device_id", "test-device"}, {"automatic", account != "automatic-off"}}));
+        }
+        const auto accountBytes = [&] {
+            QFile file(paths.syncAccount());
+            return file.open(QIODevice::ReadOnly) ? file.readAll() : QByteArray();
+        };
+        const auto original = accountBytes();
+        auto network = std::make_shared<SyncNetworkState>();
+        int factories = 0;
+        ReaderFixture host(paths, testFonts, testPlaceholder);
+        CloseHost cleanup{host};
+        host.configureServices = [&](ReaderHostServices &services) {
+            services.syncNetwork = [&] {
+                ++factories;
+                return std::make_unique<TestSyncNetwork>(network);
+            };
+        };
+        QSignalSpy opened(&host, &ReaderFixture::opened);
+        host.open(textBook, nativeSize);
+        QTRY_COMPARE_WITH_TIMEOUT(opened.count(), 1, 30000);
+        auto *timer = host.window()->findChild<QTimer *>("rrKosyncTimer");
+        QVERIFY(timer);
+        if (account == "logout") {
+            QVERIFY(timer->isActive());
+            auto *automatic = host.window()->findChild<QCheckBox *>("rrKosyncAutomatic");
+            QVERIFY(automatic && automatic->isChecked() && automatic->isEnabled());
+            automatic->click();
+            QVERIFY(!timer->isActive());
+            automatic->click();
+            QVERIFY(timer->isActive());
+            auto *logout = host.window()->findChild<QPushButton *>("rrKosyncLogout");
+            QVERIFY(logout && logout->isEnabled());
+            logout->click();
+            QVERIFY(!kosync::Client(paths.syncAccount()).signedIn());
+        }
+        QVERIFY2(!timer->isActive(), "Inactive accounts must not schedule periodic sync work");
+        QCOMPARE(factories, account == "automatic-off" || account == "logout" ? 1 : 0);
+        bool presented = false;
+        host.window()->preparePresentation([&](bool ready) { presented = ready; });
+        QVERIFY(presented);
+        QVERIFY(!host.window()->findChild<QWidget *>("rrKosyncOpening"));
+        QVERIFY(QMetaObject::invokeMethod(timer, "timeout", Qt::DirectConnection));
+        QCOMPARE(network->requests, 0);
+        QCOMPARE(attempts.count(), 0);
+        QVERIFY(host.session()->turn(1));
+        QTRY_VERIFY(!host.session()->busy());
+        host.shutdown();
+        QTRY_VERIFY_WITH_TIMEOUT(host.idle(), 10000);
+        QCOMPARE(network->requests, 0);
+        QCOMPARE(attempts.count(), 0);
+        if (account != "logout") QCOMPARE(accountBytes(), original);
+    }
     void kosyncOpening_data() {
         QTest::addColumn<bool>("skip");
         QTest::newRow("cancel-sync") << true;
