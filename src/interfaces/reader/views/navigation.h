@@ -25,7 +25,8 @@ class PageScrubber;
 struct ToolbarComposition {
     ui::Panel *panel = nullptr;
     QLayout *rows = nullptr;
-    QPushButton *exitAction = nullptr, *settings = nullptr, *bookmarks = nullptr, *annotate = nullptr;
+    QWidget *exitAction = nullptr;
+    QPushButton *settings = nullptr, *bookmarks = nullptr, *annotate = nullptr;
     QLabel *clock = nullptr, *session = nullptr, *battery = nullptr;
     ui::BluetoothIndicator *bluetooth = nullptr;
     ui::WifiIndicator *wifi = nullptr;

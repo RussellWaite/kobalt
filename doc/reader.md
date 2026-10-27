@@ -148,6 +148,8 @@ Kobalt also reports reading sessions and page turns to Nickel, including the est
 
 ## Reading interface
 
+The reader's return header uses a separate back button and an optically centered title. Standalone builds show Library and return to Kobalt's library. Kobo shows Exit Kobalt and returns to the stock library. Closing the book remains separate from exiting a standalone app.
+
 Keyboard characters use the larger IBM Plex Sans interface face. The `123` key opens numbers and punctuation. Its label changes to `ABC` to return to letters.
 
 Kobo and the Mac development app use Kobalt’s keyboard for text entry. Android uses its native system keyboard. Kobalt’s keyboard follows the current light or dark theme and provides letters, numbers, symbols, Shift, Space and Backspace. Keys have rounded corners and thicker outlines. Shift and Backspace use symbols. Backspace sits above the wider submit key, which has a Return symbol beside the current action label. The submit key is black in light mode and white in dark mode, with opposite text and symbol colors. Pressing it reverses those colors. Symbols invert with the keyboard, including pressed keys and selected Shift. Hold a letter to choose an accent or a ligature. Shift also applies to these choices. Release, then tap the choice, or drag onto it and release. Tap another key or press Escape to dismiss the choices. Dictionary and account editors stay above the keyboard.

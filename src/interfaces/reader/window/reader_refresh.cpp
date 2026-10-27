@@ -5,6 +5,7 @@
 #include "support/strings.h"
 #include "support/diagnostics.h"
 #include <QtMath>
+#include <initializer_list>
 #include <utility>
 
 namespace kobalt::reader {
@@ -393,8 +394,9 @@ void Reader::syncReadingControls() {
                      panels->currentIndex() != kobalt::reader::TypographyPage);
     findChild<QPushButton *>("rrSettings")->setChecked(general->isVisible());
     const bool settingsOpen = general->isVisible();
-    for (auto *action : {toolbarComposition.exitAction, toolbarComposition.settings, toolbarComposition.bookmarks,
-                         toolbarComposition.annotate, toolbarComposition.search})
+    for (auto *action : std::initializer_list<QWidget *>{toolbarComposition.exitAction, toolbarComposition.settings,
+                                                       toolbarComposition.bookmarks, toolbarComposition.annotate,
+                                                       toolbarComposition.search})
         if (action)
             action->setVisible(!settingsOpen);
     toolbarComposition.formattingWarning->setVisible(!settingsOpen && model->formattingWarning());

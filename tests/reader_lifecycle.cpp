@@ -1805,6 +1805,10 @@ private slots:
         auto *exit = host.window()->findChild<QPushButton *>("rrReturn");
         QVERIFY(exit);
         QTRY_VERIFY(exit->isVisible() && exit->isEnabled());
+        QCOMPARE(exit->accessibleName(), strings::get("reader.exit"));
+        auto *returnTitle = host.window()->findChild<QLabel *>("rrReturnTitle");
+        QVERIFY(returnTitle);
+        QCOMPARE(returnTitle->text(), strings::get("reader.exit"));
         QVERIFY(click(canvas, exit));
         QTRY_COMPARE_WITH_TIMEOUT(closed.count(), 1, 10000);
         QVERIFY(host.idle());

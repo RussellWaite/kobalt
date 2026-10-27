@@ -69,7 +69,6 @@
 "app.wordmark" = "Kobalt";
 
 /* android */
-"android.return" = "Kobalt";
 
 /* library */
 "library.title" = "Library";
@@ -81,6 +80,7 @@
 "library.close_search" = "Close search";
 "library.add_folder" = "Add folder";
 "library.more" = "More";
+"library.exit_to_library" = "Library";
 "library.view_home" = "Home";
 "library.view_list" = "List";
 "library.view_grid" = "Cover grid";

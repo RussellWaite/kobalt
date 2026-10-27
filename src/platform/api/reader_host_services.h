@@ -36,6 +36,8 @@ struct WifiStatus {
 struct ReaderHostServices {
     // Human-readable model used for the default sync device name.
     QString deviceName;
+    // Standalone hosts return to their Library; Kobo uses the default exit label.
+    QString backButtonLabel;
     // Desktop-only presentation preferences; fixtures retain device chrome.
     bool desktopUi = false;
     // Kobo supplies its default export folder. Other hosts open a save-location picker.

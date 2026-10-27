@@ -190,10 +190,6 @@ public:
             if (!android::refreshAvailable())
                 if (auto *control = reader->findChild<QWidget *>("rrScreenRefresh"))
                     control->hide();
-            if (auto *exit = reader->findChild<QPushButton *>("rrReturn")) {
-                exit->setText(strings::get("android.return"));
-                exit->setAccessibleName(strings::get("android.return"));
-            }
             reader->show();
             surfaceHandoff.present(true);
             setUpdatesEnabled(true);

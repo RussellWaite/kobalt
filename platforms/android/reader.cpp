@@ -171,7 +171,10 @@ void ReaderController::begin(const QString &path, QSize pixels) {
             const auto hash = guard->opening->sourceHash();
             auto book = std::make_unique<ReadingBook>(std::move(guard->opening), statePath, guard->paths, identity,
                                                       hash, nullptr, ReadingProgress{}, ReadingProgress{}, guard->currentSourceKey);
-            auto *window = createReaderWindow(std::move(book), &guard->orientation, guard->services());
+            auto services = guard->services();
+            if (services.backButtonLabel.isEmpty())
+                services.backButtonLabel = strings::get("library.exit_to_library");
+            auto *window = createReaderWindow(std::move(book), &guard->orientation, std::move(services));
             window->setAttribute(Qt::WA_DeleteOnClose, false);
             window->setWindowFlags(Qt::Widget);
             window->setWindowModality(Qt::NonModal);

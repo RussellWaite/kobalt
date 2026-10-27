@@ -444,11 +444,26 @@ void Reader::buildToolbar() {
     toolbar->addLayout(top);
     top->setSpacing(m::panel::toolbarGap);
     updateMenuStatus();
-    auto *back = new kobalt::ui::BackButton(strings::get("reader.exit"), topControls);
-    back->setContentsMargins(0, 0, m::panel::exitLabelExtraRight, 0);
-    toolbarComposition.exitAction = back;
+    const auto returnLabel = services.backButtonLabel.isEmpty() ? strings::get("reader.exit") : services.backButtonLabel;
+    auto *returnHeader = new ui::Panel(topControls);
+    returnHeader->setObjectName("rrReturnHeader");
+    auto *returnRow = new QHBoxLayout(returnHeader);
+    returnRow->setContentsMargins(0, 0, 0, 0);
+    returnRow->setSpacing(0);
+    auto *back = new ui::CellButton(ControlIcon::Back, returnHeader, m::chrome::backIcon);
+    back->setRule(Qt::RightEdge);
+    back->setFixedWidth(m::chrome::cellWidth);
+    back->setAccessibleName(returnLabel);
+    returnRow->addWidget(back);
+    auto *returnTitle = new ui::InterfaceLabel(returnLabel, returnHeader);
+    returnTitle->setObjectName("rrReturnTitle");
+    returnTitle->setAlignment(Qt::AlignCenter);
+    returnTitle->setContentsMargins(m::chrome::inset, 0, m::chrome::inset, 0);
+    readerStyle(returnTitle, styles::brand(m::chrome::titleText) + "background:transparent;");
+    returnRow->addWidget(returnTitle, 1);
+    toolbarComposition.exitAction = returnHeader;
     back->setObjectName("rrReturn");
-    top->addWidget(back);
+    top->addWidget(returnHeader);
     connect(back, &QPushButton::clicked, this, [this] {
         // The chapter list's close cell sits where Exit Kobalt is. A second
         // tap that lands after the list closed must not leave the reader.
@@ -456,8 +471,7 @@ void Reader::buildToolbar() {
             return;
         close();
     });
-    readerStyle(back, "QPushButton#rrReturn{" + styles::brand(m::about::exitText) + "}");
-    back->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
+    returnHeader->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
     top->addStretch(1);
     auto *lightButton = iconButton(topControls, top, "rrLight", strings::get("reader.brightness_and_warmth"),
                                    ControlIcon::Light, [this] {

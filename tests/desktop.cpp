@@ -1558,6 +1558,15 @@ exit 7
         QVERIFY(fixture.click(reader->findChild<QWidget *>("rrPage")));
         auto *exit = reader->findChild<QPushButton *>("rrReturn");
         QTRY_VERIFY(exit->isVisible());
+        QVERIFY(dynamic_cast<ui::CellButton *>(exit));
+        QCOMPARE(exit->accessibleName(), strings::get("library.exit_to_library"));
+        QCOMPARE(exit->width(), int(ui::metrics::chrome::cellWidth));
+        auto *returnTitle = reader->findChild<QLabel *>("rrReturnTitle");
+        QVERIFY(returnTitle && returnTitle->isVisible());
+        QCOMPARE(returnTitle->text(), strings::get("library.exit_to_library"));
+        QCOMPARE(returnTitle->parentWidget(), exit->parentWidget());
+        QCOMPARE(returnTitle->height(), exit->height());
+        QVERIFY(returnTitle->geometry().left() >= exit->geometry().right());
         QVERIFY(fixture.click(exit));
         QTRY_VERIFY_WITH_TIMEOUT(fixture.window.idle(), 30000);
         fixture.window.openBook(book);

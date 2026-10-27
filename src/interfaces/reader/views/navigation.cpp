@@ -399,7 +399,7 @@ void Navigation::update(QSize size, const NavigationState &state) {
             placeStatus(wifi);
     }
     session->setGeometry(sessionInset, ui::px(10), qMax(0, size.width() - 2 * sessionInset), ui::px(40));
-    exitAction->setGeometry(ui::px(24), statusHeight(), exitAction->sizeHint().width(), c::actionHeight);
+    exitAction->setGeometry(0, statusHeight(), exitAction->sizeHint().width(), c::actionHeight);
     settings->setGeometry(size.width() - c::cellWidth, statusHeight(), c::cellWidth, c::actionHeight);
     bookmarks->setGeometry(size.width() - 2 * c::cellWidth, statusHeight(), c::cellWidth, c::actionHeight);
     if (annotate) {
