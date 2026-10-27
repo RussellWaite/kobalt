@@ -52,6 +52,8 @@ public:
     WidgetKeyboard(QWidget *parent, QLineEdit *editor) : editor(editor), panel(new QWidget(parent)), window(panel->window()) {
         panel->setObjectName("widgetKeyboard");
         panel->setAutoFillBackground(true);
+        // Gaps and cancelled key releases must not reach a modal backdrop.
+        panel->setAttribute(Qt::WA_NoMousePropagation);
         readerStyle(panel, QStringLiteral(
             "QWidget#widgetKeyboard{background:palette(window);border-top:2px solid palette(window-text);}"
             "QWidget#widgetKeyboard QPushButton{border:%1px solid palette(mid);border-radius:%2px;background:palette(window);"

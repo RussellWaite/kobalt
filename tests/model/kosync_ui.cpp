@@ -6,6 +6,7 @@
 #include "interfaces/reader/ui/style/fonts.h"
 #include "interfaces/reader/ui/style/styles.h"
 #include "interfaces/reader/ui/style/theme.h"
+#include "interfaces/reader/ui/controls/keyboard.h"
 #include <QApplication>
 #include <QLineEdit>
 #include <QFontInfo>
@@ -32,6 +33,68 @@ private:
     int &destroyed_;
     QWidget *host_;
 };
+void checkKeyboardInputStaysInEditor() {
+    const int savedDensity = ui::density();
+    for (int ppi : {212, 300})
+        for (bool dark : {false, true}) {
+            ui::setDensity(ppi);
+            QWidget host;
+            host.resize(ui::px(800), ui::px(1136));
+            host.setFont(ui::interfaceFont());
+            ui::applyReaderPalette(&host, ui::readerPalette(host.palette(), dark));
+            ui::readerStyle(&host, ui::styles::reader());
+            reader::KosyncPage page(&host, &host, ui::makeWidgetKeyboard);
+            page.resize(host.size());
+            host.show();
+            page.show();
+            QApplication::processEvents();
+            for (const auto *field : {"rrKosyncServer", "rrKosyncUsername", "rrKosyncPassword"}) {
+                page.findChild<QPushButton *>(field)->click();
+                QApplication::processEvents();
+                auto *dialog = page.editorDialog.data();
+                auto *input = dialog->findChild<QLineEdit *>("rrKosyncInput");
+                auto *panel = dialog->findChild<QWidget *>("widgetKeyboard");
+                auto *first = panel->findChild<QPushButton *>("widgetKey1_0");
+                auto *second = panel->findChild<QPushButton *>("widgetKey1_1");
+                for (int i = 0; i < 3; ++i) QTest::mouseClick(first, Qt::LeftButton);
+                require(input->text() == "qqq", "real keyboard enters the account draft");
+
+                const auto left = first->mapTo(panel, QPoint(first->width(), first->height() / 2));
+                const auto right = second->mapTo(panel, QPoint(0, second->height() / 2));
+                require(right.x() > left.x(), "keyboard regression targets an actual gap between keys");
+                const auto gap = (left + right) / 2;
+                auto *gapTarget = panel->childAt(gap);
+                if (!gapTarget) gapTarget = panel;
+                QTest::mouseClick(gapTarget, Qt::LeftButton, Qt::NoModifier, gapTarget->mapFrom(panel, gap));
+                require(page.editorDialog && input->text() == "qqq", "a key gap does not dismiss the account draft");
+                QTest::mouseClick(panel, Qt::LeftButton, Qt::NoModifier, QPoint(1, 1));
+                require(page.editorDialog, "keyboard padding does not dismiss the editor");
+
+                QTest::mousePress(first, Qt::LeftButton);
+                QTest::mouseRelease(first, Qt::LeftButton, Qt::NoModifier, QPoint(-1, -1));
+                require(page.editorDialog && input->text() == "qqq", "releasing outside a key keeps the draft open");
+                QTest::mousePress(first, Qt::LeftButton);
+                QEvent cancel(QEvent::TouchCancel);
+                QApplication::sendEvent(first, &cancel);
+                QTest::mouseRelease(first, Qt::LeftButton, Qt::NoModifier, QPoint(-1, -1));
+                require(page.editorDialog && input->text() == "qqq", "a cancelled key release keeps the draft open");
+
+                QTest::mousePress(first, Qt::LeftButton);
+                QTest::mousePress(second, Qt::LeftButton);
+                QTest::mouseRelease(first, Qt::LeftButton);
+                require(page.editorDialog, "overlapping key presses do not dismiss the editor");
+                QTest::mouseRelease(second, Qt::LeftButton);
+                require(input->text() == "qqqw", "the remaining pressed key still enters its character");
+                for (int i = 0; i < 100; ++i) QTest::mouseClick(first, Qt::LeftButton);
+                require(page.editorDialog && input->text() == "qqqw" + QString(100, QChar('q')),
+                        "rapid key clicks continue editing after gaps and cancelled presses");
+                dialog->findChild<QPushButton *>("rrKosyncEditCancel")->click();
+                require(!page.editorDialog, "Cancel still closes the account editor");
+                QApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+            }
+        }
+    ui::setDensity(savedDensity);
+}
 }
 int main(int argc, char **argv) {
     QApplication app(argc, argv);
@@ -39,6 +102,7 @@ int main(int argc, char **argv) {
     app.setPalette(ui::readerPalette(app.palette(), false));
     ui::setInterfaceWeight(ui::heavierTextSteps);
     require(ui::initializeInterfaceFonts(test::readerAssets()), "load the production interface fonts");
+    checkKeyboardInputStaysInEditor();
     {
         QWidget host;
         host.resize(1072, 1448);
