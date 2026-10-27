@@ -4376,7 +4376,11 @@ private slots:
             QCOMPARE(host.session()->markup().imageKey, host.session()->image().cacheKey());
         }
         if (markup == "draft") {
-            const auto persisted = storage::readJson(store.folder() + "/highlights.json");
+            QVERIFY(annotationDatabaseEnabled());
+            QVERIFY(store.load());
+            QJsonArray persisted;
+            for (const auto &highlight : store.highlights()) persisted.append(highlightJson(highlight));
+            QCOMPARE(persisted.size(), 1);
             paints.images.clear();
             paints.milliseconds.clear();
             paints.destination = 1;
@@ -4396,7 +4400,11 @@ private slots:
             QCOMPARE(paints.images.first(), page->snapshot());
             QVERIFY(host.session()->markup().request.draftStart.isEmpty());
             QCOMPARE(host.session()->markup().request.saved.size(), 1);
-            QCOMPARE(storage::readJson(store.folder() + "/highlights.json"), persisted);
+            HighlightStore reopened(paths.annotations(), identity, host.session()->sourceHash(), "test", paths.database());
+            QVERIFY(reopened.load());
+            QJsonArray actual;
+            for (const auto &highlight : reopened.highlights()) actual.append(highlightJson(highlight));
+            QCOMPARE(actual, persisted);
             QVERIFY(!host.window()->findChild<QWidget *>("rrAnnotationPopover")->isVisible());
         }
     }

@@ -767,6 +767,12 @@ void crashRecovery(const QString &program) {
             storage::closeProfile();
             require(!QFile::exists(database + "-wal"), "Closing after recovery left the log");
         }
+        BookmarkStore bookmarks(root.path(), identity, fingerprint, "Book");
+        require(bookmarks.load() && bookmarks.bookmarks().size() == 1 &&
+                    bookmarks.bookmarks().first().position == "saved bookmark position" &&
+                    bookmarks.bookmarks().first().excerpt == QString::fromUtf8("saved \xc3\xa9") + QChar(0) + " text",
+                "Crash recovery lost the bookmark or its Unicode payload");
+        storage::closeProfile();
     }
 }
 // Routine commits wait for a sync. A synced commit that changes rows syncs
@@ -919,6 +925,11 @@ int main(int argc, char **argv) {
         require(store.load(), "Cannot initialize crash fixture");
         auto h = highlight(); h.note = "saved before the crash";
         store.setHighlights({h}); require(store.save(), "Cannot save crash fixture");
+        BookmarkStore bookmarks(root, identity, fingerprint, "Book");
+        require(bookmarks.load(), "Cannot initialize crashed bookmark fixture");
+        bookmarks.setBookmarks({{"saved bookmark position", "Chapter",
+            QString::fromUtf8("saved \xc3\xa9") + QChar(0) + " text", QDateTime::currentDateTimeUtc()}});
+        require(bookmarks.save(), "Cannot save crashed bookmark fixture");
         {
             storage::RoutineWrites routine;
             require(storage::writeBookState(storage::Paths{root}, "crash-book",

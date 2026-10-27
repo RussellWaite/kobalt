@@ -14,9 +14,11 @@ Use the installed Qt 6.11.3 SDK. Configure once as described in [Building](build
 
 Use `ctest --preset mac -N` to list registered tests. Use `-R` to select a test name or `-L model`, `-L engine`, `-L session` or `-L desktop`, `-L resource` or `-L component`, `-L ui`, `-L platform` or `-L corpus` to select a group. CTest does not build tests automatically. A failed test prints its assertion and captured output. CTest keeps the latest run in `build/desktop-mac/Testing/Temporary/LastTest.log`.
 
-The Android asset-installation model check runs the production installer with an embedded fixture. It verifies cleanup after successful installation and cached startup, retention after failed installation, and preservation of unrelated entries and symlink targets.
+The Android asset-installation model check runs the production installer with an embedded fixture. It verifies cleanup after successful installation and cached startup, retention after failed installation, and preservation of unrelated entries and symlink targets. The draft-exit annotation-frame case reloads the SQLite store and compares complete saved records after leaving draft mode.
 
 `lifecycle.progressPercentagesAgree` compares the reading footer, progress bar, Stats, sleep snapshot and saved Library percentage at the first, intermediate and last pages. The progress model checks rounding, unknown and single-page lengths, out-of-range positions and large page counts.
+
+The bookmark and highlight session checks run their shared editing, reflow and reopening cases in separate JSON and SQLite processes. SQLite write-abort fixtures check failed add, removal, merge, appearance and passage edits, rollback to saved records, and retry. Malformed rows must block session edits without being discarded. Close checks reload the final queued edit and its payload from a new connection. The database crash fixture retains bookmarks, annotations and reading positions in the write-ahead log, including Unicode and embedded NUL text.
 
 ## KOsync
 
