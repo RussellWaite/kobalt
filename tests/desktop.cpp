@@ -857,7 +857,7 @@ void tour(Fixture &fixture, const QString &name, bool screenshots) {
     QVERIFY(scene("annotations"));
     if (!screenshots) {
         QVERIFY(fixture.widget("rrAnnotationMore")->isVisible());
-        QVERIFY(!fixture.widget("rrAnnotationMore")->isEnabled());
+        QVERIFY(fixture.widget("rrAnnotationMore")->isEnabled());
     }
     QVERIFY(fixture.press("rrBookmarkListClose"));
     if (!fixture.visible("rrSearchOpen"))
@@ -1360,7 +1360,14 @@ private slots:
         QTRY_VERIFY(fixture.visible("rrBookmarks"));
         QVERIFY(fixture.press("rrBookmarks"));
         QTRY_VERIFY(fixture.visible("rrBookmarkRemove0"));
-        QVERIFY(!fixture.widget("rrAnnotationMore")->isVisible());
+        QVERIFY(fixture.widget("rrAnnotationMore")->isVisible());
+        QVERIFY(fixture.widget("rrAnnotationMore")->isEnabled());
+        QVERIFY(fixture.press("rrAnnotationMore"));
+        QTRY_VERIFY(fixture.visible("rrAnnotationExportHtml"));
+        QVERIFY(!fixture.widget("rrAnnotationExportHtml")->isEnabled());
+        QVERIFY(!fixture.widget("rrAnnotationExportMarkdown")->isEnabled());
+        QVERIFY(fixture.click(fixture.widget("rrAnnotationActions"), QPoint(5, 5)));
+        QTRY_VERIFY(!fixture.widget("rrAnnotationActions"));
         QVERIFY(fixture.press("rrBookmarkRemove0"));
         QTRY_VERIFY(fixture.visible("rrRemoveBookmark"));
         QCOMPARE(fixture.stored("bookmarks.json", "bookmarks"), original);
@@ -2870,11 +2877,20 @@ private slots:
         QVERIFY(fixture.click(actions, actions->mapFrom(reader, bookmarksTabWidget->mapTo(reader, bookmarksTabWidget->rect().center()))));
         QTRY_VERIFY(!fixture.widget("rrAnnotationActions"));
         QVERIFY(annotationsTab->isChecked());
+        const int moreX = fixture.widget("rrAnnotationMore")->x();
+        const int sortX = fixture.widget("rrMarksSort")->x();
+        QVERIFY(fixture.press("rrBookmarksTab"));
+        QTRY_VERIFY(bookmarksTab->isChecked());
+        QVERIFY(fixture.widget("rrAnnotationMore")->isVisible());
+        QCOMPARE(fixture.widget("rrAnnotationMore")->x(), moreX);
+        QCOMPARE(fixture.widget("rrMarksSort")->x(), sortX);
         QVERIFY(fixture.pressAnnotationExport(exportAction));
         QTRY_VERIFY(fixture.visible("rrAnnotationExportConfirm"));
         QVERIFY(!fixture.widget("rrAnnotationExportPicker"));
         QVERIFY(fixture.press("rrAnnotationExportCancel"));
         QTRY_VERIFY(!fixture.widget("rrAnnotationExportDialog"));
+        QVERIFY(fixture.press("rrAnnotationsTab"));
+        QTRY_VERIFY(annotationsTab->isChecked());
         if (pickerExport) {
             QVERIFY(fixture.pressAnnotationExport(exportAction));
             QTRY_VERIFY(fixture.visible("rrAnnotationExportConfirm"));

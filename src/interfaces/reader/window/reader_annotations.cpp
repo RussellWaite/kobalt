@@ -45,7 +45,7 @@ void Reader::closeMarksActions() {
 }
 
 void Reader::openMarksActions() {
-    if (marksActions || removeDialog || annotationExportPicker || !bookmarkList->annotationsShown() || model->busy() ||
+    if (marksActions || removeDialog || annotationExportPicker || model->busy() ||
         closing || lifecycleHidden || services.suspended() || book->deviceTransition()) return;
     const ui::ActionMenuHeader header{{}, strings::get("annotations.export"),
                                       strings::get("annotations.export_compression"), {}};
