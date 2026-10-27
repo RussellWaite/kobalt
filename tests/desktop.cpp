@@ -33,6 +33,7 @@
 #include "support/engine_fixtures.h"
 #include "support/literary_book.h"
 #include "support/screenshot_gallery.h"
+#include "support/screenshot_runner.h"
 #include "support/strings.h"
 #include "engine/crengine/reader_model.h"
 #include "interfaces/reader/ui/controls/page_scrubber.h"
@@ -50,6 +51,8 @@
 #include <lvtinydom.h>
 
 #include <QApplication>
+#include <csignal>
+#include <cerrno>
 #include <QAction>
 #include <QCheckBox>
 #include <QBuffer>
@@ -579,6 +582,7 @@ bool hasText(const QImage &source) {
 }
 
 bool capture(Fixture &fixture, const QString &name, QWidget *nativeScreen = nullptr) {
+    if (captureDirectory.isEmpty()) return true;
     // Model state and visibility can settle before queued layouts and proxy
     // cache updates. Deliver those updates before rendering the visible frame.
     QCoreApplication::processEvents();
@@ -1106,6 +1110,60 @@ void tour(Fixture &fixture, const QString &name, bool screenshots) {
 class DesktopTests final : public QObject {
     Q_OBJECT
 private slots:
+    void galleryWorkerFailure() {
+        QTemporaryDir directory(QDir::tempPath() + "/gallery workers-XXXXXX");
+        QVERIFY(directory.isValid());
+        const auto script = directory.path() + "/worker.sh";
+        QFile file(script);
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        const QByteArray source = R"SH(#!/bin/sh
+if [ "$3" = "-datatags" ]; then
+    printf 'ScreenshotTests fixture 1-light\nScreenshotTests fixture 1-dark\n'
+    exit 0
+fi
+if [ "$3" = "fixture:1-light" ]; then
+    echo $$ > "$2/pid"
+    exec sleep 30
+fi
+# Fail only after proving the other case is running concurrently.
+root=${2%/*}
+i=0
+while [ ! -f "$root/worker-0/pid" ] && [ "$i" -lt 100 ]; do
+    sleep 0.01
+    i=$((i + 1))
+done
+[ -f "$root/worker-0/pid" ] || exit 9
+exit 7
+)SH";
+        QCOMPARE(file.write(source), source.size());
+        file.close();
+        QVERIFY(file.setPermissions(QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner));
+        const auto previous = qgetenv("KOBALT_GALLERY_JOBS");
+        const bool wasSet = qEnvironmentVariableIsSet("KOBALT_GALLERY_JOBS");
+        const auto restore = qScopeGuard([&] {
+            if (wasSet) qputenv("KOBALT_GALLERY_JOBS", previous);
+            else qunsetenv("KOBALT_GALLERY_JOBS");
+        });
+        qputenv("KOBALT_GALLERY_JOBS", "2");
+        QJsonArray images;
+        QElapsedTimer timer;
+        timer.start();
+        QTest::ignoreMessage(QtCriticalMsg, QRegularExpression("fixture:1-dark.*"));
+        QVERIFY(!test::screenshotJobs(script, directory.path(), directory.path(), false, images));
+        QVERIFY(timer.elapsed() < 5000);
+        QFile pidFile(directory.path() + "/worker-0/pid");
+        QVERIFY(pidFile.open(QIODevice::ReadOnly));
+        bool ok = false;
+        const auto pid = pidFile.readAll().trimmed().toLongLong(&ok);
+        QVERIFY(ok && pid > 0);
+        errno = 0;
+        QCOMPARE(::kill(pid_t(pid), 0), -1);
+        QCOMPARE(errno, ESRCH);
+        QVERIFY(images.isEmpty());
+        qputenv("KOBALT_GALLERY_JOBS", "0");
+        QTest::ignoreMessage(QtCriticalMsg, "KOBALT_GALLERY_JOBS must be between 1 and 32");
+        QVERIFY(!test::screenshotJobs(script, directory.path(), directory.path(), false, images));
+    }
     void galleryIntegrity() {
         QTemporaryDir directory;
         QVERIFY(directory.isValid());
@@ -5124,6 +5182,72 @@ private slots:
         notice->hide();
         delete notice;
     }
+    void primaryViews_data() { screenshotVariants(); }
+    void primaryViews() {
+        QFETCH(int, preset);
+        QFETCH(bool, dark);
+        Fixture fixture(dark, false, true);
+        QVERIFY(fixture.prepared);
+        fixture.window.findChild<QComboBox *>("desktopScreenPicker")->setCurrentIndex(preset);
+        const auto name = QString(preset == 1 ? "six-inch-" : "seven-inch-") + (dark ? "dark" : "light");
+        auto *start = fixture.window.findChild<android::StartScreen *>();
+        QTRY_VERIFY(start && start->libraryShown());
+        QTRY_COMPARE(start->library()->size(), preset == 1 ? QSize(1072, 1448) : QSize(1264, 1680));
+        QVERIFY(capture(fixture, name + "-library-home"));
+        QSignalSpy opened(&fixture.window, &desktop::Window::bookOpened);
+        fixture.window.openBook(book);
+        QTRY_COMPARE_WITH_TIMEOUT(opened.count(), 1, 30000);
+        QTRY_VERIFY(!fixture.state().value("busy").toBool());
+        openPrologueBody(fixture);
+        QVERIFY(capture(fixture, name + "-reading"));
+        auto *page = static_cast<ReadingPage *>(fixture.widget("rrPage"));
+        QVERIFY(fixture.click(page, page->bookmarkCorner().center()));
+        QTRY_VERIFY(fixture.state().value("bookmarked").toBool());
+        const auto scene = [&](const char *action, const char *visible, const char *suffix) {
+            if (!fixture.press(action)) return false;
+            if (!QTest::qWaitFor([&] { return fixture.visible(visible); }, 5000)) return false;
+            return capture(fixture, name + '-' + suffix);
+        };
+        QVERIFY(scene("rrPage", "rrSettings", "menu"));
+        QVERIFY(scene("rrNavChapters", "rrContents", "chapters"));
+        QVERIFY(fixture.press("rrChapter1"));
+        QTRY_VERIFY(!fixture.state().value("busy").toBool());
+        advanceIntoBody(fixture);
+        QVERIFY(fixture.press("rrPage"));
+        QVERIFY(scene("rrNavStats", "rrChapterGraph", "stats"));
+        QVERIFY(fixture.press("rrNavStats"));
+        QVERIFY(scene("rrNavText", "rrFont", "text"));
+        QVERIFY(scene("rrFont", "rrChoices", "fonts"));
+        QVERIFY(fixture.press("rrFontClose"));
+        QVERIFY(scene("rrNavLayout", "rrHeaderFooter", "layout"));
+        QVERIFY(scene("rrSettings", "rrGeneralSettings", "settings"));
+        QVERIFY(fixture.press("rrSettingsClose"));
+        if (!fixture.visible("rrBookmarks")) QVERIFY(fixture.press("rrPage"));
+        QVERIFY(scene("rrBookmarks", "rrBookmarkList", "bookmarks"));
+        QVERIFY(fixture.press("rrBookmarkListClose"));
+        if (!fixture.visible("rrSearchOpen")) QVERIFY(fixture.press("rrPage"));
+        QVERIFY(scene("rrSearchOpen", "rrSearchQuery", "search-empty"));
+        auto *query = qobject_cast<QLineEdit *>(fixture.widget("rrSearchQuery"));
+        QVERIFY(query);
+        query->setText("Trevelyan");
+        QVERIFY(scene("rrSearchSubmit", "rrSearchResult0", "search"));
+        QVERIFY(fixture.press("rrSearchResult0"));
+        QTRY_VERIFY(!fixture.state().value("busy").toBool());
+        openPrologueBody(fixture);
+        QVERIFY(fixture.press("rrPage"));
+        QVERIFY(fixture.press("rrAnnotate"));
+        const auto word = fixture.wordPoint();
+        QVERIFY(word.x() >= 0);
+        QVERIFY(fixture.selectWord(page, word));
+        QTRY_VERIFY(!page->annotationHandleRect(true).isEmpty());
+        QVERIFY(fixture.click(page, word));
+        QTRY_VERIFY(fixture.visible("rrAnnotationSave"));
+        QVERIFY(capture(fixture, name + "-annotation-actions"));
+        QVERIFY(fixture.press("rrAnnotationStyle_shaded"));
+        QVERIFY(fixture.press("rrAnnotationSave"));
+        QTRY_COMPARE(fixture.stored("highlights.json", "highlights").size(), 1);
+        QTRY_VERIFY(!fixture.visible("rrAnnotationPopover"));
+    }
     void widgetKeyboard_data() { screenshotVariants(); }
     void widgetKeyboard() {
         QFETCH(int, preset);
@@ -5863,12 +5987,17 @@ int main(int argc, char **argv) {
         }
         return child.exitStatus() == QProcess::NormalExit ? child.exitCode() : 2;
     }
+    const bool worker = arguments.size() >= 4 && arguments.at(1) == "--screenshot-worker";
+    const bool lightTests = arguments.size() == 2 && arguments.at(1) == "--light-tests";
+    const bool lightGallery = arguments.size() == 4 && arguments.at(3) == "--light";
     const bool screenshots = arguments.size() >= 2 && arguments.at(1) == "--screenshots";
     QString output;
+    QElapsedTimer galleryTimer;
+    galleryTimer.start();
     std::unique_ptr<QTemporaryDir> staging;
     if (screenshots) {
-        if (arguments.size() != 3 || !QDir::isAbsolutePath(arguments.at(2))) {
-            qCritical() << "Usage: kobalt-desktop-tests --screenshots ABSOLUTE_DIRECTORY";
+        if ((arguments.size() != 3 && !lightGallery) || !QDir::isAbsolutePath(arguments.at(2))) {
+            qCritical() << "Usage: kobalt-desktop-tests --screenshots ABSOLUTE_DIRECTORY [--light]";
             return 2;
         }
         output = QDir::cleanPath(arguments.at(2));
@@ -5894,15 +6023,31 @@ int main(int argc, char **argv) {
     }
     DesktopTests tests;
     ScreenshotTests screens;
-    QTimer::singleShot(0, &app, [&] {
-        app.exit(QTest::qExec(screenshots ? static_cast<QObject *>(&screens) : &tests, arguments));
-    });
-    const int result = app.exec();
-    if (result != 0 || !screenshots) {
-        return result;
+    if (worker) {
+        const auto selectors = arguments.mid(3);
+        captureDirectory = arguments.at(2);
+        if (!QDir::isAbsolutePath(captureDirectory) || !QDir().mkpath(captureDirectory) ||
+            QFileInfo::exists(captureDirectory + "/part.json")) return 2;
+        QTimer::singleShot(0, &app, [&] {
+            app.exit(QTest::qExec(&screens, QStringList{arguments.first()} + selectors));
+        });
+        const int result = app.exec();
+        if (result || selectors == QStringList{"-datatags"}) return result;
+        QSaveFile record(captureDirectory + "/part.json");
+        const auto json = QJsonDocument(captures).toJson();
+        return record.open(QIODevice::WriteOnly) && record.write(json) == json.size() && record.commit() ? 0 : 2;
+    }
+    if (screenshots) {
+        if (!test::screenshotJobs(QCoreApplication::applicationFilePath(), staging->path(), captureDirectory, lightGallery, captures)) return 2;
+    } else {
+        if (lightTests) arguments = {arguments.first(), "primaryViews"};
+        QTimer::singleShot(0, &app, [&] {
+            app.exit(QTest::qExec(lightTests ? static_cast<QObject *>(&screens) : &tests, arguments));
+        });
+        return app.exec();
     }
     QFile fixture(book);
-    constexpr int expectedScreenshots = 734;
+    const int expectedScreenshots = lightGallery ? 52 : 734;
     if (captures.size() != expectedScreenshots)
         qCritical() << "Expected" << expectedScreenshots << "screenshots, captured" << captures.size();
     if (!fixture.open(QIODevice::ReadOnly) || captures.size() != expectedScreenshots) {
@@ -5912,7 +6057,7 @@ int main(int argc, char **argv) {
                                {"commit", kobaltCommit}, {"modified", bool(KOBALT_COMMIT_MODIFIED)},
                                {"book", "Trevelyan's Type Tester v1.2 with chapter-heading CSS fix"}, {"book_file", QFileInfo(book).fileName()},
                                {"book_sha256", QString::fromLatin1(QCryptographicHash::hash(fixture.readAll(), QCryptographicHash::Sha256).toHex())},
-                               {"images", captures}};
+                               {"suite", lightGallery ? "light" : "full"}, {"images", captures}};
     QSaveFile record(captureDirectory + "/manifest.json");
     const auto json = QJsonDocument(manifest).toJson();
     if (!record.open(QIODevice::WriteOnly) || record.write(json) != json.size() || !record.commit()) {
@@ -5938,7 +6083,7 @@ int main(int argc, char **argv) {
     }
     if (existing && !QDir(previous).removeRecursively())
         qWarning() << "Cannot remove superseded screenshots:" << previous;
-    qInfo().noquote() << "Saved" << captures.size() << "screenshots and manifest.json to" << output;
+    qInfo().noquote() << "Saved" << captures.size() << "screenshots and manifest.json to" << output << "in" << galleryTimer.elapsed() / 1000.0 << "seconds";
     return 0;
 }
 

@@ -213,7 +213,7 @@ if(BUILD_TESTING)
         KOBALT_TEST_VARIABLE_FONT="${test_variable_font}")
     file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-tmp")
     set(headless_environment "QT_QPA_PLATFORM=minimal:enable_fonts:freetype" "QT_STYLE_OVERRIDE=Fusion" "TMPDIR=${CMAKE_CURRENT_BINARY_DIR}/test-tmp")
-    foreach(check annotationDefaultView galleryIntegrity sameProcessReadersDoNotRecoverEachOther standaloneHistorySourceKeys verticalJustification startup libraryOnboarding reading errors diagnostics storageDiagnostics features stylesheet bookmarks bookmarkMerge annotations annotationModeFeedback annotationSelection coordinateProbeSerialization annotationGripMenus annotationCrossPageDrag selectionCrossPageDrag annotationCrossPageOverlap annotationOverlap touchCursor touchCursorOutsideReader links tappableLinks bookmarkCornerLinks
+    foreach(check annotationDefaultView galleryWorkerFailure galleryIntegrity sameProcessReadersDoNotRecoverEachOther standaloneHistorySourceKeys verticalJustification startup libraryOnboarding reading errors diagnostics storageDiagnostics features stylesheet bookmarks bookmarkMerge annotations annotationModeFeedback annotationSelection coordinateProbeSerialization annotationGripMenus annotationCrossPageDrag selectionCrossPageDrag annotationCrossPageOverlap annotationOverlap touchCursor touchCursorOutsideReader links tappableLinks bookmarkCornerLinks
             annotationSectionBoundary headerFooterDismissal settings advancedText globalLayout columns fullWidthPanels dictionaryRedraw dictionaryAppearance dictionaryEditing dictionaryDismissal opticalSize desktopControls navigation bookmarkReturn booxMenuDismissalRefresh booxRetirementFrame annotationTwoFingerTapConsumesWholeSequence annotationRightClickRejectsChords library libraryTextInheritance libraryGridRows libraryHold libraryAtStart)
         set(lane fast)
         if(check MATCHES "^(annotationDefaultView|sameProcessReadersDoNotRecoverEachOther|standaloneHistorySourceKeys|verticalJustification|features|diagnostics|stylesheet|bookmarks|bookmarkMerge|annotations|annotationModeFeedback|annotationSelection|coordinateProbeSerialization|annotationGripMenus|annotationCrossPageDrag|annotationSectionBoundary|selectionCrossPageDrag|annotationCrossPageOverlap|annotationOverlap|touchCursor|touchCursorOutsideReader|links|tappableLinks|bookmarkCornerLinks|headerFooterDismissal|settings|advancedText|globalLayout|columns|fullWidthPanels|dictionaryRedraw|dictionaryAppearance|dictionaryEditing|dictionaryDismissal|opticalSize|desktopControls|navigation|bookmarkReturn|booxMenuDismissalRefresh|booxRetirementFrame|library|libraryTextInheritance|libraryGridRows|libraryHold|libraryAtStart)$")
@@ -231,6 +231,15 @@ if(BUILD_TESTING)
             -P "${CMAKE_CURRENT_SOURCE_DIR}/run-test.cmake")
         set_tests_properties(desktop.${check} PROPERTIES ENVIRONMENT "${headless_environment}"
             LABELS "desktop;${lane}" TIMEOUT ${ctest_timeout})
+    endforeach()
+    add_test(NAME desktop.primaryViews COMMAND "${CMAKE_COMMAND}"
+        "-DTEST_EXECUTABLE=$<TARGET_FILE:kobalt-desktop-tests>" "-DTEST_ARGUMENTS=--light-tests"
+        "-DTEST_TIMEOUT=60" "-DTEST_TMP_ROOT=${CMAKE_CURRENT_BINARY_DIR}/test-tmp"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/run-test.cmake")
+    set_tests_properties(desktop.primaryViews PROPERTIES ENVIRONMENT "${headless_environment}"
+        LABELS "desktop;light" TIMEOUT 65)
+    foreach(check startup reading errors storageDiagnostics galleryIntegrity galleryWorkerFailure)
+        set_property(TEST desktop.${check} APPEND PROPERTY LABELS light)
     endforeach()
     foreach(profile 300-light 300-dark 0-light 0-dark)
         add_test(NAME desktop.wordSelection.${profile} COMMAND "${CMAKE_COMMAND}"
@@ -508,7 +517,13 @@ if(BUILD_TESTING)
             -P "${CMAKE_CURRENT_SOURCE_DIR}/prepare-screenshot-books.cmake"
         COMMAND "${CMAKE_COMMAND}" "-DTEST_EXECUTABLE=$<TARGET_FILE:kobalt-desktop-tests>"
             "-DTEST_ARGUMENTS=--screenshots;${KOBALT_ROOT}/build/screenshots/mac"
-            "-DTEST_TMP_ROOT=${CMAKE_CURRENT_BINARY_DIR}/test-tmp" "-DTEST_TIMEOUT=300"
+            "-DTEST_TMP_ROOT=${CMAKE_CURRENT_BINARY_DIR}/test-tmp" "-DTEST_TIMEOUT=600"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/run-test.cmake"
+        DEPENDS kobalt-desktop-tests USES_TERMINAL VERBATIM)
+    add_custom_target(screenshots-light
+        COMMAND "${CMAKE_COMMAND}" "-DTEST_EXECUTABLE=$<TARGET_FILE:kobalt-desktop-tests>"
+            "-DTEST_ARGUMENTS=--screenshots;${KOBALT_ROOT}/build/screenshots/mac-light;--light"
+            "-DTEST_TMP_ROOT=${CMAKE_CURRENT_BINARY_DIR}/test-tmp" "-DTEST_TIMEOUT=120"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/run-test.cmake"
         DEPENDS kobalt-desktop-tests USES_TERMINAL VERBATIM)
     add_custom_target(screenshot-gallery

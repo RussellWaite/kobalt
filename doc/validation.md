@@ -6,11 +6,17 @@ Use the installed Qt 6.11.3 SDK. Configure once as described in [Building](build
 
 | Task | Build | Run or output |
 | --- | --- | --- |
+| Light app checks | `cmake --build --preset mac-light-tests` | `ctest --preset mac-light` |
+| Light gallery | `cmake --build --preset mac-light-screenshots` | `build/screenshots/mac-light/index.html`, relative to the repository root |
 | Fast checks | `cmake --build --preset mac-fast-tests` | `ctest --preset mac-fast` |
 | All native checks | `cmake --build --preset mac-tests` | `ctest --preset mac` |
 | Integration checks | `cmake --build --preset mac-tests` | `ctest --preset mac-integration` |
 | Screenshot gallery | `cmake --build --preset mac-screenshots` | `build/screenshots/mac/index.html`, relative to the repository root |
 | Interactive app | `cmake --build --preset mac` | Open `build/desktop-mac/Kobalt.app` manually |
+
+Use the light lane for routine UI changes. It checks startup, opening and paging, saved reading position, error handling, storage diagnostics and gallery integrity. Its primary-view tour checks Library, reading, chapters, statistics, text and font controls, layout, settings, bookmarking, search and saving an annotation in both themes and reader sizes. The light gallery captures that tour without downloading books. It does not replace lifecycle, migration, corpus, platform or full feature checks. Before a beta release, run all native checks and the full gallery, followed by the required platform validation.
+
+Gallery workers run in separate processes with isolated profiles and temporary files. Each worker reuses immutable font setup across its cases. The default worker count uses the available CPUs, up to eight workers. Set `KOBALT_GALLERY_JOBS` to an integer from 1 to 32 to override it. Each worker has a hang guard. Individual UI actions retain their behavioral deadlines. A failed worker stops the run and preserves the previous complete gallery. Captures are sorted before the manifest is written, then checked for completeness, checksums, dimensions and density before replacement. The light and full galleries have separate output directories. Neither captures Android device screens.
 
 Use `ctest --preset mac -N` to list registered tests. Use `-R` to select a test name or `-L model`, `-L engine`, `-L session` or `-L desktop`, `-L resource` or `-L component`, `-L ui`, `-L platform` or `-L corpus` to select a group. CTest does not build tests automatically. A failed test prints its assertion and captured output. CTest keeps the latest run in `build/desktop-mac/Testing/Temporary/LastTest.log`.
 
