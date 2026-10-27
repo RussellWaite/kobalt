@@ -1,4 +1,5 @@
 #include "platforms/kobo/common/native_progress.h"
+#include "platforms/kobo/common/tolino_progress.h"
 #include "check.h"
 #include <QCoreApplication>
 
@@ -37,6 +38,28 @@ PlugManager *PlugManager::sharedInstance() {
 
 int main(int argc, char **argv) {
     QCoreApplication app(argc, argv);
+    QVariantMap bookmark{{"position", "chapter.xhtml#p:7"}, {"currentPosition", "2"},
+                         {"lastPosition", "35"}, {"progress", float(2.0 / 35)},
+                         {"modified", qint64(123456)}, {"deletedLocally", false}};
+    const auto matches = [&] { return kobalt::tolinoBookmarkMatches(bookmark, "chapter.xhtml#p:7", 2, 35); };
+    require(matches(), "native string page counts and float fractions round trip");
+    for (const auto &field : {"position", "currentPosition", "lastPosition", "progress", "modified", "deletedLocally"}) {
+        const auto original = bookmark.take(field);
+        require(!matches(), "partial native saves cannot pass verification");
+        bookmark.insert(field, original);
+    }
+    bookmark["currentPosition"] = "2invalid";
+    require(!matches(), "malformed page count is not a zero page");
+    bookmark["currentPosition"] = 2;
+    bookmark["progress"] = 0.8;
+    require(!matches(), "a stale Tolino fraction cannot verify content-only progress");
+    bookmark["progress"] = float(2.0 / 35);
+    bookmark["deletedLocally"] = true;
+    require(!matches(), "deleted native bookmark cannot verify a save");
+    bookmark["deletedLocally"] = false;
+    require(!kobalt::tolinoBookmarkMatches(bookmark, "chapter.xhtml#p:7", 0, 0), "empty pagination cannot divide by zero");
+    bookmark["currentPosition"] = 35; bookmark["progress"] = 1.;
+    require(kobalt::tolinoBookmarkMatches(bookmark, "chapter.xhtml#p:7", 35, 35), "finished progress uses the complete book");
     auto *usb = PlugWorkflowManager::sharedInstance();
     auto *plug = PlugManager::sharedInstance();
     QObject::connect(plug, &PlugManager::unplugged, usb, &PlugWorkflowManager::unplugged);

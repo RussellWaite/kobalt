@@ -142,7 +142,7 @@ ReadingProgress NativeProgress::read(QString *error) const {
     return value;
 }
 bool NativeProgress::write(const ReadingProgress &expected, const QString &position, double percent, bool finished,
-                           ReadingProgress *verified, QString *error, const ReadingEstimates *estimates) {
+                           ReadingProgress *verified, QString *error, const ReadingEstimates *estimates, const ReadingActivity *) {
     const auto fail = [error](const QString &message) {
         if (error)
             *error = message;

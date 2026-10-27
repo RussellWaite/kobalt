@@ -4,6 +4,7 @@
 #include "platforms/kobo/common/native_database_wait.h"
 #include "platforms/kobo/common/native_progress.h"
 #include "platforms/kobo/common/native_location.h"
+#include "platforms/kobo/common/tolino_progress.h"
 #include <QDateTime>
 #include <QMetaType>
 #include <QPointer>
@@ -14,6 +15,7 @@
 #endif
 #include <QSqlDatabase>
 #include <QSqlQuery>
+#include <QSqlError>
 #include <QSqlRecord>
 #include <dlfcn.h>
 
@@ -59,6 +61,8 @@ struct Api {
         symbol<decltype(setBookEstimate)>("_ZN6Volume21setRestOfBookEstimateERK8QVariant");
     void (*setChapterEstimate)(Volume *, const QVariant &) =
         symbol<decltype(setChapterEstimate)>("_ZN6Volume25setCurrentChapterEstimateERK8QVariant");
+    void (*setPages)(void *, const QVariant &) =
+        symbol<decltype(setPages)>("_ZN7Content11setNumPagesERK8QVariant");
     bool (*update)(const QString &, const QVariantMap &, const QVariantMap &, const QString &) =
         symbol<decltype(update)>("_ZN13VolumeManager12updateFieldsERK7QStringRK4QMapIS0_8QVariantES7_S2_");
     void *(*refresh)(const QString &) =
@@ -82,6 +86,22 @@ struct Api {
 const Api &api() {
     static const Api value;
     return value;
+}
+bool tolinoBookmark(const QSqlDatabase &database, const QString &identity, QVariantMap *fields) {
+    fields->clear();
+    QSqlQuery query(database);
+    if (!query.prepare("SELECT position, currentPosition, lastPosition, progress, modified, "
+                       "modifiedLocally, deletedLocally FROM tolino_bookmark WHERE uuid = ?"))
+        return false;
+    query.addBindValue(identity);
+    if (!query.exec())
+        return false;
+    if (query.next()) {
+        const auto record = query.record();
+        for (int i = 0; i < record.count(); ++i)
+            fields->insert(record.fieldName(i), query.value(i));
+    }
+    return !query.lastError().isValid();
 }
 ReadingProgress snapshot(const QVariantMap &values) {
     ReadingProgress result;
@@ -132,13 +152,20 @@ QVariantMap NativeProgress::persisted(QString *error) const {
         if (db.open()) {
             QSqlQuery query(db);
             query.prepare(
-                "SELECT ContentID, ChapterIDBookmarked, DateLastRead, ReadStatus, ___PercentRead, ReadStateSynced, FirstTimeReading, RestOfBookEstimate, CurrentChapterEstimate FROM content WHERE ContentID = ? AND ContentType = 6");
+                "SELECT ContentID, ChapterIDBookmarked, DateLastRead, ReadStatus, ___PercentRead, ReadStateSynced, FirstTimeReading, RestOfBookEstimate, CurrentChapterEstimate, ___NumPages FROM content WHERE ContentID = ? AND ContentType = 6");
             query.addBindValue(book);
             if (query.exec() && query.next()) {
                 const auto record = query.record();
                 for (int i = 0; i < record.count(); ++i)
                     result.insert(record.fieldName(i), query.value(i));
             }
+        }
+        if (!result.isEmpty() && native.tolino(native.device())) {
+            QVariantMap bookmark;
+            if (!tolinoBookmark(db, book, &bookmark))
+                result.clear();
+            else if (!bookmark.isEmpty())
+                result.insert("tolino_bookmark", bookmark);
         }
         db.close();
     }
@@ -156,15 +183,19 @@ ReadingProgress NativeProgress::read(QString *error) const {
     return value;
 }
 bool NativeProgress::write(const ReadingProgress &expected, const QString &position, double percent, bool finished,
-                           ReadingProgress *verified, QString *error, const ReadingEstimates *estimates) {
+                           ReadingProgress *verified, QString *error, const ReadingEstimates *estimates, const ReadingActivity *activity) {
     const auto fail = [error](const QString &message) {
         if (error)
             *error = message;
         return false;
     };
     const auto &native = api();
-    if (!available() || native.tolino(native.device()))
-        return fail(strings::get("error.native_progress_writeback_is_unsupported_on_this_firmware_mode"));
+    if (!available())
+        return fail(strings::get("error.native_progress_api_is_unavailable"));
+    const bool tolino = native.tolino(native.device());
+    if (tolino && (!native.setPages || !activity || activity->pages <= 0 || activity->page < 0 ||
+                   activity->page >= activity->pages))
+        return fail(strings::get("error.nickel_rejected_the_exact_reading_position"));
     // Without a position Nickel can store, as for some plain EPUB files, record only
     // the time, the reading status and the percentage. Nickel keeps its own
     // position, and the book still becomes the most recently read one.
@@ -210,11 +241,22 @@ bool NativeProgress::write(const ReadingProgress &expected, const QString &posit
     }
     auto stamp =
         QDateTime::fromMSecsSinceEpoch(qMax(QDateTime::currentMSecsSinceEpoch(), expected.modified + 1000), Qt::UTC);
-    if (!timeOnly)
-        native.bookmark(&volume, native.serialized(&location), original.value("adobe_location").toInt(), stamp, 0);
-    native.status(&volume, finished ? 2 : 1);
+    if (tolino) {
+        // Tolino derives its fraction and library percentage from this renderer's
+        // current/total pages. The built-in reader repaginates when it opens.
+        native.status(&volume, finished ? 2 : 1);
+        native.setPages(&volume, QVariant(activity->pages));
+        native.bookmark(&volume, timeOnly ? original.value("ChapterIDBookmarked").toString()
+                                        : native.serialized(&location),
+                        original.value("adobe_location").toInt(), stamp,
+                        finished ? activity->pages : activity->page);
+    } else {
+        if (!timeOnly)
+            native.bookmark(&volume, native.serialized(&location), original.value("adobe_location").toInt(), stamp, 0);
+        native.status(&volume, finished ? 2 : 1);
+        native.percent(&volume, QVariant(finished ? 100.0 : qBound(0.0, percent, 99.0)));
+    }
     native.firstTime(&volume, QVariant(false));
-    native.percent(&volume, QVariant(finished ? 100.0 : qBound(0.0, percent, 99.0)));
     if (estimates && native.setBookEstimate && native.setChapterEstimate) {
         if (estimates->bookMilliseconds >= 0)
             native.setBookEstimate(&volume, QVariant(finished ? 0 : int(estimates->bookMilliseconds / 1000)));
@@ -222,7 +264,7 @@ bool NativeProgress::write(const ReadingProgress &expected, const QString &posit
             native.setChapterEstimate(&volume, QVariant(finished ? 0 : int(estimates->chapterMilliseconds / 1000)));
     }
     auto after = native.values(&volume);
-    if (timeOnly) {
+    if (timeOnly && !tolino) {
         // Nickel stores the time in whole seconds, as updateBookmark does.
         stamp = QDateTime::fromMSecsSinceEpoch((stamp.toMSecsSinceEpoch() + 999) / 1000 * 1000, Qt::UTC);
         after.insert("DateLastRead", stamp.toString(Qt::ISODate));
@@ -233,7 +275,14 @@ bool NativeProgress::write(const ReadingProgress &expected, const QString &posit
             changed.insert(it.key(), it.value());
     // The native query builder shares parameter names between SET and WHERE.
     // Compare the bookmark under the transaction lock, then update by identity.
-    const bool saved = native.update(book, changed, {{"ContentID", book}}, db);
+    bool saved = native.update(book, changed, {{"ContentID", book}}, db);
+    const int page = tolino ? (finished ? activity->pages : activity->page) : 0;
+    if (saved && tolino) {
+        // Check the native helper's side effects before committing either row.
+        QVariantMap bookmark;
+        saved = tolinoBookmark(native.connection(db, false), book, &bookmark) &&
+                tolinoBookmarkMatches(bookmark, after.value("ChapterIDBookmarked").toString(), page, activity->pages);
+    }
     bool commitAllowed = saved;
 #ifndef KOBALT_READER_HARDWARE
     if (failNextWrite) {
@@ -253,7 +302,11 @@ bool NativeProgress::write(const ReadingProgress &expected, const QString &posit
     const auto stored = persisted(error);
     const auto actual = snapshot(stored);
     const auto wanted = snapshot(after);
-    const bool matches =
+    const auto bookmark = stored.value("tolino_bookmark").toMap();
+    const bool tolinoMatches = !tolino ||
+        (tolinoBookmarkMatches(bookmark, after.value("ChapterIDBookmarked").toString(), page, activity->pages) &&
+         stored.value("___NumPages").toInt() == activity->pages);
+    const bool matches = tolinoMatches &&
         actual == wanted &&
         stored.value("___PercentRead").toDouble() == after.value("___PercentRead").toDouble()
         // A time-only record leaves the sync flag alone: Kobo's cloud does not
@@ -270,9 +323,11 @@ bool NativeProgress::write(const ReadingProgress &expected, const QString &posit
     *verified = actual;
     // Keep Nickel's eligibility, network and power policy. Its worker owns the
     // request after this object closes. This is not proof of server delivery.
-    auto *sync = native.manager();
-    if (!timeOnly && native.syncEligible(sync, &volume))
-        native.sendBookmark(sync, &volume);
+    if (!tolino && !timeOnly) {
+        auto *sync = native.manager();
+        if (native.syncEligible(sync, &volume))
+            native.sendBookmark(sync, &volume);
+    }
     return true;
 }
 

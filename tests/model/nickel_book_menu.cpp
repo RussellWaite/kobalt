@@ -1,4 +1,5 @@
 #include "platforms/kobo/common/book_menu.h"
+#include "platforms/kobo/common/book_protection.h"
 #include "support/strings.h"
 #include "check.h"
 #include <QAction>
@@ -6,6 +7,8 @@
 #include <QFile>
 #include <QLabel>
 #include <QMenu>
+#include <QSqlDatabase>
+#include <QSqlQuery>
 #include <QTemporaryDir>
 #include <QVariantMap>
 #include <QWidgetAction>
@@ -47,6 +50,17 @@ bool isAdobe(const void *) NICKEL_SYMBOL("_ZNK7Content10isAdobeDrmEv");
 bool isAdobe(const void *) { return false; }
 bool isLcp(const void *) NICKEL_SYMBOL("_ZNK7Content9isLcpEpubEv");
 bool isLcp(const void *) { return false; }
+#endif
+void *device() NICKEL_SYMBOL("_ZN6Device16getCurrentDeviceEv");
+void *device() { return &fields; }
+const QString &dbName(const void *) NICKEL_SYMBOL("_ZNK6Device9getDbNameEv");
+const QString &dbName(const void *) { static const QString name; return name; }
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
+QSqlDatabase connection(QString, bool) NICKEL_SYMBOL("_ZN15DatabaseAdapter12dbConnectionE7QStringb");
+QSqlDatabase connection(QString, bool) { return QSqlDatabase::database(); }
+#else
+QSqlDatabase connection(const QString &, bool) NICKEL_SYMBOL("_ZN15DatabaseAdapter12dbConnectionERK7QStringb");
+QSqlDatabase connection(const QString &, bool) { return QSqlDatabase::database(); }
 #endif
 QWidget *nativeItem(void *, QMenu *, const QString &, bool, bool, const QString &)
     NICKEL_SYMBOL("_ZN28AbstractNickelMenuController18createMenuTextItemEP5QMenuRK7QStringbbS4_");
@@ -93,6 +107,44 @@ int main(int argc, char **argv) {
     require(QFile::copy(QString::fromLocal8Bit(argv[1]), path), "copy EPUB fixture");
     identity = "file://" + path;
     fields["MimeType"] = "application/epub+zip";
+    auto database = QSqlDatabase::addDatabase("QSQLITE");
+    database.setDatabaseName(":memory:");
+    require(database.open(), "metadata database");
+    QSqlQuery query(database);
+    require(query.exec("CREATE TABLE content_keys(volumeid TEXT)"), "Kobo metadata table");
+    require(query.exec("CREATE TABLE tolino_contentItem(uuid TEXT, contentProtectionType INTEGER)"), "Tolino metadata table");
+    require(query.exec("CREATE TABLE tolino_drmKeysKobo(uuid TEXT)"), "Tolino key presence table without key values");
+    using Protection = kobalt::BookProtection;
+    const auto metadata = [&] { return kobalt::bookProtection(database, identity); };
+    require(metadata() == Protection::None, "sideload without protection records");
+    query.prepare("INSERT INTO tolino_contentItem VALUES (?, ?)");
+    query.addBindValue(identity); query.addBindValue(8); require(query.exec(), "DRM-free purchase metadata");
+    for (const auto &sample : QList<QPair<int, Protection>>{{0, Protection::None}, {8, Protection::None},
+             {16, Protection::None}, {1, Protection::Other}, {2, Protection::Kobo}, {4, Protection::Other},
+             {3, Protection::Other}, {18, Protection::Kobo}, {32, Protection::Other}, {-1, Protection::Other}}) {
+        query.prepare("UPDATE tolino_contentItem SET contentProtectionType=?");
+        query.addBindValue(sample.first); require(query.exec(), "change protection metadata");
+        require(metadata() == sample.second, "protection types distinguish encryption from watermarks");
+        const auto route = kobalt::readerBookRoute(&fields);
+        require(route == (sample.second == Protection::None ? kobalt::ReaderBookRoute::Direct
+                                                           : kobalt::ReaderBookRoute::Protected),
+                "opening route rechecks protection metadata without file replacement");
+        require(kobalt::readerBookCandidateRoute(&fields) == route, "candidate cannot bypass protection metadata");
+    }
+    require(query.exec("DELETE FROM tolino_contentItem"), "clear synthetic purchase");
+    for (const auto &table : {QStringLiteral("content_keys"), QStringLiteral("tolino_drmKeysKobo")}) {
+        query.prepare("INSERT INTO " + table + " VALUES (?)"); query.addBindValue(identity);
+        require(query.exec(), "matching key-presence record");
+        require(metadata() == Protection::Kobo, "key presence is sufficient without reading keys");
+        require(kobalt::readerBookRoute(&fields) == kobalt::ReaderBookRoute::Protected, "keys keep OSS books native");
+        require(query.exec("DELETE FROM " + table), "remove synthetic key record");
+    }
+    require(query.exec("DROP TABLE tolino_drmKeysKobo"), "optional older schema");
+    require(metadata() == Protection::None, "older firmware without Tolino tables remains usable");
+    require(query.exec("ALTER TABLE tolino_contentItem RENAME COLUMN contentProtectionType TO unsupported"), "incompatible metadata schema");
+    require(metadata() == Protection::Unavailable, "query errors cannot admit a protected book");
+    require(kobalt::readerBookRoute(&fields) == kobalt::ReaderBookRoute::Unsupported, "metadata failure retains built-in reader");
+    require(query.exec("DROP TABLE tolino_contentItem"), "restore older schema");
     kobalt::nativeBookMenu = populate;
     kobalt::configureBookMenu([] { return available; }, [] { return preferred; });
     {

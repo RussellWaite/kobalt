@@ -34,7 +34,7 @@ public:
         ReadingEstimates estimates;
         const bool available = reading_.estimates(activity, &estimates);
         return progress_->write(expected, location, percent, finished, verified, error,
-                                available ? &estimates : nullptr);
+                                available ? &estimates : nullptr, &activity);
     }
     void observeReading(const ReadingActivity &activity) override {
         reading_.start(activity);

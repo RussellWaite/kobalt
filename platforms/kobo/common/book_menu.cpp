@@ -1,4 +1,5 @@
 #include "book_menu.h"
+#include "book_protection.h"
 #include "local_book_path.h"
 #include "publication/publication.h"
 #include "support/strings.h"
@@ -130,6 +131,20 @@ static ReaderBookRoute bookRoute(const void *volume, QString *identity, QString 
     }
     if (path)
         *path = filename;
+    static const auto device = symbol<void *(*)()>("_ZN6Device16getCurrentDeviceEv");
+    static const auto dbName = symbol<const QString &(*)(const void *)>("_ZNK6Device9getDbNameEv");
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
+    static const auto connection = symbol<QSqlDatabase (*)(QString, bool)>("_ZN15DatabaseAdapter12dbConnectionE7QStringb");
+#else
+    static const auto connection = symbol<QSqlDatabase (*)(const QString &, bool)>("_ZN15DatabaseAdapter12dbConnectionERK7QStringb");
+#endif
+    const auto current = device ? device() : nullptr;
+    const auto database = current && dbName && connection ? connection(dbName(current), false) : QSqlDatabase();
+    const auto protection = bookProtection(database, id);
+    if (protection == BookProtection::Unavailable)
+        return Route::Unsupported;
+    if (protection != BookProtection::None)
+        return Route::Protected;
     const QFileInfo fileInfo(filename);
     const auto cached = nativeBooks.constFind(id);
     if (cached != nativeBooks.constEnd()) {
@@ -137,37 +152,8 @@ static ReaderBookRoute bookRoute(const void *volume, QString *identity, QString 
             return cached->route;
         nativeBooks.remove(id);
     }
-    if (!inspectPublication) {
+    if (!inspectPublication)
         return Route::Direct;
-    }
-    if (downloaded) {
-        // Read only whether Nickel has protection metadata for this volume.
-        // Never select key values or infer protection from purchase status or
-        // a parser failure. Missing metadata is not proof of readable content;
-        // the direct loader still validates the entire reading spine.
-        static const auto device = symbol<void *(*)()>("_ZN6Device16getCurrentDeviceEv");
-        static const auto dbName = symbol<const QString &(*)(const void *)>("_ZNK6Device9getDbNameEv");
-#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
-        static const auto connection =
-            symbol<QSqlDatabase (*)(QString, bool)>("_ZN15DatabaseAdapter12dbConnectionE7QStringb");
-#else
-        static const auto connection =
-            symbol<QSqlDatabase (*)(const QString &, bool)>("_ZN15DatabaseAdapter12dbConnectionERK7QStringb");
-#endif
-        if (device && dbName && connection) {
-            const auto current = device();
-            const auto db = current ? connection(dbName(current), false) : QSqlDatabase();
-            if (db.isValid() && db.isOpen()) {
-                QSqlQuery query(db);
-                query.prepare("SELECT 1 FROM content_keys WHERE volumeid = ? LIMIT 1");
-                query.addBindValue(id);
-                if (query.exec() && query.next()) {
-                    rememberNativeBook(id, filename, true);
-                    return Route::Protected;
-                }
-            }
-        }
-    }
     QFile file(filename);
     Publication publication;
     QString error;
