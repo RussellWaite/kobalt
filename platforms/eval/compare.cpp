@@ -69,6 +69,51 @@ struct Run {
     QJsonObject meta;
 };
 
+// Keep scenario outcomes even when a failed or skipped run has no timing samples.
+QJsonObject deviceOutcomes(const Run &run) {
+    QJsonObject outcomes;
+    for (const auto &directory : QDir(run.directory).entryList({"device-*"}, QDir::Dirs)) {
+        const auto document = readDevice(run.directory + '/' + directory);
+        const auto prefix = "device." + document["target"].toString() + '.';
+        for (const auto &value : document["scenarios"].toArray()) {
+            const auto scenario = value.toObject();
+            const auto id = scenario["id"].toString();
+            if (!id.isEmpty())
+                outcomes[prefix + id] = QJsonObject{{"status", scenario["status"]}, {"reason", scenario["reason"]}};
+        }
+    }
+    return outcomes;
+}
+QJsonObject compareDeviceOutcomes(const Run &base, const Run &target, QStringList &failed, QStringList &lines) {
+    const auto before = deviceOutcomes(base), after = deviceOutcomes(target);
+    QStringList skipped;
+    for (const auto *side : {"base", "target"}) {
+        const auto &outcomes = QString(side) == "base" ? before : after;
+        for (auto it = outcomes.begin(); it != outcomes.end(); ++it) {
+            const auto outcome = it.value().toObject();
+            const auto status = outcome["status"].toString();
+            const auto message = QString("%1: %2 %3 (%4)")
+                                     .arg(side, it.key(), status, outcome["reason"].toString());
+            if (status == "failed")
+                failed << message;
+            else if (status == "skipped")
+                skipped << message;
+        }
+    }
+    QJsonArray missing;
+    const bool deviceRequested = target.meta["parts"].toArray().contains("device") ||
+                                 !QDir(target.directory).entryList({"device-*"}, QDir::Dirs).isEmpty();
+    if (deviceRequested)
+        for (auto it = before.begin(); it != before.end(); ++it)
+            if (it.value().toObject()["status"].toString() == "completed" && !after.contains(it.key())) {
+                missing.append(it.key());
+                failed << "target: missing device scenario " + it.key();
+            }
+    if (!skipped.isEmpty())
+        lines << "**Skipped device scenarios:** " + skipped.join("; ") + '.' << "";
+    return {{"base", before}, {"target", after}, {"missing", missing}};
+}
+
 // Test outcomes from CTest's JUnit file, by test name.
 QMap<QString, QString> testOutcomes(const QString &path) {
     QMap<QString, QString> outcomes;
@@ -431,11 +476,14 @@ int main(int argc, char **argv) {
         if (!parts.isEmpty())
             failed << QString(side) + ": " + parts.join(", ");
     }
+    const auto deviceScenarios = compareDeviceOutcomes(base, target, failed, lines);
     if (!failed.isEmpty())
         lines << "**Failed parts:** " + failed.join("; ") + ". See the logs in each run directory." << "";
     QJsonArray flags;
     QJsonObject report{{"schema", 1}, {"kind", "kobalt-eval-report"}, {"base", base.meta}, {"target", target.meta},
                        {"comparable_notes", QJsonArray::fromStringList(notes)}};
+    report["device_scenarios"] = deviceScenarios;
+    report["failed_parts"] = QJsonArray::fromStringList(failed);
     report["tests"] = compareTests(base, target, lines);
     report["screenshots"] = compareScreens(base, target, config, output, lines);
     report["perf"] = compareMetrics(base, target, false, config, calibration, changes, lines, flags);
@@ -450,7 +498,8 @@ int main(int argc, char **argv) {
     for (const auto &flag : flags)
         summary << "- " + flag.toString();
     const bool timed = report["perf"].toObject()["compared"].toBool() || report["device"].toObject()["compared"].toBool();
-    lines.insert(5, !timed             ? "Timings were not compared: a run has no timing results.\n"
+    lines.insert(5, !failed.isEmpty()   ? "Evaluation contains failed or missing results.\n"
+                    : !timed           ? "Timings were not compared: a run has no timing results.\n"
                     : summary.isEmpty() ? "No timing changes beyond the noise bands.\n"
                                         : "Timing changes:\n\n" + summary.join('\n') + "\n");
     report["flags"] = flags;

@@ -47,6 +47,8 @@ cmake [-DBASE=baseline] [-DTARGET=latest] -P platforms/eval/compare.cmake
 
 The report compares tests by name. It lists tests that newly fail, newly pass, were added or were removed.
 
+Device comparisons retain failed and skipped scenario outcomes and their reasons, even when they have no timing samples. A previously completed scenario missing from a candidate device run is reported. A run that did not request or collect device results is not treated as missing scenarios.
+
 The report compares screenshots by checksum. For each changed image, it gives the number of changed pixels and their bounding box. Some screens change on every run by design. `platforms/eval/eval.json` lists them with the reason. The About screen shows the source commit and whether the tree is modified. The annotation-export screens show the export time and a temporary path.
 
 The report compares each timing metric as the median of the process medians. A slow process then counts once, not once per sample. The spread is the median absolute deviation between processes, relative to the median. The verdict is:

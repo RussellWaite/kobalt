@@ -275,8 +275,15 @@ if(BUILD_TESTING)
     add_library(kobalt-regression-runtime STATIC)
     set_target_properties(kobalt-regression-runtime PROPERTIES AUTOMOC OFF)
     target_link_libraries(kobalt-regression-runtime PUBLIC kobalt-core)
-    add_custom_target(kobalt-tests DEPENDS kobalt-desktop-tests)
-    add_custom_target(kobalt-fast-tests DEPENDS kobalt-desktop-tests)
+    add_custom_target(kobalt-tests DEPENDS kobalt-desktop-tests kobalt-eval-compare)
+    add_test(NAME build.eval-device-outcomes COMMAND "${CMAKE_COMMAND}"
+        "-DTEST_EXECUTABLE=${CMAKE_COMMAND}"
+        "-DTEST_ARGUMENTS=-DCOMPARE=$<TARGET_FILE:kobalt-eval-compare>;-P;${KOBALT_ROOT}/tests/eval_device_outcomes.cmake"
+        "-DTEST_TIMEOUT=30" "-DTEST_TMP_ROOT=${CMAKE_CURRENT_BINARY_DIR}/test-tmp"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/run-test.cmake")
+    set_tests_properties(build.eval-device-outcomes PROPERTIES ENVIRONMENT "${headless_environment}"
+        LABELS "build;fast" TIMEOUT 35)
+    add_custom_target(kobalt-fast-tests DEPENDS kobalt-desktop-tests kobalt-eval-compare)
     add_executable(kobalt-reader-lifecycle-tests "${KOBALT_ROOT}/tests/reader_lifecycle.cpp"
         "${KOBALT_ROOT}/platforms/kobo/common/engine_positions.cpp")
     target_link_libraries(kobalt-reader-lifecycle-tests PRIVATE kobalt-desktop kobalt-core Qt6::Test)

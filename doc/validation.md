@@ -181,7 +181,7 @@ The book fixture and clock are fixed. Screenshot profiles, including the light s
 
 ## Performance and release evaluation
 
-`kobalt-desktop-tests --perf FILE` measures text layout and drawing, book opening and closing, page turns, panel openings, a text-size reflow and memory use in the production desktop window. `cmake --build --preset mac-perf` runs it from the RelWithDebInfo directory. The `panel-open` diagnostics events time each panel from its input to its first finished paint, and `reader-shown` and `book-close` time book opening and closing in stages. The `timingEvents` desktop check verifies that these stages fit their totals. [Release evaluation](release-evaluation.md) records tests, screenshots and these timings for a baseline and a candidate, and it reports the differences.
+`kobalt-desktop-tests --perf FILE` measures text layout and drawing, book opening and closing, page turns, panel openings, a text-size reflow and memory use in the production desktop window. `cmake --build --preset mac-perf` runs it from the RelWithDebInfo directory. The `panel-open` diagnostics events time each panel from its input to its first finished paint, and `reader-shown` and `book-close` time book opening and closing in stages. The `timingEvents` desktop check verifies that these stages fit their totals. [Release evaluation](release-evaluation.md) records tests, screenshots and these timings for a baseline and a candidate, and it reports the differences. The `build.eval-device-outcomes` check verifies failed, skipped and missing device scenarios in both supported result formats, and a run that omits the device part.
 
 ## Feature coverage and limits
 
