@@ -39,6 +39,7 @@ public:
     }
     bool deviceTransition() const;
     bool canWriteNative() const;
+    bool hasNativeProgress() const { return bool(bridge); }
     // Downloaded native-library titles use that platform's cloud sync.
     // Sideloaded file identities keep native local progress and use KOsync.
     bool usesNativeCloudSync() const { return nativeCloudSync; }

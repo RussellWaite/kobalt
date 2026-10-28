@@ -3634,6 +3634,76 @@ private slots:
         QCOMPARE(storage::readBookState(paths, identity).object.value("position").toString(), position);
     }
 
+    void nativeOpeningSaveRetries_data() {
+        QTest::addColumn<bool>("blocked");
+        QTest::addColumn<QString>("pause");
+        QTest::newRow("not-writable") << true << QString();
+        QTest::newRow("database-busy") << false << QString();
+        QTest::newRow("hidden") << false << QString("hidden");
+        QTest::newRow("suspended") << false << QString("suspended");
+        QTest::newRow("sleep") << false << QString("sleep");
+        QTest::newRow("progress-conflict") << false << QString("conflict");
+    }
+    void nativeOpeningSaveRetries() {
+        QFETCH(bool, blocked);
+        QFETCH(QString, pause);
+        bool suspended = false;
+        auto paths = testPaths();
+        ReaderFixture host(paths, testFonts, testPlaceholder);
+        host.configureServices = [&](ReaderHostServices &services) {
+            services.suspended = [&] { return suspended; };
+        };
+        CloseHost cleanup{host};
+        const auto identity = QUrl::fromLocalFile(QFileInfo(textBook).absoluteFilePath()).toString();
+        host.progress = std::make_shared<test::HostProgress>();
+        host.progress->current = {identity, "OEBPS/c1.xhtml", 100, 1, true};
+        host.progress->writeBlocked = blocked;
+        host.progress->failWrite = !blocked;
+        host.positions = nickel::positionCodec();
+        QSignalSpy opened(&host, &ReaderFixture::opened);
+        host.open(textBook, nativeSize);
+        QTRY_COMPARE_WITH_TIMEOUT(opened.count(), 1, 30000);
+        Canvas canvas(host.window(), nativeSize);
+        canvas.resize(900, 900);
+        canvas.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&canvas));
+        QTRY_VERIFY(!host.session()->busy());
+        if (!blocked)
+            QTRY_VERIFY(host.progress->writeAttempts > 0);
+        QTest::qWait(2200);
+        QCOMPARE(host.progress->writes, 0);
+        QCOMPARE(host.progress->current.modified, qint64(100));
+        const auto anchor = host.session()->state().value("position").toString();
+        if (pause == "hidden") host.window()->hide();
+        if (pause == "suspended") suspended = true;
+        if (pause == "sleep") host.window()->sleepReader();
+        if (pause == "conflict") {
+            host.progress->publish({identity, "OEBPS/c3.xhtml#kobo.8.1:7", 200, 1, true});
+            host.window()->progressTick();
+            QTRY_VERIFY(host.window()->findChild<QWidget *>("rrSyncedPosition"));
+        }
+        host.progress->writeBlocked = host.progress->failWrite = false;
+        if (!pause.isEmpty()) {
+            QTest::qWait(2200);
+            QCOMPARE(host.progress->writes, 0);
+            if (pause == "hidden") host.window()->show();
+            suspended = false;
+            if (pause == "sleep") host.window()->wakeReader();
+            if (pause == "conflict") {
+                auto *keep = host.window()->findChild<QPushButton *>("rrKeepPosition");
+                QVERIFY(keep);
+                QVERIFY(click(canvas, keep));
+            }
+        }
+        // No page turn, sleep or refresh is needed to recover the opening.
+        QTRY_COMPARE_WITH_TIMEOUT(host.progress->writes, 1, 5000);
+        QCOMPARE(host.session()->state().value("position").toString(), anchor);
+        QCOMPARE(host.progress->current.modified, qint64(pause == "conflict" ? 201 : 101));
+        const int attempts = host.progress->writeAttempts;
+        QTest::qWait(2200);
+        QCOMPARE(host.progress->writeAttempts, attempts);
+    }
+
     void nativeProgressWaitsForSleep_data() {
         QTest::addColumn<QString>("outcome");
         for (const auto *outcome : {"saved", "newer", "failed"}) {

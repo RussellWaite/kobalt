@@ -118,6 +118,8 @@ private:
     // Construction, in this order. Each step builds one group of widgets and
     // connects its signals.
     void saveNativeProgress();
+    void scheduleNativeOpeningSave();
+    QTimer *nativeOpeningSaveTimer = nullptr;
     QString savedNativeAnchor;
     int savedNativePage = -1, savedNativePages = -1;
     void buildReadingPage();

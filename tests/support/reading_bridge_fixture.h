@@ -11,8 +11,8 @@ struct HostProgress {
     ReadingEstimates remaining;
     bool hasEstimates = false;
     std::function<void()> notifyEstimates;
-    bool changed = false, failWrite = false;
-    int writes = 0;
+    bool changed = false, failWrite = false, writeBlocked = false;
+    int writes = 0, writeAttempts = 0;
     double percent = 0;
     void publish(ReadingProgress progress) {
         current = std::move(progress);
@@ -42,7 +42,7 @@ public:
         return false;
     }
     bool writable() const override {
-        return true;
+        return !progress->writeBlocked;
     }
     ReadingProgress read(QString *) const override {
         return progress->current;
@@ -52,6 +52,7 @@ public:
     }
     bool write(const ReadingProgress &expected, const QString &location, double percent, bool finished,
                const ReadingActivity &, ReadingProgress *verified, QString *error) override {
+        ++progress->writeAttempts;
         if (progress->failWrite) {
             if (error) {
                 *error = "The database is busy.";

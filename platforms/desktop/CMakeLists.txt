@@ -305,7 +305,7 @@ if(BUILD_TESTING)
             sleepRequestFreezesOrientationBeforeHandoff closePublishesHeldOrientationBeforeBackgroundPaint
             closeRestoresOrientationBeforeBackgroundPaint rotationOwnership customSleepScreenIsOptIn
             closedReaderRetainsSleepScreen usbRetainsBackdropBeforeReleasingReader persistedSleepScreenRejectsStaleAndDamagedFrames
-            homeSleepScreenRequiresUnambiguousLastBook
+            homeSleepScreenRequiresUnambiguousLastBook nativeOpeningSaveRetries
             sleepScreenUpdatesWhilePluggedIn sleepScreenDimsOnlyItsOwnedPage sleepTilesRepaintOnlyTheirArea
             sleepSnapshotMatchesTheDisplayedPage
             sleepSnapshotReplacesEachClockWithoutChangingTheReadingPage sleepTimeLeftUsesHoursAboveTwoHours

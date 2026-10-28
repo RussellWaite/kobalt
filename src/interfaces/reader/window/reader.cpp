@@ -333,6 +333,7 @@ void Reader::wakeReader() {
     book->invalidateProgress();
     startClock();
     refresh();
+    scheduleNativeOpeningSave();
     QTimer::singleShot(0, this, [this] {
         for (auto *widget : findChildren<QWidget *>())
             QCoreApplication::sendPostedEvents(widget, QEvent::UpdateLater);
@@ -366,7 +367,31 @@ void Reader::saveNativeProgress() {
         savedNativeAnchor = anchor;
         savedNativePage = model->page();
         savedNativePages = model->pages();
+        if (nativeOpeningSaveTimer)
+            nativeOpeningSaveTimer->stop();
     }
+}
+
+void Reader::scheduleNativeOpeningSave() {
+    if (!book->hasNativeProgress() || !savedNativeAnchor.isEmpty() || closing || exportRunning || lifecycleHidden ||
+        !isVisible())
+        return;
+    if (!nativeOpeningSaveTimer) {
+        nativeOpeningSaveTimer = new QTimer(this);
+        nativeOpeningSaveTimer->setObjectName("rrNativeOpeningSaveTimer");
+        nativeOpeningSaveTimer->setSingleShot(true);
+        connect(nativeOpeningSaveTimer, &QTimer::timeout, this, [this] {
+            // An opening is presented before Nickel necessarily accepts its
+            // progress. Retry only this unfinished write, after input settles.
+            if (!closing && !exportRunning && !lifecycleHidden && isVisible() && !services.suspended() &&
+                !model->busy() && !book->deviceTransition() &&
+                (!lastInput.isValid() || lastInput.elapsed() >= 2000))
+                saveNativeProgress();
+            scheduleNativeOpeningSave();
+        });
+    }
+    if (!nativeOpeningSaveTimer->isActive())
+        nativeOpeningSaveTimer->start(2000);
 }
 
 void Reader::progressTick() {
@@ -786,9 +811,13 @@ void Reader::showEvent(QShowEvent *event) {
             if (!recordedOpening && pagePainted)
                 recordOpening();
         });
+    else
+        scheduleNativeOpeningSave();
 }
 
 void Reader::hideEvent(QHideEvent *event) {
+    if (nativeOpeningSaveTimer)
+        nativeOpeningSaveTimer->stop();
     if (clockTimer)
         clockTimer->stop();
     if (pageScrubber)
@@ -1808,6 +1837,7 @@ void Reader::recordOpening() {
     // A newer synced position waits for the reader's choice.
     saveNativeProgress();
     save(true);
+    scheduleNativeOpeningSave();
 }
 
 void Reader::finishExit() {
@@ -1866,7 +1896,7 @@ void Reader::finishExit() {
 // a save still pending when Nickel wants to suspend is queued then
 // (flushBeforeStandby), not after the tap that wakes the device.
 // The native save must use Nickel's database from this thread, so it never
-// runs while reading. Opening, sleep, USB, close and power-off write it.
+// runs on page turns. Opening (including retries), sleep, USB, close and power-off write it.
 void Reader::saveSoon() {
     if (!localSaveDue)
         unsavedSince.start();
