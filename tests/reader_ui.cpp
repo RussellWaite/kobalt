@@ -161,6 +161,57 @@ private slots:
         QTRY_COMPARE(fired.size(), 1);
         QVERIFY(!timer.finish(&release));
     }
+    void fontSelectionDoesNotToggle_data() { variants(); }
+    void fontSelectionDoesNotToggle() {
+        QFETCH(bool, dark);
+        QFETCH(int, ppi);
+        ui::setDensity(ppi);
+        QWidget host;
+        host.resize(ui::px(1072), ui::px(1448));
+        ui::applyReaderPalette(&host, ui::readerPalette(host.palette(), dark));
+        ChoiceScreen picker(&host);
+        picker.setFontGeometry(QRect(0, 0, host.width(), picker.fontPanelHeight()));
+        QString current = "Libron";
+        int changes = 0;
+        picker.selected = [&](const QString &face) {
+            if (face == current)
+                return;
+            current = face;
+            ++changes;
+            picker.selectValue(face);
+        };
+        host.show();
+        Choice help{"Aa", "", "fontHelp"};
+        help.placeholder = true;
+        picker.showChoices("Font", {{"Publisher Fonts", "", "publisherFont"},
+                                     {"Libron", "Libron", "libronFont"}, help}, current, ChoiceScreen::Mode::Fonts);
+        auto *libron = picker.findChild<QPushButton *>("libronFont");
+        auto *publisher = picker.findChild<QPushButton *>("publisherFont");
+        QVERIFY(libron && publisher);
+        QVERIFY(libron->isChecked());
+        for (int repeat = 0; repeat < 2; ++repeat) {
+            QTest::mouseClick(libron, Qt::LeftButton);
+            QCOMPARE(current, QString("Libron"));
+            QVERIFY(libron->isChecked());
+            QVERIFY(!publisher->isChecked());
+            QCOMPARE(changes, 0);
+        }
+        QTest::mouseClick(publisher, Qt::LeftButton);
+        QCOMPARE(current, QString());
+        QCOMPARE(changes, 1);
+        QVERIFY(publisher->isChecked());
+        QVERIFY(!libron->isChecked());
+        QTest::mouseClick(publisher, Qt::LeftButton);
+        QCOMPARE(current, QString());
+        QVERIFY(publisher->isChecked());
+        QCOMPARE(changes, 1);
+        QTest::keyClick(publisher, Qt::Key_Space);
+        QVERIFY(publisher->isChecked());
+        QCOMPARE(changes, 1);
+        QTest::mouseClick(picker.findChild<QPushButton *>("fontHelp"), Qt::LeftButton);
+        QVERIFY(publisher->isChecked());
+        QVERIFY(!picker.findChild<QPushButton *>("fontHelp")->isChecked());
+    }
     void fontHoldCancellation_data() { variants(); }
     void fontHoldCancellation() {
         QFETCH(bool, dark);

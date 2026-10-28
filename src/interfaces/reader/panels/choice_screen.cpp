@@ -44,6 +44,9 @@ public:
     std::function<void()> defaultRequested;
 
 protected:
+    void nextCheckState() override {
+        // Only the confirmed font selection changes the checkmark.
+    }
     bool event(QEvent *event) override {
         if (event->type() == QEvent::TouchCancel) {
             hold.stop();

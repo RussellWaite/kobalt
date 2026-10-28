@@ -3857,6 +3857,14 @@ exit 7
         auto *picker = dynamic_cast<ChoiceScreen *>(fixture.widget("rrChoices"));
         QVERIFY(picker);
         QVERIFY(picker->findChild<QLabel *>("rrFontChoice0Detail")->text().contains(strings::get("reader.default_font").toUpper()));
+        auto *selectedFont = qobject_cast<QAbstractButton *>(fixture.widget("rrFontChoice0"));
+        QVERIFY(selectedFont && selectedFont->isChecked());
+        for (int repeat = 0; repeat < 2; ++repeat) {
+            QVERIFY(fixture.press("rrFontChoice0"));
+            QVERIFY(selectedFont->isChecked());
+            QCOMPARE(fixture.state().value("font_face"), QJsonValue(""));
+            QVERIFY(!fixture.state().value("preview_busy").toBool());
+        }
         // The help slot is separate from the empty Publisher font value.
         QVERIFY(fixture.press("rrFontDefaultSlot"));
         QTRY_VERIFY(fixture.visible("rrFontDefaultDialog"));
