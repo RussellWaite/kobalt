@@ -78,20 +78,21 @@ void Reader::confirmCustomReplace(const std::function<void()> &proceed, const st
     customReplaceDialog->setFocus();
 }
 
-void Reader::showFontDefaultDialog(const QString &face) {
+void Reader::showFontDefaultDialog(const QString &face, bool instructions) {
     if (model->temporaryTypography())
         return;
     if (fontDefaultDialog || !appearanceEdit.panelOpen())
         return;
     const auto current = preferences.value("default_font_face").toString(defaultFontFace);
-    const bool instructions = face.isEmpty(), alreadyDefault = face == current;
+    const bool alreadyDefault = face == current;
+    const auto label = face.isEmpty() ? strings::get("reader.publisher_fonts") : fontDisplayName(face);
     const ui::ModalContent content{
         instructions     ? strings::get("reader.default_font_instructions")
-        : alreadyDefault ? strings::get("reader.already_default_font").arg(fontDisplayName(face))
+        : alreadyDefault ? strings::get("reader.already_default_font").arg(label)
                          : (face == defaultFontFace ? strings::get("reader.restore_default_font_description")
                                                     : strings::get("reader.make_default_font_description")),
         instructions || alreadyDefault ? strings::get("reader.your_default_font")
-                                       : strings::get("reader.make_default_font").arg(fontDisplayName(face)),
+                                       : strings::get("reader.make_default_font").arg(label),
         {}};
     const ui::ModalAction primary{instructions || alreadyDefault ? strings::get("common.ok")
                                                                  : strings::get("reader.make_default"),
@@ -148,7 +149,7 @@ void Reader::showFontDefaultDialog(const QString &face) {
                 dismiss();
                 mutateAppearance([face](ReaderSession &preview) {
                     auto settings = preview.state();
-                    settings["default_font_face"] = face;
+                    settings["default_font_face"] = face.isEmpty() ? QString(defaultFontFace) : face;
                     preview.apply(settings);
                 });
                 showFontPicker();

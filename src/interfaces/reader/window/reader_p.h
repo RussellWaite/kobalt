@@ -241,7 +241,7 @@ private:
     bool kosyncPositionFailed = false;
     bool kosyncPromptDeferred = false;
     void showFontPicker();
-    void showFontDefaultDialog(const QString &face);
+    void showFontDefaultDialog(const QString &face, bool instructions);
     void buildNotices();
     void connectLightGestures();
     void connectPageInput();

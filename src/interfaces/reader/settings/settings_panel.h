@@ -42,7 +42,7 @@ public:
     ~SettingsPanel() override;
     void dismissRestore();
     void showFontChoices(const QString &title, const QVector<ReadingFont> &fonts, const QString &current,
-                         const QString &defaultFamily, std::function<void(const QString &)> chosen,
+                         const QString &emptyLabel, std::function<void(const QString &)> chosen,
                          std::function<void(const QStringList &)> prepareFonts = {});
     void dismissFontChoices();
     void showHeaderFooterWeights(int current, const QFont &sampleFont, std::function<void(int)> chosen);

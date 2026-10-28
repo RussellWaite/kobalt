@@ -173,7 +173,13 @@ private slots:
         picker.setFontGeometry(QRect(0, 0, host.width(), picker.fontPanelHeight()));
         int selected = 0, defaults = 0;
         picker.selected = [&](const QString &) { ++selected; };
-        picker.defaultRequested = [&](const QString &) { ++defaults; };
+        QString requestedFace;
+        bool instructions = false;
+        picker.defaultRequested = [&](const QString &face, bool help) {
+            ++defaults;
+            requestedFace = face;
+            instructions = help;
+        };
         host.show();
         picker.showChoices("Font", {{"Libron", "Libron", "holdFont"}}, {}, ChoiceScreen::Mode::Fonts);
         QCoreApplication::processEvents();
@@ -197,6 +203,21 @@ private slots:
         QCOMPARE(defaults, 1);
         pointerEvent(cell, QEvent::MouseButtonRelease, 5100, point);
         QCOMPARE(defaults, 1);
+        Choice help{"Aa", "", "fontHelp"};
+        help.placeholder = true;
+        picker.showChoices("Font", {{"Publisher Fonts", "", "publisherFont"}, help}, {}, ChoiceScreen::Mode::Fonts);
+        cell = picker.findChild<QPushButton *>("publisherFont");
+        QVERIFY(cell && cell->isVisible());
+        pointerEvent(cell, QEvent::MouseButtonPress, 6000, cell->rect().center());
+        pointerEvent(cell, QEvent::MouseButtonRelease, 7000, cell->rect().center());
+        QCOMPARE(defaults, 2);
+        QVERIFY(requestedFace.isEmpty());
+        QVERIFY(!instructions);
+        QCOMPARE(selected, 1);
+        QTest::mouseClick(picker.findChild<QPushButton *>("fontHelp"), Qt::LeftButton);
+        QCOMPARE(defaults, 3);
+        QVERIFY(instructions);
+        QCOMPARE(selected, 1);
     }
     void holdCallbackCanDeleteReader() {
         QPointer<ReadingPage> page = new ReadingPage(nullptr, [] {});

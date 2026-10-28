@@ -1625,11 +1625,13 @@ void Reader::showFontPicker() {
     }
     QString defaultFace = preferences.value("default_font_face").toString(kobalt::defaultFontFace);
     int defaultIndex = -1;
-    for (int i = 1; i < items.size(); ++i)
+    for (int i = 0; i < items.size(); ++i)
         if (items[i].value == defaultFace)
             defaultIndex = i;
-    if (defaultIndex < 0)
+    if (defaultIndex < 0) {
         defaultFace = kobalt::defaultFontFace;
+        defaultIndex = 1;
+    }
     const int embedded = state.value("embedded_font_count").toInt();
     auto serifFallback = state.value("serif_font_face").toString();
     if (serifFallback.isEmpty())
@@ -1638,16 +1640,18 @@ void Reader::showFontPicker() {
                                                     : strings::get("reader.embedded_fonts").arg(embedded))
                                    : strings::get("reader.no_embedded_fonts") + '\n' +
                                          strings::get("reader.uses_default_font").arg(fontDisplayName(serifFallback));
-    if (items.size() > 1)
-        items[1].detail = (defaultFace == kobalt::defaultFontFace ? strings::get("reader.default_font") : QString());
-    if (defaultIndex > 1)
-        items[defaultIndex].detail = strings::get("reader.default_font");
+    if (defaultIndex < items.size()) {
+        auto &detail = items[defaultIndex].detail;
+        if (!detail.isEmpty())
+            detail += '\n';
+        detail += strings::get("reader.default_font");
+    }
     Choice slot{QStringLiteral("Aa"), defaultFace, "rrFontDefaultSlot", strings::get("reader.recommended_fonts")};
     slot.detail = strings::get("reader.set_default_font");
     slot.placeholder = true;
     items.insert(qMin(2, items.size()), slot);
-    choices->defaultRequested = [this](const QString &face) {
-        showFontDefaultDialog(face);
+    choices->defaultRequested = [this](const QString &face, bool instructions) {
+        showFontDefaultDialog(face, instructions);
     };
     choices->selected = [this](const QString &face) {
         const auto *current = appearanceEdit.edited() && appearanceEdit.ready() ? appearanceEdit.preview() : model;

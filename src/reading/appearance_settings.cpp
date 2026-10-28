@@ -220,10 +220,9 @@ void applyFontDefault(QJsonObject &saved, const QJsonObject &preferences) {
     // Global fallbacks also replace stale values in an existing book's state.
     for (const auto *key : fallbackFontKeys)
         saved[key] = preferences.value(key).toString();
-    auto face = preferences.value("default_font_face").toString(defaultFontFace);
-    if (face.isEmpty())
-        face = defaultFontFace;
-    saved["default_font_face"] = face;
+    const auto face = preferences.value("default_font_face").toString(defaultFontFace);
+    // Publisher is an empty override. The renderer still needs a concrete fallback.
+    saved["default_font_face"] = face.isEmpty() ? QString(defaultFontFace) : face;
     if (!saved.contains("font_face"))
         saved["font_face"] = face;
 }

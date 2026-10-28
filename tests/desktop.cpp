@@ -3798,6 +3798,98 @@ exit 7
         QTRY_COMPARE(fixture.state().value("bookmark_count").toInt(), 0);
         QCOMPARE(fixture.state().value("position"), origin);
     }
+    void publisherFontDefault_data() { bookmarks_data(); }
+    void publisherFontDefault() {
+        QFETCH(bool, dark);
+        Fixture fixture(dark);
+        QVERIFY(fixture.prepared);
+        auto preferences = storage::readJson(fixture.paths.preferences());
+        preferences[appearance::inheritTextLayoutKey] = false;
+        preferences["default_font_face"] = "NV Ancizar Serif";
+        QVERIFY(storage::writeJson(fixture.paths.preferences(), preferences));
+        QSignalSpy opened(&fixture.window, &desktop::Window::bookOpened);
+        fixture.window.openBook(book);
+        QTRY_COMPARE(opened.count(), 1);
+        QTRY_VERIFY(!fixture.state().value("busy").toBool());
+        const auto originalFace = fixture.state().value("font_face");
+        QCOMPARE(originalFace.toString(), QString("NV Ancizar Serif"));
+        QVERIFY(fixture.press("rrPage"));
+        QVERIFY(fixture.press("rrSettings"));
+        QVERIFY(fixture.press("rrSettingsDefaults"));
+        QVERIFY(revealSettingsOption(fixture, "rrDefaultFont"));
+        QVERIFY(fixture.press("rrDefaultFont"));
+        QTRY_VERIFY(fixture.visible("rrSettingsFontChoice0"));
+        auto *publisher = qobject_cast<QAbstractButton *>(fixture.widget("rrSettingsFontChoice0"));
+        QVERIFY(publisher);
+        QCOMPARE(publisher->text(), strings::get("reader.publisher_fonts"));
+        QVERIFY(publisher->property("reader_font_family").toString().isEmpty());
+        QVERIFY(fixture.press("rrSettingsFontChoice0"));
+        QVERIFY(fixture.press("rrSettingsClose"));
+        QTRY_VERIFY(!fixture.visible("rrGeneralSettings") && !fixture.state().value("busy").toBool());
+        auto stored = storage::readJson(fixture.paths.preferences());
+        QCOMPARE(stored.value("schema").toInt(), 1);
+        QCOMPARE(stored.value("default_font_face"), QJsonValue(""));
+        QCOMPARE(fixture.state().value("font_face"), originalFace);
+        QCOMPARE(fixture.state().value("default_font_face").toString(), QString(defaultFontFace));
+        // Reopening Settings must retain Publisher rather than repair it to Libron.
+        QVERIFY(fixture.press("rrSettings"));
+        QVERIFY(fixture.press("rrSettingsDefaults"));
+        QVERIFY(revealSettingsOption(fixture, "rrDefaultFont"));
+        auto *defaultButton = dynamic_cast<ui::CaptionButton *>(fixture.widget("rrDefaultFont"));
+        QVERIFY(defaultButton);
+        QCOMPARE(defaultButton->caption(), strings::get("reader.publisher_fonts").toUpper());
+        QVERIFY(fixture.press("rrDefaultFont"));
+        QTRY_VERIFY(fixture.visible("rrSettingsFontChoice0"));
+        QVERIFY(qobject_cast<QAbstractButton *>(fixture.widget("rrSettingsFontChoice0"))->isChecked());
+        QVERIFY(fixture.press("rrSettingsFontChoice0"));
+        QVERIFY(fixture.press("rrSettingsClose"));
+        QTRY_VERIFY(!fixture.state().value("busy").toBool());
+        const auto other = fixture.directory.path() + "/publisher-default.epub";
+        QVERIFY(QFile::copy(book, other));
+        fixture.window.openBook(other);
+        QTRY_COMPARE(opened.count(), 2);
+        QTRY_VERIFY(!fixture.state().value("busy").toBool());
+        QCOMPARE(fixture.state().value("font_face"), QJsonValue(""));
+        QVERIFY(fixture.press("rrPage"));
+        QVERIFY(fixture.press("rrNavText"));
+        QVERIFY(fixture.press("rrFont"));
+        QTRY_VERIFY(fixture.visible("rrFontChoice0"));
+        auto *picker = dynamic_cast<ChoiceScreen *>(fixture.widget("rrChoices"));
+        QVERIFY(picker);
+        QVERIFY(picker->findChild<QLabel *>("rrFontChoice0Detail")->text().contains(strings::get("reader.default_font").toUpper()));
+        // The help slot is separate from the empty Publisher font value.
+        QVERIFY(fixture.press("rrFontDefaultSlot"));
+        QTRY_VERIFY(fixture.visible("rrFontDefaultDialog"));
+        QVERIFY(!fixture.visible("rrFontDefaultCancel"));
+        QVERIFY(fixture.press("rrFontDefaultConfirm"));
+        QTRY_VERIFY(!fixture.widget("rrFontDefaultDialog"));
+        QTest::keyClick(fixture.widget("rrFontChoice1"), Qt::Key_F10, Qt::ShiftModifier);
+        QTRY_VERIFY(fixture.visible("rrFontDefaultCancel"));
+        QVERIFY(fixture.press("rrFontDefaultConfirm"));
+        QTRY_VERIFY(!fixture.widget("rrFontDefaultDialog"));
+        QTRY_COMPARE(storage::readJson(fixture.paths.preferences()).value("default_font_face").toString(), QString(defaultFontFace));
+        QTRY_VERIFY(!fixture.state().value("preview_busy").toBool());
+        QTest::keyClick(fixture.widget("rrFontChoice0"), Qt::Key_F10, Qt::ShiftModifier);
+        QTRY_VERIFY(fixture.visible("rrFontDefaultCancel"));
+        QCOMPARE(fixture.widget("rrFontDefaultTitle")->property("text").toString(),
+                 strings::get("reader.make_default_font").arg(strings::get("reader.publisher_fonts")));
+        QVERIFY(fixture.press("rrFontDefaultCancel"));
+        QTRY_VERIFY(!fixture.widget("rrFontDefaultDialog"));
+        QCOMPARE(storage::readJson(fixture.paths.preferences()).value("default_font_face").toString(), QString(defaultFontFace));
+        QTest::keyClick(fixture.widget("rrFontChoice0"), Qt::Key_F10, Qt::ShiftModifier);
+        QTRY_VERIFY(fixture.visible("rrFontDefaultCancel"));
+        QVERIFY(fixture.press("rrFontDefaultConfirm"));
+        QTRY_VERIFY(!fixture.widget("rrFontDefaultDialog"));
+        QTRY_COMPARE(storage::readJson(fixture.paths.preferences()).value("default_font_face"), QJsonValue(""));
+        QTRY_VERIFY(!fixture.state().value("preview_busy").toBool());
+        QVERIFY(fixture.press("rrFontClose"));
+        QVERIFY(fixture.press("rrPage"));
+        QTRY_VERIFY(!fixture.visible("rrMenu") && !fixture.state().value("busy").toBool());
+        fixture.window.openBook(book);
+        QTRY_COMPARE(opened.count(), 3);
+        QTRY_VERIFY(!fixture.state().value("busy").toBool());
+        QCOMPARE(fixture.state().value("font_face"), originalFace);
+    }
     void settings_data() { bookmarks_data(); }
     void dictionaryAppearance_data() { bookmarks_data(); }
     void dictionaryAppearance() {
@@ -5222,6 +5314,36 @@ exit 7
 class ScreenshotTests final : public QObject {
     Q_OBJECT
 private slots:
+    void publisherFontDefault_data() { screenshotVariants(); }
+    void publisherFontDefault() {
+        QFETCH(int, preset);
+        QFETCH(bool, dark);
+        Fixture fixture(dark);
+        QVERIFY(fixture.prepared);
+        auto preferences = storage::readJson(fixture.paths.preferences());
+        preferences["default_font_face"] = "";
+        preferences[appearance::inheritTextLayoutKey] = false;
+        QVERIFY(storage::writeJson(fixture.paths.preferences(), preferences));
+        fixture.window.findChild<QComboBox *>("desktopScreenPicker")->setCurrentIndex(preset);
+        const auto name = QString(preset == 1 ? "six-inch-" : "seven-inch-") + (dark ? "dark" : "light");
+        QSignalSpy opened(&fixture.window, &desktop::Window::bookOpened);
+        fixture.window.openBook(book);
+        QTRY_COMPARE(opened.count(), 1);
+        QTRY_VERIFY(!fixture.state().value("busy").toBool());
+        openPrologueBody(fixture);
+        QVERIFY(fixture.press("rrPage"));
+        QVERIFY(fixture.press("rrNavText"));
+        QVERIFY(fixture.press("rrFont"));
+        QTRY_VERIFY(fixture.visible("rrFontChoice0"));
+        QVERIFY(capture(fixture, name + "-publisher-font-default"));
+        QVERIFY(fixture.press("rrFontClose"));
+        QVERIFY(fixture.press("rrSettings"));
+        QVERIFY(fixture.press("rrSettingsDefaults"));
+        QVERIFY(revealSettingsOption(fixture, "rrDefaultFont"));
+        QVERIFY(fixture.press("rrDefaultFont"));
+        QTRY_VERIFY(fixture.visible("rrSettingsFontChoice0"));
+        QVERIFY(capture(fixture, name + "-default-font-choices"));
+    }
     void kosyncManual_data() { screenshotVariants(); }
     void kosyncManual() {
         QFETCH(int, preset);
@@ -6160,7 +6282,7 @@ int main(int argc, char **argv) {
         return app.exec();
     }
     QFile fixture(book);
-    const int expectedScreenshots = lightGallery ? 56 : 744;
+    const int expectedScreenshots = lightGallery ? 56 : 754;
     if (captures.size() != expectedScreenshots)
         qCritical() << "Expected" << expectedScreenshots << "screenshots, captured" << captures.size();
     if (!fixture.open(QIODevice::ReadOnly) || captures.size() != expectedScreenshots) {

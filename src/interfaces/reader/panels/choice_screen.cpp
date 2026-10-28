@@ -473,7 +473,7 @@ void ChoiceScreen::redrawFonts() {
                 return;
             if (items[index].placeholder) {
                 if (defaultRequested)
-                    defaultRequested({});
+                    defaultRequested({}, true);
             } else if (selected)
                 selected(items[index].value);
         });
@@ -493,10 +493,10 @@ void ChoiceScreen::redrawFonts() {
         const bool selectedItem = !item.placeholder && item.value == selectedValue;
         fontCell->fontMode = true;
         fontCell->placeholder = item.placeholder;
-        fontCell->defaultRequested = !item.placeholder && !item.value.isEmpty()
+        fontCell->defaultRequested = !item.placeholder
                                          ? std::function<void()>([this, value = item.value] {
                                                if (defaultRequested)
-                                                   defaultRequested(value);
+                                                   defaultRequested(value, false);
                                            })
                                          : std::function<void()>{};
         button->setObjectName(item.name);

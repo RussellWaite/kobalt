@@ -506,10 +506,10 @@
 /* Arguments: %1 */
 "reader.make_default_font" = "Make %1 your default?";
 "reader.make_default" = "Make default";
-"reader.default_font_instructions" = "Long press another font to make it the default override for new books. The chosen font will show Default font below its name. Publisher Fonts keeps its automatic fallbacks.";
+"reader.default_font_instructions" = "Long press a font, including Publisher Fonts, to make it the default for new books. The chosen font will show Default font below its name. Publisher Fonts keeps the book’s fonts and automatic fallbacks.";
 /* Arguments: %1 */
 "reader.already_default_font" = "%1 is already your default font.";
-"reader.make_default_font_description" = "It will show Default font below its name and become the initial font override for new books. Publisher Fonts keeps its automatic fallbacks.";
+"reader.make_default_font_description" = "It will show Default font below its name and become the initial font choice for new books. Publisher Fonts keeps the book’s fonts and automatic fallbacks.";
 "reader.restore_default_font_description" = "Libron will become the initial font override for new books. Default font will appear below Libron.";
 "reader.font_weight" = "Variable weight:";
 "reader.font_thickness" = "Thickness: +";

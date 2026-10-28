@@ -169,6 +169,25 @@ int main() {
     fresh["font_face"] = QStringLiteral("NV Literata");
     appearance::applyFontDefault(fresh, qt::object({{"default_font_face", "NV Ancizar Serif"}}));
     require(fresh["font_face"].toString() == "NV Literata", "Default changes replaced an explicit book font");
+    const auto publisherDefault = qt::object({{"default_font_face", ""}, {appearance::inheritTextLayoutKey, false}});
+    auto publisherBook = appearance::bookDefaults(publisherDefault);
+    require(publisherBook.value("font_face").toString() == "" && publisherBook.contains("font_face") &&
+                publisherBook.value("default_font_face").toString() == defaultFontFace,
+            "Publisher default did not preserve publisher fonts with the normal fallback");
+    QJsonObject unopened;
+    appearance::applyBookDefaults(unopened, publisherBook);
+    require(unopened.value("font_face").toString().isEmpty(), "New book lost the Publisher default");
+    auto explicitBook = qt::object({{"font_face", "NV Literata"}});
+    appearance::applyBookDefaults(explicitBook, publisherBook);
+    require(explicitBook.value("font_face").toString() == "NV Literata",
+            "Publisher default replaced an existing book's explicit font");
+    auto inheritedPublisher = publisherDefault;
+    inheritedPublisher[appearance::inheritTextLayoutKey] = true;
+    inheritedPublisher[appearance::lastTextLayoutKey] = qt::object({{"font_face", "NV Literata"}});
+    require(appearance::bookDefaults(inheritedPublisher).value("font_face").toString() == "NV Literata",
+            "Publisher default overrode enabled text inheritance");
+    require(appearance::globalPreferences(publisherDefault).value("default_font_face") == QJsonValue(""),
+            "Publisher default was removed from existing global preferences");
     for (const auto *key : appearance::fallbackFontKeys) {
         auto changed = from;
         changed[key] = QStringLiteral("Personal Font");

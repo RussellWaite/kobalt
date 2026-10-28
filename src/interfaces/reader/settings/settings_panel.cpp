@@ -816,7 +816,7 @@ SettingsPanel::~SettingsPanel() {
     delete fontDialog;
 }
 void SettingsPanel::showFontChoices(const QString &title, const QVector<ReadingFont> &fonts, const QString &current,
-                                    const QString &defaultFamily, std::function<void(const QString &)> chosen,
+                                    const QString &emptyLabel, std::function<void(const QString &)> chosen,
                                     std::function<void(const QStringList &)> prepareFonts) {
     if (fontDialog || fonts.isEmpty())
         return;
@@ -847,8 +847,7 @@ void SettingsPanel::showFontChoices(const QString &title, const QVector<ReadingF
         const auto &family = fonts[index].family;
         auto *option = choices->add(
             QString("rrSettingsFontChoice%1").arg(index),
-            family.isEmpty() ? strings::get("settings.font_default_value").arg(fontDisplayName(defaultFamily))
-                             : fontDisplayName(family));
+            family.isEmpty() ? emptyLabel : fontDisplayName(family));
         option->setProperty("reader_font_family", family);
         if (family == current)
             selected = index;

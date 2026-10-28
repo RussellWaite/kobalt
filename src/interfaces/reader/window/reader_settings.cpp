@@ -240,7 +240,7 @@ void Reader::openSettings() {
         settingsFontFaces[key] = model->fontFaces().contains(family) ? family : QString();
     }
     settingsDefaultFontFace = preferences.value("default_font_face").toString(defaultFontFace);
-    if (!model->fontFaces().contains(settingsDefaultFontFace))
+    if (!settingsDefaultFontFace.isEmpty() && !model->fontFaces().contains(settingsDefaultFontFace))
         settingsDefaultFontFace = defaultFontFace;
     settingsUiFontFace = preferences.value("ui_font_face").toString();
     settingsUiMonoFontFace = preferences.value("ui_mono_font_face").toString();
@@ -520,7 +520,7 @@ void Reader::applySettings() {
     chapterGraph->setDense(preferences.value("dense_stats_chart").toBool(false));
     auto settings =
         appearanceEdit.edited() && appearanceEdit.ready() ? appearanceEdit.preview()->requestedState() : model->state();
-    settings["default_font_face"] = settingsDefaultFontFace;
+    settings["default_font_face"] = settingsDefaultFontFace.isEmpty() ? QString(defaultFontFace) : settingsDefaultFontFace;
     for (const auto *key : appearance::fallbackFontKeys)
         settings[key] = preferences.value(key).toString();
     settings["dark_mode"] = darkOption->isChecked();
@@ -986,7 +986,8 @@ void Reader::showSettingsFonts() {
     sample(panel->dictionaryFontButton, dictionaryFace);
     panel->dictionaryFontSizeButton->setCaption(SettingsPanel::dictionaryFontSizeLabel(settingsDictionaryFontSize).toUpper());
     sample(panel->defaultFontButton, settingsDefaultFontFace);
-    panel->defaultFontButton->setCaption(fontDisplayName(settingsDefaultFontFace).toUpper());
+    panel->defaultFontButton->setCaption((settingsDefaultFontFace.isEmpty()
+        ? strings::get("reader.publisher_fonts") : fontDisplayName(settingsDefaultFontFace)).toUpper());
     const auto defaults = fallbackFontDefaults(model->fontFaces());
     int index = 0;
     for (auto *button : {panel->serifFontButton, panel->sansFontButton, panel->monoFontButton}) {
@@ -1018,8 +1019,7 @@ void Reader::openSettingsFont(const QString &key) {
         if (fonts[row].origin == FontOrigin::BuiltIn &&
             !nativeFamilies.contains(fonts[row].family, Qt::CaseInsensitive))
             fonts.removeAt(row);
-    if (!isDefault)
-        fonts.prepend({QString(), {}, FontOrigin::Recommended, {}, {}});
+    fonts.prepend({QString(), {}, FontOrigin::Recommended, {}, {}});
     panel->showFontChoices(
         isDefault        ? strings::get("reader.default_font")
         : isUi           ? strings::get("settings.ui_font")
@@ -1034,11 +1034,11 @@ void Reader::openSettingsFont(const QString &key) {
         : isHeaderFooter ? settingsHeaderFooterFontFace
         : isDictionary   ? settingsDictionaryFontFace
                          : settingsFontFaces.value(key).toString(),
-        isDefault                    ? QString(defaultFontFace)
-        : isUi                       ? QString("IBM Plex Sans")
-        : (isMono || isHeaderFooter) ? QString("IBM Plex Mono")
-        : isDictionary               ? bookFace()
-                                     : fallbackFontDefaults(model->fontFaces())[index],
+        isDefault ? strings::get("reader.publisher_fonts")
+                  : strings::get("settings.font_default_value").arg(fontDisplayName(
+                        isUi ? QString("IBM Plex Sans")
+                        : (isMono || isHeaderFooter) ? QString("IBM Plex Mono")
+                        : isDictionary ? bookFace() : fallbackFontDefaults(model->fontFaces())[index])),
         [this, key, isDefault, isUi, isMono, isHeaderFooter, isDictionary](const QString &family) {
             if (isDefault)
                 settingsDefaultFontFace = family;

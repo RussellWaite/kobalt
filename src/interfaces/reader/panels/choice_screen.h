@@ -56,7 +56,7 @@ public:
     enum class Mode { Chapters, Fonts, Sizes };
     std::function<void(const QString &)> selected;
     std::function<void()> back, changed;
-    std::function<void(const QString &)> defaultRequested;
+    std::function<void(const QString &, bool instructions)> defaultRequested;
     std::function<void(const QStringList &)> fontPageRequested;
     QJsonObject fontSamples() const;
     void setFontAppearance(const ui::SampleAppearance &appearance);
