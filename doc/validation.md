@@ -83,7 +83,7 @@ The `lifecycle.clockStopsWhileReaderIsHidden` check hides and restores the reade
 
 General lifecycle and preview checks use Type Tester. Focused cover cases generate the original 128 × 64 cover with a large PNG text chunk, outside the first page. Coverless and native-position cases use the original EPUB text and span IDs. These fixtures are generated offline with the same deterministic ZIP writer as the desktop checks. Sensor registrations, paused workers and publication resources are released after each case.
 
-The `lifecycle.lightReplacesDefaultMenu` check opens Light from Default, Navigate Mode and Stats Mode in both themes. It verifies that Light replaces the default view, its tab closes the panel, and the reading position, page image and saved menu preference stay unchanged. A controlled light service exposes the real panel without device hardware.
+The `lifecycle.lightReplacesDefaultMenu` check opens Light from Default, Navigate Mode and Stats Mode in both themes. It verifies that Light replaces the default view and that closing Light through its tab or an outside tap restores that view. Panel switches and full-menu dismissal must not reopen the default view, even briefly. The reading position, page image and saved menu preference stay unchanged. A controlled light service exposes the real panel without device hardware.
 
 The desktop `bookmarkReturn` check jumps to a bookmark and returns to the exact original position in both themes. It covers Default, Stats Mode and Navigate Mode, plus Default after visiting Stats or Chapters before Navigate. It waits for the preview and checks that the return action disappears after use.
 

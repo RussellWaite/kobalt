@@ -652,6 +652,7 @@ bool Reader::eventFilter(QObject *watched, QEvent *event) {
                 !(navigation && navigation->contains(point.toPoint()))) {
                 dismissing = true;
                 lightPopup->hide();
+                showControls();
             }
         }
         if (isVisible() && choosingTypography && choices->isVisible() && !fontDefaultDialog) {
@@ -1653,6 +1654,7 @@ void Reader::toggleLight() {
     chapterGraph->hide();
     if (lightPopup->isVisible()) {
         lightPopup->hide();
+        showControls();
         return;
     }
     appearanceEdit.request(AppearanceDestination::Light);

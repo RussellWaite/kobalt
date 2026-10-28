@@ -827,14 +827,21 @@ private slots:
     void lightReplacesDefaultMenu_data() {
         QTest::addColumn<bool>("dark");
         QTest::addColumn<QString>("menuView");
+        QTest::addColumn<QString>("action");
         for (bool dark : {false, true})
             for (const auto *view : {"none", "seek", "stats"})
-                QTest::newRow(qPrintable(QString("%1-%2").arg(view, dark ? "dark" : "light")))
-                    << dark << QString::fromLatin1(view);
+                for (const auto *action : {"tab", "outside", "Text", "Layout", "Chapters", "Settings", "Seek", "Stats", "dismiss"}) {
+                    if ((QString(action) == "Seek" && QString(view) == "seek") ||
+                        (QString(action) == "Stats" && QString(view) == "stats"))
+                        continue;
+                    QTest::newRow(qPrintable(QString("%1-%2-%3").arg(view, dark ? "dark" : "light", action)))
+                        << dark << QString::fromLatin1(view) << QString::fromLatin1(action);
+                }
     }
     void lightReplacesDefaultMenu() {
         QFETCH(bool, dark);
         QFETCH(QString, menuView);
+        QFETCH(QString, action);
         class Light final : public LightControls {
         public:
             bool initialize() override { return true; }
@@ -884,15 +891,67 @@ private slots:
         QCOMPARE(stats->isVisible(), menuView == "stats");
         if (menuView == "seek")
             QTRY_VERIFY(seek->previewReady());
+        class DefaultShows final : public QObject {
+        public:
+            int count = 0;
+            bool eventFilter(QObject *, QEvent *event) override {
+                if (event->type() == QEvent::Show)
+                    ++count;
+                return false;
+            }
+        } defaultShows;
         QVERIFY(click(canvas, tab));
         QTRY_VERIFY(light->isVisible());
         QVERIFY(!stats->isVisible());
         QVERIFY(!seek->isVisible());
         QVERIFY(tab->isChecked());
         QVERIFY(toolbar->isVisible());
-        QVERIFY(click(canvas, tab));
+        if (menuView == "stats")
+            stats->installEventFilter(&defaultShows);
+        else if (menuView == "seek")
+            seek->installEventFilter(&defaultShows);
+        if (action == "tab")
+            QVERIFY(click(canvas, tab));
+        else if (action == "outside")
+            QVERIFY(clickAt(canvas, paper));
+        else if (action == "dismiss") {
+            // Exercise full-menu dismissal directly through the page action,
+            // independently of the outside-Light event filter.
+            QVERIFY(page->tapped);
+            page->tapped(paper);
+        } else {
+            const auto name = action == "Settings" ? QString("rrSettings") : QString("rrNav%1").arg(action);
+            QVERIFY(click(canvas, host.window()->findChild<QPushButton *>(name)));
+        }
         QTRY_VERIFY(!light->isVisible());
         QVERIFY(!tab->isChecked());
+        const bool restoring = action == "tab" || action == "outside";
+        if (restoring) {
+            QTRY_COMPARE(stats->isVisible(), menuView == "stats");
+            QTRY_COMPARE(seek->isVisible(), menuView == "seek");
+            if (menuView == "seek")
+                QTRY_VERIFY(seek->previewReady());
+            QCOMPARE(defaultShows.count, menuView == "none" ? 0 : 1);
+            QVERIFY(toolbar->isVisible());
+        } else {
+            QCOMPARE(defaultShows.count, 0);
+            QTRY_COMPARE(stats->isVisible(), action == "Stats");
+            QTRY_COMPARE(seek->isVisible(), action == "Seek");
+            if (action == "dismiss") {
+                QVERIFY(!toolbar->isVisible());
+                QVERIFY(!host.window()->findChild<QWidget *>("rrBottomNavigation")->isVisible());
+                QVERIFY(clickAt(canvas, paper));
+                QTRY_VERIFY(toolbar->isVisible());
+                QTRY_COMPARE(stats->isVisible(), menuView == "stats");
+                QTRY_COMPARE(seek->isVisible(), menuView == "seek");
+                QCOMPARE(defaultShows.count, menuView == "none" ? 0 : 1);
+            } else {
+                const auto panel = action == "Chapters" ? "rrChoices" : action == "Settings" ? "rrGeneralSettings" : "rrMenu";
+                if (action == "Text" || action == "Layout" || action == "Chapters" || action == "Settings")
+                    QTRY_VERIFY(host.window()->findChild<QWidget *>(panel)->isVisible());
+                QVERIFY(toolbar->isVisible());
+            }
+        }
         QCOMPARE(host.session()->state().value("position"), position);
         QCOMPARE(page->image.cacheKey(), image);
         QCOMPARE(storage::readJson(paths.preferences()).value("default_menu_view").toString(), menuView);

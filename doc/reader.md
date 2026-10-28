@@ -165,6 +165,8 @@ Dragging the main scrubber right moves forward through its visible page range. T
 
 On Kobo, the System tab sits above About. Open books automatically in Kobalt uses the same preference as Kobo's Reading settings. A change in either place appears when the other settings page opens. Turning it off keeps the current book open and uses Kobo's reader for future library openings. A failed save keeps the previous selection.
 
+Closing Light through its tab or a tap on the visible page restores the default menu view. Switching to another panel keeps that panel open. Dismissing the reading menu keeps all its panels closed until the menu opens again.
+
 Text and Layout panels measure their visible controls and messages, including optional font controls. They keep their bottom edge above the navigation bar. When the controls exceed the space below the top toolbar, the controls scroll inside the panel. About measures its content and leaves room for the settings tabs beside it.
 
 Settings > Styling > Smart styling contains Reduce publisher spacing. It is on by default and applies to all books. Its description reads "Use Kobalt's page margins and reduce blank space at chapter starts." The italic heading "What this changes:" introduces a list of three effects, with space above it. Wrapped lines align with the text of each item. Kobalt removes margins at forced page breaks and overrides HTML and body margins and padding. It also preserves the book's space above illustrations at chapter starts. Turn it off to keep that publisher spacing. The current book reflows without losing its reading position. Your Text and Layout controls still apply. CSS `@page` rules remain unsupported by the renderer.
