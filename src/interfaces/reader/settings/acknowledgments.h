@@ -14,7 +14,8 @@ class LicenseText : public QWidget {
 public:
     explicit LicenseText(QWidget *parent);
     void setText(const QString &text);
-    int pages() const;
+    // Lays the notice out first if its text or size changed.
+    int pages();
     int page = 0;
 
 protected:
@@ -24,7 +25,8 @@ protected:
 
 private:
     ui::PrivateRichText document;
-    void paginate();
+    bool stale = true;
+    void ensureLayout();
 };
 
 // The project list and each license page use the header geometry: a caption

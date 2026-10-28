@@ -18,13 +18,12 @@ void PagedText::setHtml(const QString &html) {
     source = html;
     document.setHtml(html);
     current = 0;
-    paginate();
+    stale = true;
     update();
 }
 void PagedText::setTextFont(const QFont &font) {
     document.setFont(font);
-    paginate();
-    current = qBound(0, current, pages() - 1);
+    stale = true;
     update();
 }
 void PagedText::setMinimumLineHeight(int percent) {
@@ -32,44 +31,46 @@ void PagedText::setMinimumLineHeight(int percent) {
         return;
     minimumLineHeight = percent;
     document.setHtml(source);
-    paginate();
-    current = qBound(0, current, pages() - 1);
+    stale = true;
     update();
 }
 void PagedText::changeEvent(QEvent *event) {
     // Rebuild inherited font attributes after interface settings change.
     if (event->type() == QEvent::FontChange) {
-        const int page = current;
         document.setFont(renewedFont(document.font()));
         document.setHtml(source);
-        paginate();
-        current = qBound(0, page, pages() - 1);
+        stale = true;
         update();
     }
     QWidget::changeEvent(event);
 }
 void PagedText::setMargins(const QMargins &value) {
     margins = value;
-    paginate();
-    current = qBound(0, current, pages() - 1);
+    stale = true;
     update();
 }
 int PagedText::pages() const {
+    ensureLayout();
     return document.pages();
 }
 void PagedText::setPage(int number) {
-    current = qBound(0, number, pages() - 1);
+    // A stale layout clamps the page when it is next laid out.
+    current = stale ? qMax(0, number) : qBound(0, number, pages() - 1);
     update();
 }
 void PagedText::resizeEvent(QResizeEvent *) {
-    paginate();
-    current = qBound(0, current, pages() - 1);
+    stale = true;
 }
-void PagedText::paginate() {
+void PagedText::ensureLayout() const {
+    if (!stale)
+        return;
+    stale = false;
     document.layout(qMax(1, width() - margins.left() - margins.right()),
                     qMax(1, height() - margins.top() - margins.bottom()), minimumLineHeight);
+    current = qBound(0, current, document.pages() - 1);
 }
 void PagedText::paintEvent(QPaintEvent *) {
+    ensureLayout();
     QPainter painter(this);
     painter.fillRect(rect(), palette().color(QPalette::Window));
     const int pageHeight = qMax(1, height() - margins.top() - margins.bottom());

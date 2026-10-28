@@ -321,8 +321,7 @@ inline void checkPrivateFallbackStyles(const kobalt::AssetBundle &assets) {
             if (name.contains("Italic") && !sample.italics) {
                 continue;
             }
-            require(registerPrivateInterfaceFont(assets.file(QString("fonts/%1-%2.ttf").arg(sample.stem, style)), alias,
-                                                 true) == PrivateFontRegistration::Private,
+            require(registerPrivateInterfaceFont(assets.file(QString("fonts/%1-%2.ttf").arg(sample.stem, style)), alias),
                     "Cannot register fallback style reference");
         }
         for (const bool italic : {false, true}) {
@@ -330,7 +329,7 @@ inline void checkPrivateFallbackStyles(const kobalt::AssetBundle &assets) {
                 continue;
             }
             for (const bool bold : {false, true}) {
-                QFont fallback("Kobalt UI Serif"), reference(alias);
+                QFont fallback("Instrument Serif"), reference(alias);
                 for (auto *font : {&fallback, &reference}) {
                     font->setPixelSize(48);
                     font->setBold(bold);
@@ -361,7 +360,7 @@ inline void checkPrivateFallbackStyles(const kobalt::AssetBundle &assets) {
 inline void checkPrivateInterfaceText(const kobalt::AssetBundle &assets) {
     using namespace kobalt::ui;
     require(privateInterfaceFontBytes() == 0, "Private interface fonts were loaded eagerly");
-    QFont font(QStringLiteral("Kobalt UI Sans"));
+    QFont font(QStringLiteral("IBM Plex Sans"));
     font.setPixelSize(32);
     require(needsPrivateText(QStringLiteral("Chapter 4"), font), "Covered Latin text bypassed the private renderer");
     QFont readingFont("Custom Reading Face");
@@ -403,29 +402,61 @@ inline void checkPrivateInterfaceText(const kobalt::AssetBundle &assets) {
         boundary.setPosition(elided.size() - 1);
         require(boundary.isAtBoundary(), "Private ellipsis split a grapheme");
         require(elidePrivateText(sample, font, 0).isEmpty(), "Private text drew into zero available width");
+        QVector<int> ends;
+        boundary.toStart();
+        for (int end = boundary.toNextBoundary(); end >= 0; end = boundary.toNextBoundary())
+            ends.append(end);
+        const auto advance = [&](int start, int end) {
+            return measurePrivateText(sample.mid(start, end - start), font);
+        };
+        // A carried estimate from an earlier line must not change the break.
+        qreal unitAdvance = 0;
+        for (int start : {0, ends.value(ends.size() / 3)})
+            for (int width : {1, 40, 100, 160, 300, rendered.advance}) {
+                const int end = fittingTextEnd(ends, start, sample.size(), width, [&](int candidate) {
+                    return advance(start, candidate);
+                }, unitAdvance);
+                require(end == start || (end > start && advance(start, end) <= width),
+                        "Line fitting returned text wider than the line");
+                const auto next = std::upper_bound(ends.begin(), ends.end(), end);
+                require(next == ends.end() || advance(start, *next) > width,
+                        "Line fitting stopped before the last grapheme that fits");
+            }
     }
-    require(registerPrivateInterfaceFont(assets.file("fonts/NotoSerifCJK-Regular.ttc"), "Noto Serif CJK SC") ==
-                PrivateFontRegistration::Private,
-            "CJK collection was allowed onto the native font backend");
+    {
+        // On text whose advance grows with its length, the search finds the
+        // same break as checking every grapheme.
+        const QString text = QStringLiteral("The quick brown fox jumps over the lazy dog, again and again. ").repeated(4);
+        QTextBoundaryFinder graphemes(QTextBoundaryFinder::Grapheme, text);
+        QVector<int> ends;
+        for (int end = graphemes.toNextBoundary(); end >= 0; end = graphemes.toNextBoundary())
+            ends.append(end);
+        qreal unitAdvance = 0;
+        for (int limit : {int(text.size()), 40})
+            for (int width = 1; width < 1400; width += 37) {
+                int expected = 0;
+                for (int end : ends)
+                    if (end <= limit && measurePrivateText(text.left(end), font) <= width)
+                        expected = end;
+                require(fittingTextEnd(ends, 0, limit, width, [&](int end) {
+                    return measurePrivateText(text.left(end), font);
+                }, unitAdvance) == expected,
+                        "Line fitting found a different break from a full scan");
+            }
+    }
+    require(registerPrivateInterfaceFont(assets.file("fonts/NotoSerifCJK-Regular.ttc"), "Noto Serif CJK SC"),
+            "Cannot retain the CJK collection");
     QFont cjkFont("Noto Serif CJK SC");
     cjkFont.setPixelSize(32);
     require(needsPrivateText(QStringLiteral("Hox"), cjkFont), "CFF preview stayed on the native font backend");
     const auto cjkPreview = renderPrivateText(QStringLiteral("第一章 한국어 Hox"), cjkFont);
     require(!cjkPreview.image.isNull() && cjkPreview.missingGlyphs == 0, "Private CJK preview lost the selected face");
-    require(registerPrivateInterfaceFont(assets.file("fonts/IBMPlexSans-Regular.ttf"), "Reading Test Alias") ==
-                PrivateFontRegistration::Native,
-            "TrueType reading font could not retain native painting");
+    require(registerPrivateInterfaceFont(assets.file("fonts/IBMPlexSans-Regular.ttf"), "Reading Test Alias"),
+            "Cannot retain a TrueType reading font");
     QFont readingAlias("Reading Test Alias");
     readingAlias.setPixelSize(32);
     require(needsPrivateText(QStringLiteral("Hox"), readingAlias), "Covered TrueType reading text changed backend");
     require(needsPrivateText(QStringLiteral("第一章"), readingAlias), "Reading font did not use private CJK fallback");
-    require(registerPrivateInterfaceFont(assets.file("fonts/IBMPlexSans-Regular.ttf"), "Reading Test Alias", true) ==
-                    PrivateFontRegistration::Private &&
-                needsPrivateText(QStringLiteral("Hox"), readingAlias),
-            "Forced private painting reused a cached native registration");
-    require(registerPrivateInterfaceFont(assets.file("fonts/IBMPlexSans-Regular.ttf"), "Reading Test Alias") ==
-                PrivateFontRegistration::Private,
-            "A later registration put a private preview back on the native backend");
     QTemporaryDir readingDirectory;
     require(readingDirectory.isValid(), "Cannot create private reading-font fixture");
     const auto readingPath = readingDirectory.path() + "/reading.ttf";
@@ -439,9 +470,8 @@ inline void checkPrivateInterfaceText(const kobalt::AssetBundle &assets) {
 #endif
     };
     const auto familiesBefore = fontFamilies();
-    require(registerPrivateInterfaceFont(readingPath, "Retained Reading Test", true) ==
-                PrivateFontRegistration::Private,
-            "TrueType preview requested native Qt registration");
+    require(registerPrivateInterfaceFont(readingPath, "Retained Reading Test"),
+            "Cannot retain a TrueType preview font");
     require(fontFamilies() == familiesBefore, "Private reading registration changed Qt's font database");
     require(QFile::remove(readingPath), "Cannot remove private reading-font fixture");
     QFont retainedReading("Retained Reading Test");
@@ -450,14 +480,11 @@ inline void checkPrivateInterfaceText(const kobalt::AssetBundle &assets) {
     require(needsPrivateText(QStringLiteral("Hox"), retainedReading) && !retainedSample.image.isNull() &&
                 retainedSample.missingGlyphs == 0,
             "Private TrueType preview could not render after its source file was removed");
-    require(registerPrivateInterfaceFont(assets.root() + "/missing-font.ttf", "Missing") ==
-                PrivateFontRegistration::Failed,
+    require(!registerPrivateInterfaceFont(assets.root() + "/missing-font.ttf", "Missing"),
             "Missing reading font was accepted");
-    require(registerPrivateInterfaceFont(assets.file("fonts/ebook-core/Libron-Regular.ttf"), "Private Excerpt Serif",
-                                         true) == PrivateFontRegistration::Private,
+    require(registerPrivateInterfaceFont(assets.file("fonts/ebook-core/Libron-Regular.ttf"), "Private Excerpt Serif"),
             "Cannot register private excerpt serif");
-    require(registerPrivateInterfaceFont(assets.file("fonts/ebook-core/Libron-Bold.ttf"), "Private Excerpt Serif",
-                                         true) == PrivateFontRegistration::Private,
+    require(registerPrivateInterfaceFont(assets.file("fonts/ebook-core/Libron-Bold.ttf"), "Private Excerpt Serif"),
             "Cannot register private excerpt bold");
     {
         // A private label without descenders centers its letters, as the

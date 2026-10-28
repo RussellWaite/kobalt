@@ -219,7 +219,7 @@ int main(int argc, char **argv) {
         readingPpi.store(300);
         ui::setDensity(300);
         app.setFont(ui::interfaceFont());
-        const auto fonts = engineFontInputs(assets, {}, {}, {});
+        const auto fonts = engineFontInputs(assets, {}, {});
         const auto placeholder = placeholderFontFamily(assets, copies);
         QTemporaryDir profile(QFileInfo(output).absolutePath() + "/gui-profile-XXXXXX");
         require(profile.isValid(), "Cannot create isolated profile");

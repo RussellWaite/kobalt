@@ -124,7 +124,9 @@ void LinkPanel::paintEvent(QPaintEvent *event) {
     painter.fillRect(0, rowTop() + c::actionHeight, width(), m::control::border, palette().color(QPalette::Mid));
 }
 void LinkPanel::refresh() {
-    pages->setPage(text->page(), text->pages());
+    // Counting the pages lays the text out and clamps its page first.
+    const int count = text->pages();
+    pages->setPage(text->page(), count);
 }
 
 namespace {

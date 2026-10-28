@@ -21,13 +21,12 @@ struct ReadingFont {
     QString family;
     QStringList files;
     FontOrigin origin;
-    bool copyForQt = false;
     FontWeightAxis weightAxis;
     FontOpticalSizeAxis opticalSizeAxis;
 };
 struct FontSources {
     QStringList bundled;
-    QString systemDirectory, sideloadDirectory, removableRoot;
+    QString systemDirectory, sideloadDirectory;
     QStringList systemFiles = {};
     bool operator==(const FontSources &other) const;
 };

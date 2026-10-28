@@ -2,6 +2,7 @@
 #include "fonts.h"
 #include <QPainter>
 #include <QBuffer>
+#include <QHash>
 #include <QImageReader>
 #include <QTextBlock>
 #include <QTextBoundaryFinder>
@@ -77,6 +78,10 @@ struct PrivateRichText::Data {
     QVector<QRectF> rules;
     int width = 1, pageHeight = 0, leading = 0;
     qreal bottom = 0;
+    // Line ends by block position and available width. Page height and
+    // leading move lines without changing where they break.
+    QHash<QPair<int, int>, QVector<int>> breaks;
+    qreal unitAdvance = 0;
 
     QFont fragmentFont(const QTextCharFormat &format) const {
         auto font = document.defaultFont();
@@ -155,52 +160,46 @@ struct PrivateRichText::Data {
             rules.append({x, y + base.pixelSize() / 2.0, qreal(available), 1});
             return y + base.pixelSize();
         }
+        auto &lineEnds = breaks[qMakePair(block.position(), available)];
+        const bool known = !lineEnds.isEmpty();
         QVector<int> ends;
-        QTextBoundaryFinder clusters(QTextBoundaryFinder::Grapheme, text);
-        for (int end = clusters.toNextBoundary(); end >= 0; end = clusters.toNextBoundary())
-            ends.append(end);
-        QTextBoundaryFinder breaks(QTextBoundaryFinder::Line, text);
+        QTextBoundaryFinder clusters, lineBreaks;
+        if (!known) {
+            clusters = QTextBoundaryFinder(QTextBoundaryFinder::Grapheme, text);
+            lineBreaks = QTextBoundaryFinder(QTextBoundaryFinder::Line, text);
+            ends.reserve(text.size());
+            for (int end = clusters.toNextBoundary(); end >= 0; end = clusters.toNextBoundary())
+                ends.append(end);
+        }
         int start = 0;
         bool first = true;
+        int lineIndex = 0;
         int separator = text.indexOf(QChar::LineSeparator);
         do {
             const int limit = separator < 0 ? text.size() : separator;
             const qreal indent = first ? format.textIndent() : 0;
             const int lineWidth = qMax(1, available - qCeil(indent));
-            // Probe near this line first. Searching the whole remaining paragraph
-            // repeatedly would shape quadratic amounts of text for a long definition.
-            const int firstEnd = int(std::upper_bound(ends.begin(), ends.end(), start) - ends.begin());
-            int low = firstEnd, high = firstEnd, end = start, step = 1;
-            auto fits = [&](int index) {
-                const int candidate = ends[index];
-                return candidate <= limit && measure(text.mid(start, candidate - start), base,
-                           slice(styles, start, candidate - start), direction).advance <= lineWidth;
-            };
-            while (high < ends.size() && fits(high)) {
-                end = ends[high];
-                low = high + 1;
-                high = qMin(int(ends.size()), firstEnd + step);
-                step *= 2;
+            int end;
+            if (known) {
+                end = lineEnds.value(lineIndex, text.size());
+            } else {
+                end = fittingTextEnd(ends, start, limit, lineWidth, [&](int candidate) {
+                    return measure(text.mid(start, candidate - start), base, slice(styles, start, candidate - start),
+                                   direction).advance;
+                }, unitAdvance);
+                if (end == start && start < limit) {
+                    clusters.setPosition(start);
+                    end = clusters.toNextBoundary();
+                }
+                if (end < limit) {
+                    lineBreaks.setPosition(end);
+                    const int boundary = lineBreaks.isAtBoundary() ? end : lineBreaks.toPreviousBoundary();
+                    if (boundary > start)
+                        end = boundary;
+                }
+                lineEnds.append(end);
             }
-            high = qMin(high, int(ends.size()) - 1);
-            while (low <= high) {
-                const int middle = low + (high - low) / 2;
-                if (fits(middle)) {
-                    end = ends[middle];
-                    low = middle + 1;
-                } else
-                    high = middle - 1;
-            }
-            if (end == start && start < limit) {
-                clusters.setPosition(start);
-                end = clusters.toNextBoundary();
-            }
-            if (end < limit) {
-                breaks.setPosition(end);
-                const int boundary = breaks.isAtBoundary() ? end : breaks.toPreviousBoundary();
-                if (boundary > start)
-                    end = boundary;
-            }
+            ++lineIndex;
             const auto shown = text.mid(start, end - start);
             const auto formats = slice(styles, start, end - start);
             const auto metrics = measure(shown, base, formats, direction);
@@ -319,11 +318,22 @@ PrivateRichText::PrivateRichText() : data(std::make_unique<Data>()) {
     data->document.setUndoRedoEnabled(false);
 }
 PrivateRichText::~PrivateRichText() = default;
-void PrivateRichText::setHtml(const QString &html) { data->document.setHtml(html); }
-void PrivateRichText::setPlainText(const QString &text) { data->document.setPlainText(text); }
-void PrivateRichText::setFont(const QFont &font) { data->document.setDefaultFont(font); }
+void PrivateRichText::setHtml(const QString &html) {
+    data->breaks.clear();
+    data->document.setHtml(html);
+}
+void PrivateRichText::setPlainText(const QString &text) {
+    data->breaks.clear();
+    data->document.setPlainText(text);
+}
+void PrivateRichText::setFont(const QFont &font) {
+    data->breaks.clear();
+    data->document.setDefaultFont(font);
+}
 QFont PrivateRichText::font() const { return data->document.defaultFont(); }
 void PrivateRichText::layout(int width, int pageHeight, int minimumLineHeight) {
+    // A fresh estimate keeps each layout independent of earlier ones.
+    data->unitAdvance = 0;
     data->width = qMax(1, width);
     data->pageHeight = qMax(0, pageHeight);
     data->leading = minimumLineHeight;

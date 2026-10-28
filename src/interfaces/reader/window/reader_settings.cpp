@@ -554,13 +554,9 @@ QString Reader::bookFace() {
 }
 
 void Reader::registerPickerFonts(const QString &family) {
-    const auto registerFont = [this](const QString &path, bool copyForQt, const QString &family) {
-        // Qt 5.2 loads another copy when registering a reading font. Its
-        // private preview face is already loaded, so keep samples on that path.
-        const auto registration =
-            ui::registerPrivateInterfaceFont(path, family, QT_VERSION < QT_VERSION_CHECK(5, 3, 0));
-        if (registration == ui::PrivateFontRegistration::Native)
-            registerPickerFont(path, copyForQt, registeredFontPaths, registeredFonts);
+    // Keep font-picker samples outside Qt's font database.
+    const auto registerFont = [](const QString &path, const QString &family) {
+        ui::registerPrivateInterfaceFont(path, family);
     };
     // Match the engine's source precedence so duplicate sideloads cannot
     // replace a bundled face in Qt's font-name previews.
@@ -581,10 +577,10 @@ void Reader::registerPickerFonts(const QString &family) {
         }
         for (const auto &file : font.files)
             if (file.contains("Regular", Qt::CaseInsensitive))
-                registerFont(file, font.copyForQt, font.family);
+                registerFont(file, font.family);
         for (const auto &file : font.files)
             if (!file.contains("Regular", Qt::CaseInsensitive))
-                registerFont(file, font.copyForQt, font.family);
+                registerFont(file, font.family);
     }
 }
 
@@ -903,7 +899,7 @@ void Reader::openSettingsFont(const QString &key) {
             !nativeFamilies.contains(fonts[row].family, Qt::CaseInsensitive))
             fonts.removeAt(row);
     if (!isDefault)
-        fonts.prepend({QString(), {}, FontOrigin::Recommended, false, {}, {}});
+        fonts.prepend({QString(), {}, FontOrigin::Recommended, {}, {}});
     panel->showFontChoices(
         isDefault        ? strings::get("reader.default_font")
         : isUi           ? strings::get("settings.ui_font")

@@ -145,8 +145,8 @@ int main(int argc, char **argv) {
         Q_UNUSED(early);
         kobalt::AssetBundle opening(kobalt::test::readerAssets().root(), QStringLiteral(KOBALT_VERSION));
         require(kobalt::ui::initializeOpeningFonts(opening), "Cannot load the opening view's fonts");
-        require(QFontInfo(kobalt::ui::interfaceFont()).family() == "Kobalt UI Sans" &&
-                    QFontInfo(kobalt::ui::brandFont(32)).family() == "Kobalt UI Serif",
+        require(QFontInfo(kobalt::ui::interfaceFont()).family() == "IBM Plex Sans" &&
+                    QFontInfo(kobalt::ui::brandFont(32)).family() == "Instrument Serif",
                 "Opening view does not draw in the interface fonts");
     }
     require(kobalt::test::readerAssets().available(), "Component assets failed manifest verification");
@@ -154,9 +154,9 @@ int main(int argc, char **argv) {
     require(kobalt::ui::initializeInterfaceFonts(kobalt::test::readerAssets(), &facesChanged),
             "Cannot load verified UI font bytes");
     require(!facesChanged, "Full font initialization replaced the opening faces and repaints the loading view");
-    require(QFontInfo(kobalt::ui::interfaceFont()).family() == "Kobalt UI Sans" &&
-                QFontInfo(kobalt::ui::chromeFont()).family() == "Kobalt UI Mono" &&
-                QFontInfo(kobalt::ui::brandFont(32)).family() == "Kobalt UI Serif",
+    require(QFontInfo(kobalt::ui::interfaceFont()).family() == "IBM Plex Sans" &&
+                QFontInfo(kobalt::ui::chromeFont()).family() == "IBM Plex Mono" &&
+                QFontInfo(kobalt::ui::brandFont(32)).family() == "Instrument Serif",
             "Component font substitution");
     checkPrivateInterfaceText(kobalt::test::readerAssets());
     {
@@ -714,21 +714,24 @@ int main(int argc, char **argv) {
             auto *progress = window->findChild<QProgressBar *>("rrOpeningProgress");
             auto *label = window->findChild<QLabel *>("rrOpeningLabel");
             auto *detail = window->findChild<QLabel *>("rrOpeningDetail");
-            auto *retry = window->findChild<QPushButton *>("rrOpeningNative");
-            auto *back = window->findChild<QPushButton *>("rrOpeningBack");
             require(progress && progress->isVisible() && label, "normal opening has progress");
+            require(!window->findChild<QWidget *>("rrOpeningFailure"), "normal opening builds no failure card");
             view->showFallback(kobalt::OpeningFallback::Protected);
             app.processEvents();
-            require(!progress->isVisible() && !retry->isVisible() && !back->isVisible(),
+            require(!progress->isVisible() && !window->findChild<QWidget *>("rrOpeningFailure"),
                     "handoff has no progress or confirmation");
             require(label->text() == kobalt::strings::get("opening.native"), "handoff caption");
             view->showFallback(kobalt::OpeningFallback::Remembered);
             app.processEvents();
-            require(detail->text() == kobalt::strings::get("opening.remembered") && !retry->isVisible(),
+            require(detail->text() == kobalt::strings::get("opening.remembered") &&
+                        !window->findChild<QWidget *>("rrOpeningFailure"),
                     "remembered failure uses neutral automatic handoff");
             view->showFallback(kobalt::OpeningFallback::Failure);
             app.processEvents();
             auto *failure = window->findChild<QWidget *>("rrOpeningFailure");
+            auto *retry = window->findChild<QPushButton *>("rrOpeningNative");
+            auto *back = window->findChild<QPushButton *>("rrOpeningBack");
+            require(failure && retry && back, "failure builds its card");
             auto *failureTitle = failure->findChild<QLabel *>("rrModalTitle");
             auto *failureBody = failure->findChild<QLabel *>("rrModalDescription");
             require(retry->isVisible() && back->isVisible() && failureBody->isVisible(),
@@ -1722,8 +1725,7 @@ int main(int argc, char **argv) {
         for (const auto &family : families)
             require(kobalt::ui::registerPrivateInterfaceFont(
                         kobalt::test::readerFontCopies().file("ebook-core/" + file,
-                            kobalt::test::readerAssets().fontData("ebook-core/" + file)), family) !=
-                        kobalt::ui::PrivateFontRegistration::Failed,
+                            kobalt::test::readerAssets().fontData("ebook-core/" + file)), family),
                     "Core font could not be retained for optical check");
         readingFamilies.append(families);
     }
@@ -1754,9 +1756,9 @@ int main(int argc, char **argv) {
     }
     const auto nativeFont = QApplication::font();
     // Regular and Bold share their legacy family names on Qt 5 and Qt 6.
-    // The interface registers renamed copies, apart from reading fonts.
-    const QString nativeFamily = "Kobalt UI Sans";
-    const QString chromeFamily = "Kobalt UI Mono";
+    // The interface registers the bundled faces unchanged.
+    const QString nativeFamily = "IBM Plex Sans";
+    const QString chromeFamily = "IBM Plex Mono";
     require(kobalt::ui::interfaceFontFamily() == nativeFamily, "The interface did not register Plex Sans");
     require(QFontInfo(kobalt::ui::interfaceFont()).family() == nativeFamily, "The interface resolved another font");
     require(QFontInfo(kobalt::ui::chromeFont()).family() == chromeFamily, "Chrome did not register Plex Mono");
@@ -1768,8 +1770,9 @@ int main(int argc, char **argv) {
     require(QFontInfo(boldUi).weight() == QFont::Bold, "Bold interface text did not resolve Plex Bold");
     require(QApplication::font() == nativeFont, "The interface changed the native application font");
 
-    // Heavier interface text replaces the faces while the widgets are shown.
-    // Layout stays the same, and switching back draws the same pixels.
+    // Heavier interface text applies to shown widgets that the private
+    // renderer draws. Layout stays the same, and switching back draws the
+    // same pixels. Text that Qt draws itself keeps the regular faces.
     {
         using namespace kobalt::ui;
         QWidget host;
@@ -1777,25 +1780,27 @@ int main(int argc, char **argv) {
         // As the reader window does, so style sheet fonts stay unhinted on Qt 5.2.
         keepInterfaceUnhinted(&host);
         readerStyle(&host, styles::reader());
-        auto *plain = new QLabel("Swipe along edges to adjust frontlight", &host);
+        auto *plain = new InterfaceLabel("Swipe along edges to adjust frontlight", &host);
         plain->setGeometry(10, 10, 880, 60);
-        auto *rich = new QLabel("<b>Chapter</b> 12 of 40", &host);
+        auto *rich = new InterfaceLabel("<b>Chapter</b> 12 of 40", &host);
         rich->setTextFormat(Qt::RichText);
         rich->setGeometry(10, 80, 880, 60);
-        auto *caption = new QLabel("12 pages left", &host);
+        auto *caption = new InterfaceLabel("12 pages left", &host);
         caption->setFont(captionFont());
         readerStyle(caption, styles::caption());
         caption->setGeometry(10, 150, 880, 60);
-        auto *brand = new QLabel("Kobalt", &host);
+        auto *brand = new InterfaceLabel("Kobalt", &host);
         readerStyle(brand, styles::brand(48));
         brand->setGeometry(10, 220, 880, 90);
         // A label's own style sheet keeps the font of its rules.
-        auto *styled = new QLabel("12 pages left", &host);
+        auto *styled = new InterfaceLabel("12 pages left", &host);
         readerStyle(styled, styles::caption());
         styled->setGeometry(10, 150, 880, 60);
-        auto *explicitFont = new QLabel("12 pages left", &host);
+        auto *explicitFont = new InterfaceLabel("12 pages left", &host);
         explicitFont->setFont(chromeFont(22));
         explicitFont->setGeometry(10, 150, 880, 60);
+        auto *native = new QLabel("Swipe along edges to adjust frontlight", &host);
+        native->setGeometry(10, 240, 880, 60);
         // Dictionary and link panels keep a laid-out document.
         auto *paged = new PagedText(&host);
         paged->setTextFont(interfaceFont(28));
@@ -1823,6 +1828,7 @@ int main(int argc, char **argv) {
             return values;
         };
         const auto regular = measure();
+        const auto nativeInk = ink(native);
         const auto hint = plain->sizeHint();
         const auto richHint = rich->sizeHint();
         QVector<QRect> rectangles;
@@ -1857,6 +1863,7 @@ int main(int argc, char **argv) {
                         QFontInfo(chromeFont()).family() == chromeFamily,
                     "Heavier text changed the family");
             const auto heavier = measure();
+            require(ink(native) == nativeInk, "Qt drew its own text heavier");
             require(paged->textFont().pixelSize() == 28, "Paged text lost its size when the faces changed");
             for (int index = 0; index < labels.size(); ++index) {
                 std::printf("interface weight: widget %d ink %+.1f%%\n", index,
@@ -1873,7 +1880,7 @@ int main(int argc, char **argv) {
             require(fits(plain) && fits(rich), "Heavier text does not fit its widget");
 #if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
             // Qt5 grid fitting can change advances without changing the stored
-            // font metrics. font-data-check tests those design advances exactly.
+            // font metrics.
             require(plain->sizeHint().height() == hint.height() && rich->sizeHint().height() == richHint.height(),
                     "Heavier text changed a line height");
 #else
@@ -2316,17 +2323,16 @@ int main(int argc, char **argv) {
     {
         using namespace kobalt::ui;
         const auto alias = QStringLiteral("Dictionary private-only canary");
-        require(registerPrivateInterfaceFont(kobalt::test::readerAssets().file("fonts/IBMPlexMono-Regular.ttf"), alias, true) ==
-                    PrivateFontRegistration::Private, "Cannot retain the dictionary canary font");
+        require(registerPrivateInterfaceFont(kobalt::test::readerAssets().file("fonts/NotoSansMath-Regular.ttf"), alias),
+                "Cannot retain the dictionary canary font");
         QFont font(alias);
         font.setPixelSize(36);
-        QFile editorFace(kobalt::test::readerAssets().file("fonts/IBMPlexMono-Regular.ttf"));
+        QFile editorFace(kobalt::test::readerAssets().file("fonts/NotoSansMath-Regular.ttf"));
         require(editorFace.open(QIODevice::ReadOnly) && nativeEditorFontData(font) == editorFace.readAll(),
                 "A private TrueType face must remain available for a native editor");
         require(nativeEditorFontData(QFont("Unregistered editor family")).isEmpty(),
                 "An unknown editor family must not silently load an unrelated font");
-        require(registerPrivateInterfaceFont(kobalt::test::readerAssets().file("fonts/IBMPlexMono-Regular.ttf"), alias) ==
-                    PrivateFontRegistration::Private,
+        require(registerPrivateInterfaceFont(kobalt::test::readerAssets().file("fonts/NotoSansMath-Regular.ttf"), alias),
                 "Preparing a native editor must not change private preview registration");
         const auto bytes = nativeEditorFontData(font);
         const auto nativeFamily = QRawFont(bytes, 36, QFont::PreferNoHinting).familyName();

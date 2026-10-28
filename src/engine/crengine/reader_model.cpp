@@ -335,7 +335,7 @@ QVector<ReadingFont> ReaderModel::fontCatalog() {
             }
         }
         if (!files.isEmpty()) {
-            result.append({family, files, FontOrigin::Interface, false, {}, {}});
+            result.append({family, files, FontOrigin::Interface, {}, {}});
         }
     }
     readingFontCatalog = result;

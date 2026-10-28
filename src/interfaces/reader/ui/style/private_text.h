@@ -1,11 +1,15 @@
 #pragma once
 
+#include <QByteArray>
 #include <QFont>
+#include <QMap>
 #include <QColor>
 #include <QImage>
 #include <QLabel>
 #include <QString>
 #include <QVector>
+
+#include <functional>
 
 class QPainter;
 
@@ -15,16 +19,20 @@ class AssetBundle;
 namespace kobalt::ui {
 // Owns independent font bytes and faces on the GUI thread. It never shares
 // CREngine's worker-owned font manager or changes Qt's font database.
-bool initializePrivateInterfaceText(const AssetBundle &assets, bool opening = false);
+// `checked` holds font bytes that the caller has already checked against the
+// manifest. They are used instead of reading those files again.
+bool initializePrivateInterfaceText(const AssetBundle &assets, bool opening = false,
+                                    const QMap<QString, QByteArray> &checked = {});
 // Count retained font buffers once, including collections with several faces.
 qint64 privateInterfaceFontBytes();
-enum class PrivateFontRegistration { Failed, Native, Private };
-// Retain reading-font bytes before user storage is released. CFF and font
-// collections stay on the private path, including their font-picker samples.
-// forcePrivate also keeps TrueType previews out of Qt's font loader. Once a
-// retained file uses private painting, later registrations keep that choice.
-PrivateFontRegistration registerPrivateInterfaceFont(const QString &path, const QString &expectedFamily,
-                                                     bool forcePrivate = false);
+// Shapes `text` once with a throwaway face on the calling thread. HarfBuzz
+// sets up its shared tables on first use, so the first interface text drawn
+// afterwards does not pay for it. Safe on any thread.
+void warmTextShaping(const QByteArray &font, const QString &text);
+// Retains reading-font bytes for the private renderer before user storage is
+// released, including font-picker samples. Qt's font loader never sees them.
+// Returns whether the font was retained.
+bool registerPrivateInterfaceFont(const QString &path, const QString &expectedFamily);
 // A native editor needs a Qt face. Only single-face TrueType files are safe
 // to pass to Qt's font loader; private previews keep their existing renderer.
 QByteArray nativeEditorFontData(const QFont &font);
@@ -64,6 +72,14 @@ PrivateText measurePrivateTextLayout(const QString &text, const QFont &font,
                                      Qt::LayoutDirection direction = Qt::LayoutDirectionAuto,
                                      const QVector<PrivateTextStyle> &styles = {});
 QSize measurePrivateTextSize(const QString &text, const QFont &font);
+// Returns the furthest grapheme end after start and at or before limit whose
+// text fits width, or start when none fits. ends lists every grapheme end in
+// order, and measure(end) returns the advance of the text from start to end.
+// Advances grow with the text, so the search interpolates from the advances
+// it measures. unitAdvance carries the advance per UTF-16 unit from one line
+// to the next; start it at zero.
+int fittingTextEnd(const QVector<int> &ends, int start, int limit, int width,
+                   const std::function<int(int end)> &measure, qreal &unitAdvance);
 QString elidePrivateText(const QString &text, const QFont &font, int width,
                          const QVector<QPair<int, int>> &boldRanges = {});
 int interfaceTextWidth(const QString &text, const QFont &font);

@@ -18,9 +18,9 @@ int main(int argc, char **argv) {
     QApplication app(argc, argv);
     require(kobalt::test::readerAssets().available(), "Component assets failed manifest verification");
     require(kobalt::ui::initializeInterfaceFonts(kobalt::test::readerAssets()), "Cannot load verified UI font bytes");
-    require(QFontInfo(kobalt::ui::interfaceFont()).family() == "Kobalt UI Sans" &&
-                QFontInfo(kobalt::ui::chromeFont()).family() == "Kobalt UI Mono" &&
-                QFontInfo(kobalt::ui::brandFont(32)).family() == "Kobalt UI Serif",
+    require(QFontInfo(kobalt::ui::interfaceFont()).family() == "IBM Plex Sans" &&
+                QFontInfo(kobalt::ui::chromeFont()).family() == "IBM Plex Mono" &&
+                QFontInfo(kobalt::ui::brandFont(32)).family() == "Instrument Serif",
             "Component font substitution");
     QFile manifest(":/kobalt/acknowledgments.json");
     require(manifest.open(QIODevice::ReadOnly), "Embedded credits are missing");

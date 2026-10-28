@@ -58,7 +58,7 @@ int main(int argc, char **argv) {
     app.setFont(ui::interfaceFont());
     const auto root = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
     initializeDiagnostics(root + "/diagnostics");
-    desktop::Window window(storage::Paths{root + "/config"}, engineFontInputs(assets, {}, root + "/fonts", {}),
+    desktop::Window window(storage::Paths{root + "/config"}, engineFontInputs(assets, {}, root + "/fonts"),
                            placeholderFontFamily(assets, copies));
     window.resize(window.size().boundedTo(app.primaryScreen()->availableGeometry().size() - QSize(80, 80)));
     app.open = [&window](const QString &path) {

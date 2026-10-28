@@ -107,7 +107,7 @@ QJsonObject captureBook;
 EngineFontInputs fixtureFonts(QString sideloadDirectory = {}) {
     // Bundled assets are immutable fixtures. Only each profile's optional
     // sideload directory changes between rows of a test matrix.
-    static const auto bundled = engineFontInputs(*assets, {}, {}, {});
+    static const auto bundled = engineFontInputs(*assets, {}, {});
     auto inputs = bundled;
     inputs.sources.sideloadDirectory = std::move(sideloadDirectory);
     return inputs;
@@ -4005,8 +4005,8 @@ exit 7
         QCOMPARE(wordSpacing->caption(), strings::get("settings.word_spacing_normal").toUpper());
         QVERIFY(fixture.press("rrWordSpacing"));
         QTRY_VERIFY(fixture.visible("rrWordSpacing_wide"));
-        QCOMPARE(ui::registerPrivateInterfaceFont(QStringLiteral(KOBALT_TEST_ASSETS) + "/fonts/InstrumentSerif-Regular.ttf",
-                                                  "Sample Private Serif", true), ui::PrivateFontRegistration::Private);
+        QVERIFY(ui::registerPrivateInterfaceFont(QStringLiteral(KOBALT_TEST_ASSETS) + "/fonts/InstrumentSerif-Regular.ttf",
+                                                 "Sample Private Serif"));
         // Force the private renderer used by fonts that Qt cannot load.
         // Words with descenders must share the capital's baseline.
         const auto verifySample = [](QWidget *preview, int tracking, int spacing) {
@@ -4623,9 +4623,9 @@ exit 7
             result.suspended = [] { return false; };
             return result;
         };
-        android::ReaderController first(paths, engineFontInputs(*assets, {}, {}, {}),
+        android::ReaderController first(paths, engineFontInputs(*assets, {}, {}),
             placeholderFontFamily(*assets, *copies), services, [](Qt::ScreenOrientation) {});
-        android::ReaderController second(paths, engineFontInputs(*assets, {}, {}, {}),
+        android::ReaderController second(paths, engineFontInputs(*assets, {}, {}),
             placeholderFontFamily(*assets, *copies), services, [](Qt::ScreenOrientation) {});
         const auto drain = qScopeGuard([&] {
             second.close(); first.close();
@@ -4672,7 +4672,7 @@ exit 7
             if (!ok) QTest::qFail("Cannot inspect controller history", __FILE__, __LINE__);
             return result;
         };
-        android::ReaderController controller(paths, engineFontInputs(*assets, {}, {}, {}),
+        android::ReaderController controller(paths, engineFontInputs(*assets, {}, {}),
             placeholderFontFamily(*assets, *copies), [] {
                 auto services = desktop::readerServices();
                 services.suspended = [] { return false; };
@@ -4708,7 +4708,7 @@ exit 7
         QTemporaryDir directory;
         storage::Paths paths{directory.path()};
         QVERIFY(storage::writeJson(paths.preferences(), {{"default_menu_view", "none"}, {"highlight_help_seen", true}}));
-        android::ReaderController controller(paths, engineFontInputs(*assets, {}, {}, {}),
+        android::ReaderController controller(paths, engineFontInputs(*assets, {}, {}),
                                              placeholderFontFamily(*assets, *copies), desktop::readerServices,
                                              [](Qt::ScreenOrientation) {});
         const auto drain = qScopeGuard([&] {

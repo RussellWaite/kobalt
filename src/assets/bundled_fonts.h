@@ -50,8 +50,7 @@ inline QString supplementalFontFamily(QString language) {
 class AssetBundle;
 class FontCopies;
 QStringList bundledFontFiles(const AssetBundle &assets);
-EngineFontInputs engineFontInputs(const AssetBundle &assets, QString systemDirectory, QString sideloadDirectory,
-                                  QString removableRoot);
+EngineFontInputs engineFontInputs(const AssetBundle &assets, QString systemDirectory, QString sideloadDirectory);
 // Call on the GUI thread. Keep copies alive for Qt's font registrations.
 QString placeholderFontFamily(const AssetBundle &assets, FontCopies &copies);
 }

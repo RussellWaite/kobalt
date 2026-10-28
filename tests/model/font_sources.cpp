@@ -20,9 +20,9 @@ int main(int argc, char **argv) {
     QCoreApplication app(argc, argv);
     expect(argc == 3, "supply a bundled font fixture and a book");
     const QVector<ReadingFont> unordered{
-        {"Zeta", {}, FontOrigin::Recommended, false, {}, {}},  {"Personal", {}, FontOrigin::Sideloaded, false, {}, {}},
-        {"Alpha", {}, FontOrigin::Recommended, false, {}, {}}, {"Libron", {}, FontOrigin::Recommended, false, {}, {}},
-        {"System", {}, FontOrigin::BuiltIn, false, {}, {}},    {"Mono", {}, FontOrigin::Interface, false, {}, {}}};
+        {"Zeta", {}, FontOrigin::Recommended, {}, {}},  {"Personal", {}, FontOrigin::Sideloaded, {}, {}},
+        {"Alpha", {}, FontOrigin::Recommended, {}, {}}, {"Libron", {}, FontOrigin::Recommended, {}, {}},
+        {"System", {}, FontOrigin::BuiltIn, {}, {}},    {"Mono", {}, FontOrigin::Interface, {}, {}}};
     const auto ordered = orderedReadingFonts(unordered);
     const QStringList expectedOrder{"Libron", "Alpha", "Zeta", "System", "Personal", "Mono"};
     for (int index = 0; index < ordered.size(); ++index)
@@ -40,18 +40,15 @@ int main(int argc, char **argv) {
     expect(QDir::setCurrent(root + "/system"), "select populated working directory");
     expect(discoverReadingFonts(FontSources{}).isEmpty(), "empty font sources must not scan working directory");
     expect(QDir::setCurrent(previous), "restore working directory");
-    FontSources sources{{root + "/ebook-core/Regular.ttf"}, root + "/system", root + "/sideload", root};
+    FontSources sources{{root + "/ebook-core/Regular.ttf"}, root + "/system", root + "/sideload"};
     const auto catalog = discoverReadingFonts(sources);
     expect(catalog.size() == 1, "duplicate families respect source precedence");
     expect(catalog.first().origin == FontOrigin::Recommended, "bundled reading font takes precedence");
     expect(catalog.first().files == sources.bundled, "lower-priority files do not mix with bundled family");
-    expect(catalog.first().copyForQt, "removable bundled font requires byte registration");
     sources.bundled.clear();
-    sources.removableRoot = root + "/sideload";
     auto system = discoverReadingFonts(sources);
     expect(system.size() == 1 && system.first().origin == FontOrigin::BuiltIn,
            "explicit system source takes precedence over sideload");
-    expect(!system.first().copyForQt, "persistent system font need not copy");
     QFile original(root + "/system/Regular.ttf");
     expect(original.open(QIODevice::ReadOnly), "read system font before wrapping");
     const auto wrapped = "QTD" + qCompress(original.readAll());
@@ -97,7 +94,6 @@ int main(int argc, char **argv) {
     auto sideload = discoverReadingFonts(sources);
     expect(sideload.size() == 1 && sideload.first().origin == FontOrigin::Sideloaded,
            "disabled system source leaves sideload");
-    expect(sideload.first().copyForQt, "removable sideload font requires byte registration");
 
     const auto nested = root + "/nested";
     QFile fixture(QString::fromLocal8Bit(argv[1]));
@@ -122,7 +118,7 @@ int main(int argc, char **argv) {
     expect(QDir::setCurrent(nested), "select populated working directory");
     expect(sideloadedFontFiles({}).isEmpty(), "empty sideload source never scans working directory");
     expect(QDir::setCurrent(previous), "restore working directory");
-    const auto nestedCatalog = discoverReadingFonts(FontSources{{}, {}, nested, nested});
+    const auto nestedCatalog = discoverReadingFonts(FontSources{{}, {}, nested});
     expect(nestedCatalog.size() == 1 && nestedCatalog.first().origin == FontOrigin::Sideloaded &&
                nestedCatalog.first().files == found,
            "nested sideloaded files join one family");

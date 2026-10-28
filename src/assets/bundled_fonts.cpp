@@ -31,12 +31,11 @@ QStringList kobalt::bundledFontFiles(const AssetBundle &assets) {
                               : QStringList();
 }
 kobalt::EngineFontInputs kobalt::engineFontInputs(const AssetBundle &assets, QString systemDirectory,
-                                                  QString sideloadDirectory, QString removableRoot) {
+                                                  QString sideloadDirectory) {
     EngineFontInputs inputs;
     if (!assets.available())
         return inputs;
-    inputs.sources = {bundledFontFiles(assets), std::move(systemDirectory), std::move(sideloadDirectory),
-                      std::move(removableRoot)};
+    inputs.sources = {bundledFontFiles(assets), std::move(systemDirectory), std::move(sideloadDirectory)};
     for (const auto *name : serifFallbackFontFiles) {
         inputs.fallbackFiles.append(assets.file(QString("fonts/") + name));
     }

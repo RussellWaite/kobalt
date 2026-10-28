@@ -25,6 +25,9 @@ public:
         return document.font();
     }
     void setMargins(const QMargins &value);
+    // Layout waits until the page count or a paint needs it, so a panel can
+    // set its text and font before it has its final size. The page is
+    // clamped by that layout, so read pages() before relying on page().
     int pages() const;
     int page() const {
         return current;
@@ -37,11 +40,12 @@ protected:
     void changeEvent(QEvent *event) override;
 
 private:
-    PrivateRichText document;
-    int current = 0;
+    mutable PrivateRichText document;
+    mutable int current = 0;
+    mutable bool stale = true;
     int minimumLineHeight = 0;
     QMargins margins;
     QString source;
-    void paginate();
+    void ensureLayout() const;
 };
 }

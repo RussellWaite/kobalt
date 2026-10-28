@@ -441,7 +441,7 @@ int main(int argc, char **argv) {
     ui::setDensity(physicalPpi);
     QApplication::setFont(ui::interfaceFont());
     initializeDiagnostics(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + "/diagnostics");
-    Window window(engineFontInputs(*assets, "/system/fonts", {}, {}), placeholderFontFamily(*assets, copies));
+    Window window(engineFontInputs(*assets, "/system/fonts", {}), placeholderFontFamily(*assets, copies));
     // Keep edge-to-edge geometry while the activity controls bar visibility.
     window.show();
     qInfo() << "Kobalt Android ready; density" << physicalPpi;

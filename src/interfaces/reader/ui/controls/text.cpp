@@ -95,6 +95,7 @@ QVector<ExcerptLine> privateExcerptLines(const QTextDocument &document, const QF
         *overflow = false;
     QVector<ExcerptLine> lines;
     qreal top = 0;
+    qreal unitAdvance = 0;
     for (auto block = document.begin(); block.isValid(); block = block.next()) {
         const auto text = block.text();
         const auto direction = text.isRightToLeft() ? Qt::RightToLeft : Qt::LeftToRight;
@@ -122,31 +123,11 @@ QVector<ExcerptLine> privateExcerptLines(const QTextDocument &document, const QF
         do {
             const int separator = text.indexOf(QChar::LineSeparator, start);
             const int limit = separator < 0 ? text.size() : separator;
-            // Grow the probe from this line instead of shaping large prefixes of the remaining passage.
-            const int firstEnd = int(std::upper_bound(ends.begin(), ends.end(), start) - ends.begin());
-            int low = firstEnd, high = firstEnd, end = start, step = 1;
-            const auto fits = [&](int index) {
-                const int candidate = ends[index];
-                return candidate <= limit &&
-                       measurePrivateText(text.mid(start, candidate - start), font,
+            int end = fittingTextEnd(ends, start, limit, qMax(1, width), [&](int candidate) {
+                return measurePrivateText(text.mid(start, candidate - start), font,
                                           lineRanges(bold, start, candidate - start), PrivateTextEmphasis::FontFace,
-                                          direction) <= qMax(1, width);
-            };
-            while (high < ends.size() && fits(high)) {
-                end = ends[high];
-                low = high + 1;
-                high = qMin(int(ends.size()), firstEnd + step);
-                step *= 2;
-            }
-            high = qMin(high, int(ends.size()) - 1);
-            while (low <= high) {
-                const int middle = low + (high - low) / 2;
-                if (fits(middle)) {
-                    end = ends[middle];
-                    low = middle + 1;
-                } else
-                    high = middle - 1;
-            }
+                                          direction);
+            }, unitAdvance);
             if (end == start && start < limit) {
                 graphemes.setPosition(start);
                 end = graphemes.toNextBoundary();

@@ -498,7 +498,9 @@ void DictionaryPanel::redrawChoices(bool atCurrent) {
     dropdown->raise();
 }
 void DictionaryPanel::refresh() {
-    pages->setPage(text->page(), text->pages());
-    pages->setVisible(!dropdown->isVisible() && text->pages() > 1);
+    // Counting the pages lays the text out and clamps its page first.
+    const int count = text->pages();
+    pages->setPage(text->page(), count);
+    pages->setVisible(!dropdown->isVisible() && count > 1);
 }
 }

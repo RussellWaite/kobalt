@@ -45,7 +45,7 @@ struct ReaderEnvironment {
                          QString::fromLatin1(sessionReport)};
     EngineFontInputs fonts() {
         auto inputs =
-            engineFontInputs(assets, {}, QStringLiteral("/mnt/onboard/fonts"), QStringLiteral("/mnt/onboard"));
+            engineFontInputs(assets, {}, QStringLiteral("/mnt/onboard/fonts"));
         if (inputs.sources.bundled.isEmpty()) {
             return inputs;
         }

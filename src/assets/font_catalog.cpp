@@ -57,8 +57,7 @@ QStringList sideloadedFontFiles(const QString &directory) {
 }
 bool FontSources::operator==(const FontSources &other) const {
     return bundled == other.bundled && systemDirectory == other.systemDirectory &&
-           sideloadDirectory == other.sideloadDirectory && removableRoot == other.removableRoot &&
-           systemFiles == other.systemFiles;
+           sideloadDirectory == other.sideloadDirectory && systemFiles == other.systemFiles;
 }
 bool EngineFontInputs::operator==(const EngineFontInputs &other) const {
     return sources == other.sources && fallbackFiles == other.fallbackFiles &&
@@ -118,13 +117,11 @@ QVector<ReadingFont> discoverReadingFonts(const FontSources &sources) {
         if (family.isEmpty())
             return;
         const auto key = fontFamilyKey(family);
-        const bool copy = !sources.removableRoot.isEmpty() && path.startsWith(sources.removableRoot + '/');
         auto found = seen.constFind(key);
         if (found != seen.cend()) {
             auto &entry = result[*found];
             if (entry.origin == origin && !entry.files.contains(path)) {
                 entry.files.append(path);
-                entry.copyForQt |= copy;
                 if (entry.opticalSizeAxis.available() && optical.available()) {
                     auto &range = entry.opticalSizeAxis;
                     range.minimum = qMax(range.minimum, optical.minimum);
@@ -150,7 +147,7 @@ QVector<ReadingFont> discoverReadingFonts(const FontSources &sources) {
             return;
         }
         seen.insert(key, result.size());
-        result.append({family, {path}, origin, copy, axis, optical});
+        result.append({family, {path}, origin, axis, optical});
     };
     const auto core = [](const QString &path) {
         return path.contains("/ebook-core/") || path.contains("/ebook-core-");

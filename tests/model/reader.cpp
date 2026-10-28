@@ -675,7 +675,7 @@ int main(int argc, char **argv) {
     checkObfuscatedFonts();
     const auto positions = kobalt::nickel::positionCodec();
     const QVector<kobalt::ReadingFont> axisFixture{
-        {"Variable fixture", {}, kobalt::FontOrigin::Sideloaded, false, {300, 650, 450}, {6.25, 72.75, 14}}};
+        {"Variable fixture", {}, kobalt::FontOrigin::Sideloaded, {300, 650, 450}, {6.25, 72.75, 14}}};
     require(kobalt::fontWeightAxis(axisFixture, "VARIABLE FIXTURE").defaultValue == 450 &&
                 !kobalt::fontWeightAxis(axisFixture, "Missing font").available(),
             "Weight axis lookup lost family matching");
@@ -762,7 +762,7 @@ int main(int argc, char **argv) {
         require(invalid.open(QIODevice::WriteOnly), "Cannot create invalid font");
         invalid.write("not a font");
         invalid.close();
-        const auto catalog = kobalt::discoverReadingFonts({bundled, temp.path() + "/absent", side, temp.path()});
+        const auto catalog = kobalt::discoverReadingFonts({bundled, temp.path() + "/absent", side});
         int core = 0, variableCore = 0, sideloaded = 0, interface = 0, arabicFallback = 0, hebrewFallback = 0;
         for (const auto &font : catalog) {
             if (font.origin == kobalt::FontOrigin::Recommended) {

@@ -80,15 +80,6 @@ public:
         detail->setAlignment(Qt::AlignCenter);
         detail->setWordWrap(true);
         detail->hide();
-        failureDialog =
-            new ui::ChoiceModal(this, {strings::get("opening.failed_detail"), strings::get("opening.failed"), {}},
-                                {strings::get("opening.go_back"), "rrOpeningBack"},
-                                {strings::get("opening.try_native"), "rrOpeningNative"});
-        failureDialog->setObjectName("rrOpeningFailure");
-        retry = failureDialog->primaryButton();
-        back = failureDialog->secondaryButton();
-        connect(retry, &QPushButton::clicked, this, &QDialog::accept);
-        connect(back, &QPushButton::clicked, this, &QDialog::reject);
         for (auto *widget : findChildren<QWidget *>())
             platform::textRefresh(widget);
         platform::textRefresh(this);
@@ -111,11 +102,15 @@ public:
         brand->setVisible(automatic);
         label->setVisible(automatic);
         detail->setVisible(automatic);
-        failureDialog->setVisible(!automatic);
-        if (!automatic) {
-            failureDialog->fitCard();
-            failureDialog->raise();
-            failureDialog->setFocus();
+        if (automatic) {
+            if (failureDialog)
+                failureDialog->hide();
+        } else {
+            auto *dialog = failure();
+            dialog->show();
+            dialog->fitCard();
+            dialog->raise();
+            dialog->setFocus();
         }
         layoutWidgets();
         update();
@@ -244,6 +239,23 @@ protected:
     }
 
 private:
+    // Most openings never fail. Laying out this card's text before the first
+    // paint delayed every loading screen, so it is built on first use.
+    ui::ChoiceModal *failure() {
+        if (failureDialog)
+            return failureDialog;
+        failureDialog =
+            new ui::ChoiceModal(this, {strings::get("opening.failed_detail"), strings::get("opening.failed"), {}},
+                                {strings::get("opening.go_back"), "rrOpeningBack"},
+                                {strings::get("opening.try_native"), "rrOpeningNative"});
+        failureDialog->setObjectName("rrOpeningFailure");
+        connect(failureDialog->primaryButton(), &QPushButton::clicked, this, &QDialog::accept);
+        connect(failureDialog->secondaryButton(), &QPushButton::clicked, this, &QDialog::reject);
+        for (auto *widget : failureDialog->findChildren<QWidget *>())
+            platform::textRefresh(widget);
+        platform::textRefresh(failureDialog);
+        return failureDialog;
+    }
     void scheduleAfterPaint(std::function<void()> callback) {
         kobalt::qt::later(0, this, [this, callback = std::move(callback)] {
             if (isVisible()) {
@@ -259,8 +271,7 @@ private:
                 (height() - ui::metrics::opening::referenceHeight * scale()) / 2};
     }
     QLabel *brand, *label, *hint, *detail;
-    QPushButton *retry, *back;
-    ui::ChoiceModal *failureDialog;
+    ui::ChoiceModal *failureDialog = nullptr;
     bool fallback = false, automatic = false, protectedIcon = false;
     std::unique_ptr<WindowPresentation> presentation;
     const bool embedded;

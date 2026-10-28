@@ -9,8 +9,8 @@ class AssetBundle;
 
 namespace kobalt::ui {
 // Consume verified bytes on the GUI thread before constructing reading controls.
-// The registration cache owns its data and temporary copies, so Qt never
-// needs the asset storage to remain mounted.
+// The registration cache owns its data, so Qt never needs the asset storage
+// to remain mounted.
 // `changed` reports replaced interface faces, which widgets drawn before
 // this call must apply again.
 bool initializeInterfaceFonts(const AssetBundle &assets, bool *changed = nullptr);
@@ -18,6 +18,11 @@ bool initializeInterfaceFonts(const AssetBundle &assets, bool *changed = nullptr
 // manifest, so the opening view draws in its own fonts before the whole
 // bundle is verified. Later openings reuse the registered faces.
 bool initializeOpeningFonts(const AssetBundle &assets);
+// Reads the interface faces and checks them against the manifest on a worker
+// thread. The next initializeOpeningFonts() takes the result, so the first
+// opening view does no storage reads for them. Call on the GUI thread. The
+// worker keeps its own asset readers, so `assets` need not outlive it.
+void prepareOpeningFonts(const AssetBundle &assets);
 // Register bundled faces; never change Nickel's application font.
 QFont interfaceFont(int pixels = -1);
 // Empty families restore the bundled interface and strip defaults.
@@ -48,10 +53,10 @@ inline QString interfaceFontFamily() {
 // Interface text weight in steps of 1/256 em, the unit of the reading weight
 // setting. Kobalt always adds three steps; IBM Plex Medium is too heavy.
 inline constexpr int heavierTextSteps = 3;
-// Replaces the registered faces with faces of this weight. Text drawn
-// afterwards uses them; call refreshInterfaceText() for widgets already
-// shown. Returns whether the faces changed. Before the first font is used,
-// this only sets the weight to register.
+// Sets the weight that the private renderer adds to interface text. Qt draws
+// its own controls in the regular faces. Text drawn afterwards uses the new
+// weight; call refreshInterfaceText() for widgets already shown. Returns
+// whether the weight changed.
 bool setInterfaceWeight(int steps);
 int interfaceWeight();
 // Draws the widgets under `root` again with the current faces.

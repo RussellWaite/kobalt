@@ -200,6 +200,10 @@ ReaderCoordinator::ReaderCoordinator(ReaderEnvironment &environment, Coordinator
     timer.setInterval(250);
     if (!lifecycle->blocked())
         timer.start();
+    // Read and check the interface faces on a worker thread before any tap,
+    // so the first opening view does not wait for storage.
+    if (available())
+        kobalt::ui::prepareOpeningFonts(environment_.assets);
 }
 
 void forgetHomeSleepScreen() {
