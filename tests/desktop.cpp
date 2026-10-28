@@ -82,6 +82,7 @@
 #include <QSignalSpy>
 #include <QSignalBlocker>
 #include <QSet>
+#include <QStyleHints>
 #include <QMutex>
 #include <QTemporaryDir>
 #include <QTest>
@@ -722,6 +723,27 @@ void advanceIntoBody(Fixture &fixture) {
     QVERIFY(page && hasText(page->image));
 }
 
+// Creation dates are visible in the bookmark list. Store a fixed timestamp,
+// then let the app load it normally, so captures match between runs.
+void fixBookmarkDates(Fixture &fixture) {
+    QSignalSpy reopened(&fixture.window, &desktop::Window::bookOpened);
+    fixture.window.readerWindow()->close();
+    QTRY_VERIFY(fixture.window.idle());
+    const auto current = fixture.state();
+    BookmarkStore store(fixture.paths.annotations(), current.value("book").toString(),
+                        current.value("fingerprint").toString().toLatin1(), "Fixture", fixture.paths.database());
+    QVERIFY(store.load());
+    auto entries = store.bookmarks();
+    for (auto &entry : entries)
+        entry.created = QDateTime::fromString("2000-01-01T12:00:00Z", Qt::ISODate).toUTC();
+    store.setBookmarks(entries);
+    QVERIFY(store.save());
+    fixture.window.openBook(book);
+    QTRY_COMPARE(reopened.count(), 1);
+    QTRY_VERIFY(!fixture.state().value("busy").toBool());
+    QTRY_VERIFY(fixture.state().value("bookmarked").toBool());
+}
+
 void openPrologueBody(Fixture &fixture) {
     if (!fixture.visible("rrNavChapters"))
         QVERIFY(fixture.press("rrPage"));
@@ -953,24 +975,8 @@ void tour(Fixture &fixture, const QString &name, bool screenshots) {
     QTRY_VERIFY_WITH_TIMEOUT(fixture.state().value("bookmarked").toBool(), 3000);
     QVERIFY(scene("bookmarked"));
     if (screenshots) {
-        // Creation dates are visible in the list. Prepare a fixed timestamp
-        // on disk, then let the app load it normally before capturing it.
-        QSignalSpy reopened(&fixture.window, &desktop::Window::bookOpened);
-        fixture.window.readerWindow()->close();
-        QTRY_VERIFY(fixture.window.idle());
-        const auto current = fixture.state();
-        BookmarkStore store(fixture.paths.annotations(), current.value("book").toString(),
-                            current.value("fingerprint").toString().toLatin1(), "Fixture", fixture.paths.database());
-        QVERIFY(store.load());
-        auto entries = store.bookmarks();
-        for (auto &entry : entries)
-            entry.created = QDateTime::fromString("2000-01-01T12:00:00Z", Qt::ISODate).toUTC();
-        store.setBookmarks(entries);
-        QVERIFY(store.save());
-        fixture.window.openBook(book);
-        QTRY_COMPARE(reopened.count(), 1);
-        QTRY_VERIFY(!fixture.state().value("busy").toBool());
-        QTRY_VERIFY(fixture.state().value("bookmarked").toBool());
+        fixBookmarkDates(fixture);
+        if (QTest::currentTestFailed()) return;
         page = static_cast<ReadingPage *>(fixture.widget("rrPage"));
         QVERIFY(page);
     }
@@ -5373,6 +5379,10 @@ private slots:
         auto *page = static_cast<ReadingPage *>(fixture.widget("rrPage"));
         QVERIFY(fixture.click(page, page->bookmarkCorner().center()));
         QTRY_VERIFY(fixture.state().value("bookmarked").toBool());
+        fixBookmarkDates(fixture);
+        if (QTest::currentTestFailed()) return;
+        page = static_cast<ReadingPage *>(fixture.widget("rrPage"));
+        QVERIFY(page);
         const auto scene = [&](const char *action, const char *visible, const char *suffix) {
             if (!fixture.press(action)) return false;
             if (!QTest::qWaitFor([&] { return fixture.visible(visible); }, 5000)) return false;
@@ -5492,7 +5502,14 @@ private slots:
         auto *symbols = view->findChild<QPushButton *>("widgetKeyboardSymbols");
         QVERIFY(symbols);
         symbols->click();
-        QVERIFY(capture(fixture, name + "-symbols"));
+        // The search caret blinks, so this capture could show it or not. A
+        // zero flash time keeps it drawn; restore the setting for later scenes.
+        auto *hints = QGuiApplication::styleHints();
+        const int flashTime = hints->cursorFlashTime();
+        hints->setCursorFlashTime(0);
+        const bool captured = capture(fixture, name + "-symbols");
+        hints->setCursorFlashTime(flashTime);
+        QVERIFY(captured);
     }
     void dictionarySettings_data() { screenshotVariants(); }
     void dictionarySettings() {
