@@ -313,7 +313,59 @@ static void checkPagePixelConversion() {
                     kobalt::normalizePagePixels(actual, dark, bounded ? &actualTiles : nullptr, columns);
                 require(actual == expected && actualColour == expectedColour && actualTiles == expectedTiles,
                         "Page pixel conversion changed pixels or colour refresh classification");
+                // RGBA byte order shows the same colours and classifies them alike.
+                auto rgba = before.copy();
+                QVector<uchar> rgbaTiles(expectedTiles.size(), 0);
+                const bool rgbaColour =
+                    kobalt::normalizePagePixels(rgba, dark, bounded ? &rgbaTiles : nullptr, columns, true);
+                rgba.reinterpretAsFormat(QImage::Format_RGBX8888);
+                require(rgba.convertToFormat(QImage::Format_RGB32) == expected && rgbaColour == expectedColour &&
+                            rgbaTiles == expectedTiles,
+                        "RGBA page pixels changed colours or colour refresh classification");
             }
+    }
+}
+// Kobo screens that store RGBA bytes receive pages in that byte order. They
+// must show the same pixels and metadata as RGB32 pages, including pages drawn
+// into a retired buffer.
+static void checkPageFormat() {
+    QByteArray body;
+    for (int i = 0; i < 60; ++i)
+        body += "<p style='color:#cc2200;background-color:#fffef5'>Coloured publisher text that fills several "
+                "pages so retired buffers are drawn again.</p>";
+    const auto bytes = storedEpub({
+        {"mimetype", "application/epub+zip"},
+        {"META-INF/container.xml", "<container xmlns='urn:oasis:names:tc:opendocument:xmlns:container' version='1.0'><rootfiles><rootfile full-path='book.opf' media-type='application/oebps-package+xml'/></rootfiles></container>"},
+        {"book.opf", "<package xmlns='http://www.idpf.org/2007/opf' version='2.0'><metadata><title>Page format</title></metadata><manifest><item id='c' href='c.xhtml' media-type='application/xhtml+xml'/></manifest><spine><itemref idref='c'/></spine></package>"},
+        {"c.xhtml", "<html xmlns='http://www.w3.org/1999/xhtml'><head><title>Page format</title></head><body>" + body + "</body></html>"},
+    });
+    const auto pages = [&bytes](QImage::Format format, bool dark) {
+        kobalt::ReaderModel::setPageFormat(format);
+        kobalt::ReaderModel model(kobalt::test::readerFonts());
+        QString error;
+        require(model.open(bytes, QSize(400, 300), {{"font_pixels", 24}}, &error), qPrintable(error));
+        model.setDarkMode(dark);
+        require(model.pages() > 4, "Page format fixture is too short");
+        QVector<QImage> result;
+        for (int page = 0; page < 5; ++page) {
+            model.go(page);
+            result.append(model.image(page));
+        }
+        return result;
+    };
+    for (const bool dark : {false, true}) {
+        const auto plain = pages(QImage::Format_RGB32, dark);
+        const auto rgba = pages(QImage::Format_RGBX8888, dark);
+        kobalt::ReaderModel::setPageFormat(QImage::Format_RGB32);
+        for (int page = 0; page < plain.size(); ++page) {
+            require(plain[page].format() == QImage::Format_RGB32 && rgba[page].format() == QImage::Format_RGBX8888,
+                    "Page images did not use the requested format");
+            require(rgba[page].convertToFormat(QImage::Format_RGB32) == plain[page],
+                    "RGBA page images changed pixels");
+            for (const auto *key : {"kobalt.image_regions", "kobalt.colour_regions", "kobalt.animation_text_only"})
+                require(rgba[page].text(key) == plain[page].text(key), "RGBA page images changed page metadata");
+        }
+        require(plain[0].text("kobalt.colour_regions") != "[]", "Page format fixture has no colour");
     }
 }
 static QByteArray hash(const QImage &image) {
@@ -671,6 +723,7 @@ static void checkVerticalJustification() {
 
 int main(int argc, char **argv) {
     QGuiApplication app(argc, argv);
+    checkPageFormat();
     checkDeferredPublisherStyles();
     checkObfuscatedFonts();
     const auto positions = kobalt::nickel::positionCodec();

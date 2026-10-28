@@ -53,6 +53,15 @@ int main() {
                     CHECK(actualTiles == expectedTiles);
                     CHECK(actual == expected);
                     CHECK(original == unchanged);
+                    // RGBA byte order keeps the colours and their classification.
+                    auto rgba = original;
+                    QVector<uchar> rgbaTiles(columns * 3, 0);
+                    CHECK(kobalt::normalizePagePixels(rgba, dark, tiles ? &rgbaTiles : nullptr, columns, true) ==
+                          colour);
+                    CHECK(rgbaTiles == expectedTiles);
+                    rgba.reinterpretAsFormat(QImage::Format_RGBX8888);
+                    CHECK(rgba.convertToFormat(QImage::Format_RGB32) == expected);
+                    CHECK(original == unchanged);
                 }
     }
     qInfo("Page pixel checks passed");

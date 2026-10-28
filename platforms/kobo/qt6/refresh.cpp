@@ -1,6 +1,7 @@
 #include "../display/annotation_damage.h"
 #include "platform/api/kobo_refresh.h"
 #include "refresh.h"
+#include "engine/crengine/reader_model.h"
 #include "platforms/kobo/display/page_animation.h"
 #include "platforms/kobo/display/keyboard_refresh.h"
 #include "platforms/kobo/display/panel_damage.h"
@@ -13,6 +14,7 @@
 #include <QApplication>
 #include <QThread>
 #include <QBackingStore>
+#include <QImage>
 #include <QWindow>
 #include <algorithm>
 
@@ -35,6 +37,21 @@ quint64 ordinaryPolicy(bool dark) {
 quint64 repairPolicy(bool dark) {
     return bit(Qt::WA_KoboEpdWfModeAutoImage) | bit(Qt::WA_KoboEpdUpdateModeFull) |
            (dark ? bit(Qt::WA_KoboEpdFlagDarkMode) : 0);
+}
+// Firmware 6 stores window pixels as RGBA bytes. Painting an RGB32 page into
+// that converts every pixel on the GUI thread, which costs several
+// milliseconds per page turn. Every Nickel window passes this hook, so the
+// first flush tells the engine which format it should draw before any book opens.
+void choosePageFormat(QBackingStore *store) {
+    static bool chosen = false;
+    auto *device = store->paintDevice();
+    if (chosen || !device || device->devType() != QInternal::Image)
+        return;
+    chosen = true;
+    const auto format = static_cast<QImage *>(device)->format();
+    if (format == QImage::Format_RGBA8888 || format == QImage::Format_RGBX8888 ||
+        format == QImage::Format_RGBA8888_Premultiplied)
+        ReaderModel::setPageFormat(QImage::Format_RGBX8888);
 }
 bool readerOwnsScreen() {
     if (!qApp || QThread::currentThread() != qApp->thread() || !readerWindow || !readerWindow->isVisible())
@@ -67,6 +84,7 @@ void flushReader(QBackingStore *store, const QRegion &region, QWindow *target, c
         nativeFlush(store, region, target, offset, flags);
         return;
     }
+    choosePageFormat(store);
     if (!readerOwnsScreen() || store->window() != readerWindow->windowHandle() ||
         (target && target != store->window()) || !offset.isNull() || region.isEmpty() ||
         !readerWindow->rect().contains(region.boundingRect())) {

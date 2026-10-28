@@ -917,6 +917,27 @@ void ReaderModel::prepareDamage(int fromPage, int toPage) {
     if (!damage_.contains(key))
         damage_.insert(key, kobalt::ui::imageDamage(from, to));
 }
+namespace {
+std::atomic<int> pageFormat{QImage::Format_RGB32};
+// CREngine draws into RGB32 buffers. Both page formats store four bytes per
+// pixel, so a buffer changes format without copying its pixels.
+void usePageFormat(QImage &image, QImage::Format format) {
+#if QT_VERSION >= QT_VERSION_CHECK(5, 9, 0)
+    if (image.format() != format)
+        image.reinterpretAsFormat(format);
+#else
+    Q_UNUSED(image);
+    Q_UNUSED(format);
+#endif
+}
+}
+void ReaderModel::setPageFormat(QImage::Format format) {
+#if QT_VERSION >= QT_VERSION_CHECK(5, 9, 0)
+    pageFormat = format == QImage::Format_RGBX8888 ? QImage::Format_RGBX8888 : QImage::Format_RGB32;
+#else
+    Q_UNUSED(format);
+#endif
+}
 bool ReaderModel::preparedDamage(qint64 fromKey, qint64 toKey, QRect *damage) const {
     const auto found = damage_.constFind(qMakePair(qMin(fromKey, toKey), qMax(fromKey, toKey)));
     if (found == damage_.cend())
@@ -933,8 +954,10 @@ void ReaderModel::trim() {
             QImage retired = std::move(it.value());
             it = cache_.erase(it);
             if (spareImage_.isNull() && retired.isDetached() && retired.size() == size_ &&
-                retired.format() == QImage::Format_RGB32)
+                (retired.format() == QImage::Format_RGB32 || retired.format() == QImage::Format_RGBX8888)) {
+                usePageFormat(retired, QImage::Format_RGB32);
                 spareImage_ = std::move(retired);
+            }
         } else
             ++it;
     }
@@ -1022,7 +1045,10 @@ QImage ReaderModel::image(int pageNumber) {
     const int tileRows = result.height() / tileSize + (result.height() % tileSize != 0);
     const bool boundedTiles = qint64(tileColumns) * tileRows <= 4096;
     QVector<uchar> colourTiles(boundedTiles ? tileColumns * tileRows : 0, 0);
-    hasColor = normalizePagePixels(result, darkMode_, boundedTiles ? &colourTiles : nullptr, tileColumns);
+    const auto format = QImage::Format(pageFormat.load());
+    hasColor = normalizePagePixels(result, darkMode_, boundedTiles ? &colourTiles : nullptr, tileColumns,
+                                   format == QImage::Format_RGBX8888);
+    usePageFormat(result, format);
     result.setText("kobalt.image_regions", regionMetadata(buffer.imageRegions));
     result.setText(
         "kobalt.colour_regions",

@@ -108,6 +108,11 @@ public:
         return fonts_;
     }
     static bool supportedArchive(const QByteArray &bytes, QString *error);
+    // The format of new page images in this process: Format_RGB32 (the
+    // default) or Format_RGBX8888. Choose the one that the screen's backing
+    // store can take without converting pixels. Pages drawn earlier keep
+    // their format. Qt before 5.9 cannot reinterpret an image and keeps RGB32.
+    static void setPageFormat(QImage::Format format);
     bool open(QByteArray bytes, QSize size, const QJsonObject &saved, QString *error, OpeningProgress progress = {});
     bool openResources(std::shared_ptr<ResourceCache> resources, const QMap<QString, qint64> &sizes, QSize size,
                        const QJsonObject &saved, QString *error, OpeningProgress progress = {},
