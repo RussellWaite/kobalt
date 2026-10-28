@@ -30,5 +30,16 @@
     "beta_one_sha256": "e886f7a74985f5cf3606ae44dada8f46d9c8d8e5501c3dffb4db69b0f2f6ae94",
     "author": "Herman Melville",
     "rights": "Public domain in the United States; Project Gutenberg edition"
+  },
+  "war-and-peace": {
+    "download": "https://www.gutenberg.org/cache/epub/2600/pg2600-images-3.epub",
+    "source": "https://www.gutenberg.org/ebooks/2600",
+    "sha256": "0353122c5a554193a8a777d8156e7a02d9c2014cce90b26891e2057edd30556c",
+    "bytes": 1832521,
+    "filename": "pg2600-epub3.epub",
+    "title": "War and Peace",
+    "author": "Leo Tolstoy",
+    "translators": "Louise and Aylmer Maude",
+    "rights": "Public domain in the United States; Project Gutenberg edition"
   }
 }

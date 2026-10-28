@@ -472,6 +472,12 @@ int main(int argc, char **argv) {
     kosync::Client reopened(path, nullptr, &network);
     require(reopened.signedIn() && reopened.deviceId() == client.deviceId(), "account and device ID survive restart");
     require(reopened.setAutomatic(false) && !reopened.automatic(), "automatic sync can be disabled");
+    require(reopened.setAutomatic(true) && !kosync::automaticPaused(), "automatic sync is not paused by default");
+    kosync::pauseAutomatic(true);
+    require(kosync::automaticPaused() && reopened.automatic(), "a paused run keeps the saved automatic setting");
+    kosync::pauseAutomatic(false);
+    require(!kosync::automaticPaused(), "automatic sync resumes after a paused run");
+    require(reopened.setAutomatic(false) && !reopened.automatic(), "automatic sync can be disabled again");
     require(reopened.manualExplanation(), "older accounts explain manual sync on first use");
     require(reopened.setManualExplanation(false), "manual sync explanation can be acknowledged");
     kosync::Client explained(path);

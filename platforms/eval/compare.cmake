@@ -1,0 +1,125 @@
+# Compares two evaluation runs and writes a report. See doc/release-evaluation.md.
+#
+#   cmake [-DBASE=baseline|latest|<label>|<run directory>] [-DTARGET=latest|...] [-DCALIBRATE=ON]
+#         -P platforms/eval/compare.cmake
+#
+# BASE defaults to the recorded baseline and TARGET to the newest run.
+# CALIBRATE adds an A/A pair to build/eval/calibration.json.
+cmake_minimum_required(VERSION 3.22)
+get_filename_component(root "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
+set(eval "${root}/build/eval")
+if(NOT DEFINED BASE)
+    set(BASE baseline)
+endif()
+if(NOT DEFINED TARGET)
+    set(TARGET latest)
+endif()
+
+# `skip` is a run directory that a label must not resolve to, so that two
+# runs of one label compare its two newest runs.
+function(resolve name output skip)
+    if(name STREQUAL "baseline" OR name STREQUAL "latest")
+        if(NOT EXISTS "${eval}/${name}.json")
+            message(FATAL_ERROR "No ${name} run is recorded in ${eval}")
+        endif()
+        file(READ "${eval}/${name}.json" pointer)
+        string(JSON directory GET "${pointer}" run)
+    elseif(IS_DIRECTORY "${name}")
+        get_filename_component(directory "${name}" ABSOLUTE)
+    else()
+        # A label resolves to its newest complete run other than the target.
+        file(GLOB runs LIST_DIRECTORIES true "${eval}/${name}/runs/*")
+        list(FILTER runs EXCLUDE REGEX "\\.partial$")
+        list(REMOVE_ITEM runs "${skip}")
+        list(SORT runs)
+        list(LENGTH runs count)
+        if(count EQUAL 0)
+            message(FATAL_ERROR "No runs for ${name}")
+        endif()
+        list(GET runs -1 directory)
+    endif()
+    if(NOT EXISTS "${directory}/meta.json")
+        message(FATAL_ERROR "Not an evaluation run: ${directory}")
+    endif()
+    set(${output} "${directory}" PARENT_SCOPE)
+endfunction()
+resolve("${TARGET}" target "")
+resolve("${BASE}" base "${target}")
+file(READ "${base}/meta.json" base_meta)
+file(READ "${target}/meta.json" target_meta)
+string(JSON base_sha GET "${base_meta}" subject sha)
+string(JSON target_sha GET "${target_meta}" subject sha)
+string(JSON base_label GET "${base_meta}" subject label)
+string(JSON target_label GET "${target_meta}" subject label)
+string(JSON target_patch GET "${target_meta}" subject patch)
+string(JSON base_patch GET "${base_meta}" subject patch)
+get_filename_component(target_run "${target}" NAME)
+set(output "${eval}/compare/${base_label}__${target_label}-${target_run}")
+file(MAKE_DIRECTORY "${output}")
+
+# What changed between the two subjects: commits, committed files, the
+# target's uncommitted changes and patched files on either side.
+function(git output)
+    execute_process(COMMAND git ${ARGN} WORKING_DIRECTORY "${root}" OUTPUT_VARIABLE value
+        OUTPUT_STRIP_TRAILING_WHITESPACE COMMAND_ERROR_IS_FATAL ANY)
+    set(${output} "${value}" PARENT_SCOPE)
+endfunction()
+set(commits "")
+set(files "")
+if(NOT base_sha STREQUAL target_sha)
+    git(commits log --oneline --no-merges "${base_sha}..${target_sha}")
+    git(files diff --name-only --no-renames "${base_sha}" "${target_sha}")
+endif()
+# Worktree runs record a hash for each modified file. Files whose hash
+# differs between the two runs, or that only one run modified, changed.
+function(worktree_files run output)
+    set(entries "")
+    if(EXISTS "${run}/worktree-files.txt")
+        file(STRINGS "${run}/worktree-files.txt" entries)
+    endif()
+    set(${output} "${entries}" PARENT_SCOPE)
+endfunction()
+worktree_files("${base}" base_entries)
+worktree_files("${target}" target_entries)
+set(differing "")
+foreach(entry IN LISTS base_entries target_entries)
+    if(NOT entry IN_LIST base_entries OR NOT entry IN_LIST target_entries)
+        string(REGEX REPLACE "^[^ ]+ " "" path "${entry}")
+        list(APPEND differing "${path}")
+    endif()
+endforeach()
+list(REMOVE_DUPLICATES differing)
+foreach(path IN LISTS differing)
+    string(APPEND files "\n${path}")
+endforeach()
+foreach(patch IN ITEMS "${base_patch}" "${target_patch}")
+    if(patch AND EXISTS "${patch}")
+        # Both sides of each file header, so deleted and added files count.
+        file(STRINGS "${patch}" patched REGEX "^(\\+\\+\\+|---) [ab]/")
+        foreach(line IN LISTS patched)
+            string(REGEX REPLACE "^(\\+\\+\\+|---) [ab]/([^\t]*).*" "\\2" line "${line}")
+            string(APPEND files "\n${line}")
+        endforeach()
+    endif()
+endforeach()
+file(WRITE "${output}/commits.txt" "${commits}\n")
+file(WRITE "${output}/changes.txt" "${files}\n")
+
+execute_process(COMMAND "${CMAKE_COMMAND}" --build --preset mac-eval
+    WORKING_DIRECTORY "${root}/platforms/desktop" OUTPUT_QUIET COMMAND_ERROR_IS_FATAL ANY)
+set(calibration "")
+if(EXISTS "${eval}/calibration.json" OR CALIBRATE)
+    set(calibration --calibration "${eval}/calibration.json")
+endif()
+# Calibration needs an A/A pair: two runs of the same subject.
+if(CALIBRATE)
+    if(NOT base_label STREQUAL target_label OR base STREQUAL target)
+        message(FATAL_ERROR "CALIBRATE needs two different runs of the same subject")
+    endif()
+    list(APPEND calibration --record-calibration)
+endif()
+execute_process(COMMAND "${root}/build/desktop-mac/kobalt-eval-compare" --base "${base}" --target "${target}"
+    --output "${output}" --config "${root}/platforms/eval/eval.json" ${calibration}
+    --changes "${output}/changes.txt" --commits "${output}/commits.txt"
+    COMMAND_ERROR_IS_FATAL ANY)
+message(STATUS "Report: ${output}/report.md")

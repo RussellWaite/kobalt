@@ -19,6 +19,7 @@
 #include "model/page_refresh_regions.h"
 #include "support/diagnostics.h"
 #include "interfaces/reader/ui/style/metrics.h"
+#include "interfaces/reader/ui/panel_timing.h"
 #include "storage/profile_database.h"
 #include "storage/reader_storage.h"
 #include <QApplication>
@@ -667,8 +668,106 @@ bool Reader::readyForPresentation() const {
            (model->resourceStats().value("pending_images").toInt() == 0 || !model->error().isEmpty());
 }
 
+void Reader::setOpeningTiming(const QElapsedTimer &started, const QJsonObject &stages) {
+    openingStarted = started;
+    // Showing starts when the host hands the window over, so the host's own
+    // preparation of the screen counts as part of it.
+    showing.start();
+    for (auto it = stages.begin(); it != stages.end(); ++it)
+        openingStages[it.key()] = it.value();
+}
+void Reader::reportShown() {
+    if (!kobalt::diagnosticsActive())
+        return;
+    auto fields = openingStages;
+    fields["show_ms"] = showing.nsecsElapsed() / 1e6;
+    if (openingStarted.isValid())
+        fields["total_ms"] = openingStarted.nsecsElapsed() / 1e6;
+    kobalt::diagnostic("reader-shown", fields, false);
+}
+
+void Reader::locateText(const QString &text, std::function<void(QPoint)> found) {
+    auto settled = std::make_shared<bool>(false);
+    QPointer<Reader> guard(this);
+    model->search(text, [guard, text, found, settled](kobalt::SearchBatch batch) {
+        if (!guard || *settled)
+            return;
+        // A hit inside a longer word, such as "set" in "reset", does not count.
+        const auto joins = [](const QString &side, bool last) {
+            return !side.isEmpty() && side.at(last ? side.size() - 1 : 0).isLetterOrNumber();
+        };
+        for (const auto &hit : batch.hits) {
+            if (hit.text.compare(text, Qt::CaseInsensitive) != 0 || joins(hit.before, true) || joins(hit.after, false))
+                continue;
+            *settled = true;
+            guard->model->cancelSearch();
+            if (hit.page != guard->model->page())
+                guard->model->goTo(hit.start);
+            guard->locateOnPage(hit, found, 0);
+            return;
+        }
+        if (batch.done) {
+            *settled = true;
+            found({-1, -1});
+        }
+    });
+}
+// The turn to the hit's page renders first; its rectangles exist only then.
+void Reader::locateOnPage(const kobalt::SearchHit &hit, std::function<void(QPoint)> found, int attempt) {
+    if (model->busy() || model->page() != hit.page) {
+        if (attempt >= 500) {
+            found({-1, -1});
+            return;
+        }
+        QPointer<Reader> guard(this);
+        kobalt::qt::later(20, this, [guard, hit, found, attempt] {
+            if (guard)
+                guard->locateOnPage(hit, found, attempt + 1);
+        });
+        return;
+    }
+    QPointer<Reader> guard(this);
+    model->rangeRects(hit.start, hit.end, [guard, found](QVector<QRect> rectangles) {
+        if (!guard || rectangles.isEmpty())
+            found({-1, -1});
+        else
+            found(rectangles.first().center() + QPoint(0, guard->page->topHeight()));
+    });
+}
+void Reader::locateLink(const QString &label, std::function<void(QPoint)> found) {
+    findLink(model->pageLinks(), 0, label, std::move(found));
+}
+void Reader::findLink(QVector<kobalt::PageLink> links, int index, QString label, std::function<void(QPoint)> found) {
+    if (index >= links.size()) {
+        found({-1, -1});
+        return;
+    }
+    const auto link = links.at(index);
+    QPointer<Reader> guard(this);
+    model->linkDetails(link.source, [guard, links, index, label, found, link](kobalt::LinkDetails details) {
+        if (!guard)
+            return;
+        if (details.label == label && !link.rectangles.isEmpty())
+            found(link.rectangles.first().center() + QPoint(0, guard->page->topHeight()));
+        else
+            guard->findLink(links, index + 1, label, found);
+    });
+}
+
 void Reader::showEvent(QShowEvent *event) {
     kobalt::diagnostic("reader-visible");
+    // The first show ends the opening once the page has painted.
+    if (!shownOnce) {
+        shownOnce = true;
+        if (!showing.isValid())
+            showing.start();
+        kobalt::ui::afterNextPaint(page, [this] {
+            pagePainted = true;
+            reportShown();
+            if (!recordedOpening)
+                recordOpening();
+        });
+    }
     // A modal window still lets Nickel repaint its library behind us.
     // Those background flushes can request GC16 over our reading page.
     presentation->pauseBackground();
@@ -680,10 +779,11 @@ void Reader::showEvent(QShowEvent *event) {
     if (clockTimer)
         startClock();
     // The first refresh runs before the window is visible. Record the
-    // opening once it is; a busy model retries from its next refresh.
+    // opening once it is and its page has painted; a busy model retries from
+    // its next refresh.
     if (!recordedOpening)
         QTimer::singleShot(0, this, [this] {
-            if (!recordedOpening)
+            if (!recordedOpening && pagePainted)
                 recordOpening();
         });
 }
@@ -778,9 +878,14 @@ void Reader::closeEvent(QCloseEvent *event) {
         lightPopup->hide();
     if (!closing) {
         kobalt::diagnostic("exit-requested");
+        if (!closingTimes.started.isValid())
+            closingTimes.started.start();
         event->ignore();
         exitPending = true;
+        QElapsedTimer saving;
+        saving.start();
         save(true);
+        closingTimes.add("checkpoint", saving);
         if (appearanceEdit.panelOpen() || general->isVisible())
             dismissControls();
         finishExit();
@@ -797,8 +902,13 @@ void Reader::closeEvent(QCloseEvent *event) {
     }
     presentation->resumeAndRepaintBackground();
     setProperty("reader_preparing_handoff", false);
+    QElapsedTimer step;
+    step.start();
     book->releaseNative();
+    closingTimes.add("session", step);
+    step.restart();
     save(true);
+    closingTimes.add("checkpoint", step);
     model->updated = {};
     model->renderProgressChanged = {};
     model->turnBoundary = {};
@@ -955,9 +1065,11 @@ bool Reader::openLink(QPoint point, bool direct) {
             orientation->setBlocked(true);
         page->mark(link.rectangles);
         QPointer<Reader> guard(this);
-        model->linkDetails(link.source, [guard, epoch, bounds](const kobalt::LinkDetails &details) {
+        kobalt::ui::PanelTiming timing("footnote");
+        model->linkDetails(link.source, [guard, epoch, bounds, timing](const kobalt::LinkDetails &details) mutable {
             if (!guard || guard->linkEpoch != epoch || guard->lifecycleHidden || guard->services.suspended())
                 return;
+            timing.stage("details");
             auto *reader = guard.data();
             reader->linkPending = false;
             if (details.kind == kobalt::LinkKind::None) {
@@ -987,6 +1099,7 @@ bool Reader::openLink(QPoint point, bool direct) {
                 reader->linkPanel->open(
                     details, bounds.translated(0, reader->page->topHeight()),
                     reader->rect().adjusted(0, reader->page->topHeight(), 0, -reader->page->bottomHeight()));
+                timing.finish(reader->linkPanel);
                 textRefresh(reader->linkPanel);
             }
             reader->updateOrientationBlock();
@@ -1060,9 +1173,11 @@ void Reader::lookupSelection() {
     updateOrientationBlock();
     updateLinkReturn();
     QPointer<Reader> guard(this);
-    model->textRange(annotationStart, annotationEnd, [guard, epoch](TextRange range) {
+    kobalt::ui::PanelTiming timing("dictionary");
+    model->textRange(annotationStart, annotationEnd, [guard, epoch, timing](TextRange range) mutable {
         if (!guard || guard->lookupEpoch != epoch || guard->lifecycleHidden || guard->services.suspended())
             return;
+        timing.stage("range");
         guard->lookupPending = false;
         const auto query = range.text.simplified();
         if (query.isEmpty()) {
@@ -1078,9 +1193,12 @@ void Reader::lookupSelection() {
         const auto result = guard->dictionary->lookup(guard->book->identity(), query);
         if (!guard || guard->lookupEpoch != epoch || guard->lifecycleHidden)
             return;
+        timing.stage("lookup");
+        timing.field("chars", result.html.size());
         guard->dictionaryPanel->setChoices(guard->dictionary->choices());
         guard->dictionaryPanel->setBookFont(guard->bookFace());
         guard->dictionaryPanel->open(query, result, guard->lookupBounds);
+        timing.finish(guard->dictionaryPanel);
         guard->syncAnnotationControls();
         guard->updateOrientationBlock();
         guard->updateLinkReturn();
@@ -1420,6 +1538,7 @@ void Reader::syncNavigation() {
 void Reader::showControls() {
     const bool topVisible = topControls->isVisible();
     const bool opening = !topVisible && !bottomControls->isVisible();
+    kobalt::ui::PanelTiming timing("menu");
     model->cancelPendingTurn();
     if (opening) {
         // A page turn can defer control updates until after its first paint.
@@ -1470,6 +1589,7 @@ void Reader::showControls() {
         // frame together so they appear in one screen update.
         setProperty("reader_controls_opening", true);
         update();
+        timing.finish(topControls);
     }
 }
 
@@ -1715,15 +1835,23 @@ void Reader::finishExit() {
     setUpdatesEnabled(false);
     setEnabled(false);
     model->nativePosition([this](const QString &location, const QString &mappingError) {
+        QElapsedTimer step;
+        step.start();
         save();
-        if (!book->writeNative(location, mappingError)) {
+        closingTimes.add("checkpoint", step);
+        step.restart();
+        const bool written = book->writeNative(location, mappingError);
+        closingTimes.add("native", step);
+        if (!written) {
             exportRunning = false;
             setEnabled(true);
             setUpdatesEnabled(true);
             showProgressChoice();
             return;
         }
+        step.restart();
         save(true);
+        closingTimes.add("checkpoint", step);
         flushKosync([this] {
             closing = true;
             close();

@@ -1,14 +1,14 @@
 #!/bin/bash
 set -euo pipefail
-if [[ $# -ne 1 || ! "$1" =~ ^qt[56]$ ]]; then
-    echo "Usage: bash platforms/kobo/build.sh qt5|qt6" >&2
+if [[ $# -ne 1 || ! "$1" =~ ^qt[56](-eval)?$ ]]; then
+    echo "Usage: bash platforms/kobo/build.sh qt5|qt6|qt5-eval|qt6-eval" >&2
     exit 2
 fi
 target=$1
 root=$(cd "$(dirname "$0")/../.." && pwd)
 jobs=${JOBS:-2}
 [[ "$jobs" =~ ^[1-9][0-9]*$ ]] || { echo "JOBS must be positive" >&2; exit 2; }
-image=$(sh "$root/platforms/sdk-image.sh" "$target")
+image=$(sh "$root/platforms/sdk-image.sh" "${target%-eval}")
 engine=${CONTAINER_ENGINE:-docker}
 sdk_id=$("$engine" image inspect "$image" --format '{{.Id}}')
 info=$(cmake -P "$root/platforms/source-info.cmake")

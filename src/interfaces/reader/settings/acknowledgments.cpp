@@ -10,6 +10,7 @@
 #include "interfaces/reader/ui/style/styles.h"
 #include "acknowledgments.h"
 #include "interfaces/reader/ui/style/metrics.h"
+#include "interfaces/reader/ui/panel_timing.h"
 #include <QFile>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -165,6 +166,7 @@ void Acknowledgments::open() {
     raise();
 }
 void Acknowledgments::select(int index) {
+    ui::PanelTiming timing("licence");
     entry = index;
     const auto item = entries.at(index).toObject();
     const auto notices = item.value("notices").toArray();
@@ -186,6 +188,8 @@ void Acknowledgments::select(int index) {
     text->page = 0;
     text->setText(body);
     redraw();
+    timing.field("chars", body.size());
+    timing.finish(this);
 }
 void Acknowledgments::resizeEvent(QResizeEvent *) {
     if (entry < 0)

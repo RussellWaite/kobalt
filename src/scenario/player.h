@@ -1,0 +1,59 @@
+#pragma once
+#include <QJsonObject>
+#include <QPair>
+#include <QPoint>
+#include <QPointF>
+#include <QString>
+#include <QVector>
+#include <functional>
+
+class QWidget;
+class QWindow;
+
+namespace kobalt::scenario {
+// What a platform supplies so the player can drive its reader. The player
+// itself only presses widgets by name, sends keys and waits for widgets and
+// diagnostics events, so the same scenario file runs on every platform.
+struct Host {
+    // The open reader window, or null.
+    std::function<QWidget *()> reader;
+    // Starts opening the book with this key from the scenario file's `books`.
+    // Returns false when the host cannot open books by itself; scenarios that
+    // need it are then skipped.
+    std::function<bool(const QString &key)> open;
+    // Whether the host can open the book with this key at all, asked before
+    // the open book closes. Optional; without it every key is assumed.
+    std::function<bool(const QString &key)> opens;
+    // Whether the reader's engine has work in flight.
+    std::function<bool()> busy;
+    // Whether no book is open and nothing is still closing. Optional.
+    std::function<bool()> idle;
+    // Removes the disposable caches of the book with this key, so its next
+    // opening starts cold. Called only while no book is open. Optional.
+    std::function<void(const QString &key)> forget;
+    // Whether a dictionary is installed. Optional; without it the player
+    // assumes one is.
+    std::function<bool()> dictionary;
+    // The window that receives input for `point` in `widget`, and the point in
+    // that window. Input goes through the window system, as real input does.
+    std::function<QPair<QWindow *, QPointF>(QWidget *widget, const QPoint &point)> locate;
+    // Presses or releases at `point` in `widget` instead, for a platform whose
+    // input filters must not see synthesized window-system input. Optional.
+    std::function<void(QWidget *widget, const QPoint &point, bool press)> press;
+};
+struct Options {
+    // Runs only scenarios whose id starts with this, or that this starts with.
+    QString filter;
+    // Multiplies each scenario's repetitions. Warm-up runs stay as they are.
+    double repeatScale = 1;
+    // The key of the book that is already open, if any.
+    QString openBook;
+    // Called as each scenario starts, for a run that someone watches.
+    std::function<void(const QString &id)> started;
+};
+// Runs the scenarios in `file`, a parsed scenario file, and returns one result
+// per scenario: its id, kind, paths, unit, fixture, status (`completed`,
+// `skipped` or `failed`), reason, samples and stages. Diagnostics must be
+// active, because samples come from diagnostics events.
+QVector<QJsonObject> run(const QJsonObject &file, const Host &host, const Options &options = {});
+}

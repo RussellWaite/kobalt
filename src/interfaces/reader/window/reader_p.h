@@ -84,6 +84,20 @@ public:
     void progressTick() override;
     void refreshHostPresentation() override;
     void pageButton(int direction) override;
+    bool busy() const override {
+        return model->busy() || model->preparingNeighbours();
+    }
+    // Automatic syncs follow the account setting, unless a performance run
+    // has paused them for the whole process.
+    bool kosyncAutomatic() const {
+        return kosyncClient->automatic() && !kobalt::kosync::automaticPaused();
+    }
+    void setOpeningTiming(const QElapsedTimer &started, const QJsonObject &stages) override;
+    kobalt::ActionTiming closingTiming() const override {
+        return closingTimes;
+    }
+    void locateText(const QString &text, std::function<void(QPoint)> found) override;
+    void locateLink(const QString &label, std::function<void(QPoint)> found) override;
     QVector<QWidget *> popups() const;
     bool popup(QObject *object) const;
     void raisePopups();
@@ -568,6 +582,17 @@ private:
     // shows the most recently read book on the sleep screen and on Home.
     // Checking Nickel's progress at opening has already compared the times.
     bool recordedOpening = false;
+    // Stages of the opening and of the close, for "reader-shown" and "book-close".
+    QJsonObject openingStages;
+    QElapsedTimer openingStarted, building, showing;
+    bool shownOnce = false;
+    // The opening is recorded only after the first page has painted, so its
+    // synchronous saves never delay that page.
+    bool pagePainted = false;
+    kobalt::ActionTiming closingTimes;
+    void reportShown();
+    void findLink(QVector<kobalt::PageLink> links, int index, QString label, std::function<void(QPoint)> found);
+    void locateOnPage(const kobalt::SearchHit &hit, std::function<void(QPoint)> found, int attempt);
     void recordOpening();
     void finishExit();
     void saveSoon();

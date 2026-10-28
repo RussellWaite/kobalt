@@ -62,6 +62,9 @@ private:
     std::shared_ptr<SourceLease> lease;
     void begin(const QString &path, QSize pixels);
     bool retirementNotified = false;
+    // When the current opening began, and the stages of the current close.
+    QElapsedTimer openingStarted;
+    ActionTiming closing;
     void notifyRetirement();
     void retire();
     void release();

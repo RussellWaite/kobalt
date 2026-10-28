@@ -38,6 +38,16 @@
 #include <QFile>
 #include <QKeyEvent>
 #include <QScreen>
+#ifdef KOBALT_SCENARIO_PLAYER
+#include "reading/kosync.h"
+#include "scenario/player.h"
+#include <QFileInfo>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QMouseEvent>
+#include <QSaveFile>
+#include <QWindow>
+#endif
 #include <QThread>
 #include <utility>
 
@@ -204,6 +214,12 @@ ReaderCoordinator::ReaderCoordinator(ReaderEnvironment &environment, Coordinator
     // so the first opening view does not wait for storage.
     if (available())
         kobalt::ui::prepareOpeningFonts(environment_.assets);
+#ifdef KOBALT_SCENARIO_PLAYER
+    // A device set up for scenarios must not sync the benchmark book, also
+    // not when a person opens it to start the run.
+    if (QFile::exists(environment_.paths.directory + "/scenarios/scenarios.json"))
+        kobalt::kosync::pauseAutomatic(true);
+#endif
 }
 
 void forgetHomeSleepScreen() {
@@ -757,6 +773,10 @@ void ReaderCoordinator::showReader() {
         cancelOpening();
         return;
     }
+#ifdef KOBALT_SCENARIO_PLAYER
+    if (!scenarioOpening && run.opening)
+        scenarioOpening = run.opening->copy();
+#endif
     run.opening.reset();
     auto book = std::make_unique<kobalt::ReadingBook>(
         std::move(run.model), run.statePath, environment_.paths, run.identity, run.expectedHash,
@@ -782,8 +802,12 @@ void ReaderCoordinator::showReader() {
     services.suspended = [this, suspended] {
         return NativeDialogOverlay::activeFor(run.reader) || suspended();
     };
+    QElapsedTimer creating;
+    creating.start();
     run.reader = run.interface->createWindow(std::move(book), run.orientation.get(), std::move(services));
+    const double created = creating.nsecsElapsed() / 1e6;
     run.reader->finished = [this](std::unique_ptr<kobalt::ReaderSession> retained) {
+        auto closing = run.reader ? run.reader->closingTiming() : kobalt::ActionTiming{};
         // closeEvent has accepted this close. Do not let the visibility
         // poll show the reader again before Qt processes deleteLater().
         run.reader.clear();
@@ -798,18 +822,23 @@ void ReaderCoordinator::showReader() {
         // closing Nickel's service; idle RAM owns no native file handles.
         lifecycle->draining = true;
         ++generation;
-        drainReadingJobs([this] {
+        drainReadingJobs([this, closing] {
             if (run.model)
                 run.model->cancelSource();
             run.nativePublication.reset();
             run.opening.reset();
             run.orientation.reset();
-            kobalt::releaseResourceConnections([this] {
+            kobalt::releaseResourceConnections([this, closing] {
                 lifecycle->draining = false;
                 QFile::remove(activePath);
                 // The reader and its savers are gone; leave one closed file
                 // while Nickel shows Home.
+                QElapsedTimer profile;
+                profile.start();
                 kobalt::storage::closeProfile();
+                auto timing = closing;
+                timing.add("profile", profile);
+                kobalt::reportBookClose(timing);
                 status("closed");
                 finishHomeNavigation();
                 // USB or revocation may have arrived during the barrier.
@@ -830,7 +859,9 @@ void ReaderCoordinator::showReader() {
     QPointer<ReaderCoordinator> guard(this);
     QPointer<ReaderWindow> reader(run.reader);
     const auto lease = run.sourceLease;
-    reader->preparePresentation([guard, reader, epoch, lease](bool ready) {
+    QElapsedTimer waiting;
+    waiting.start();
+    reader->preparePresentation([guard, reader, epoch, lease, created, waiting](bool ready) {
         if (!guard || !reader || guard->generation != epoch || guard->run.reader != reader ||
             guard->run.sourceLease != lease) {
             return;
@@ -841,6 +872,12 @@ void ReaderCoordinator::showReader() {
             return;
         }
         guard->busy = false;
+        const auto &timings = guard->run.openingTimings;
+        reader->setOpeningTiming(guard->run.openingTimer,
+                                 kobalt::qt::object({{"prepare_ms", timings.value("prepare_ms")},
+                                                     {"engine_ms", timings.value("load_and_layout_ms")},
+                                                     {"window_ms", created},
+                                                     {"wait_ms", waiting.nsecsElapsed() / 1e6}}));
         reader->showFullScreen();
         // Finish deferred widget paints before removing the opening view.
         for (auto *widget : reader->findChildren<QWidget *>()) {
@@ -851,8 +888,103 @@ void ReaderCoordinator::showReader() {
         guard->hideLoading();
         guard->run.openingTimings["total_ms"] = guard->run.openingTimer.elapsed();
         guard->status("reading");
+#ifdef KOBALT_SCENARIO_PLAYER
+        guard->startScenarios();
+#endif
     });
 }
+
+#ifdef KOBALT_SCENARIO_PLAYER
+void ReaderCoordinator::startScenarios() {
+    const auto path = environment_.paths.directory + "/scenarios/scenarios.json";
+    if (scenariosStarted || !kobalt::diagnosticsActive() || !QFile::exists(path))
+        return;
+    scenariosStarted = true;
+    QPointer<ReaderCoordinator> guard(this);
+    // Let the opening finish its queued work before the first step.
+    kobalt::qt::later(2000, this, [guard, path] {
+        if (guard)
+            guard->runScenarios(path);
+    });
+}
+void ReaderCoordinator::runScenarios(const QString &path) {
+    QFile source(path);
+    const auto file =
+        source.open(QIODevice::ReadOnly) ? QJsonDocument::fromJson(source.readAll()).object() : QJsonObject();
+    kobalt::scenario::Options options;
+    const auto books = file.value("books").toObject();
+    for (auto it = books.begin(); it != books.end(); ++it)
+        if (QFileInfo(it.value().toObject().value("file").toString()).fileName() == QFileInfo(run.filePath).fileName())
+            options.openBook = it.key();
+    // Books open from Nickel's library. The host can open the first book again
+    // from a copy of its opening request, but no other book.
+    kobalt::scenario::Host host;
+    const auto openKey = options.openBook;
+    host.opens = [this, openKey](const QString &key) {
+        return key == openKey && scenarioOpening;
+    };
+    host.open = [this, openKey](const QString &key) {
+        if (key != openKey || !scenarioOpening)
+            return false;
+        auto opening = std::make_shared<std::unique_ptr<NativeOpening>>(scenarioOpening->copy());
+        return *opening && begin([opening] {
+            return std::move(*opening);
+        });
+    };
+    host.reader = [this]() -> QWidget * { return run.reader.data(); };
+    host.busy = [this] { return run.reader && run.reader->busy(); };
+    host.idle = [this] { return idleForBenchmark(); };
+    host.dictionary = [] {
+        const auto services = readerHostServices();
+        const auto dictionary = services.dictionary ? services.dictionary() : nullptr;
+        return dictionary && !dictionary->choices().isEmpty();
+    };
+    host.locate = [](QWidget *widget, const QPoint &point) -> QPair<QWindow *, QPointF> {
+        auto *window = widget->window();
+        return {window->windowHandle(), QPointF(widget->mapTo(window, point))};
+    };
+    // Kobalt's touch filter takes a spontaneous mouse press in its windows as
+    // a sign that Qt synthesizes mouse events, and stops translating touch.
+    // Send the presses to the widget under the point instead.
+    host.press = [](QWidget *widget, const QPoint &point, bool press) {
+        static QPointer<QWidget> pressed;
+        QWidget *target = press ? nullptr : pressed.data();
+        if (!target) {
+            target = widget->childAt(point);
+            if (!target)
+                target = widget;
+        }
+        pressed = press ? target : nullptr;
+        const QPoint local = target == widget ? point : target->mapFrom(widget, point);
+        QMouseEvent event(press ? QEvent::MouseButtonPress : QEvent::MouseButtonRelease, QPointF(local),
+                          QPointF(widget->mapToGlobal(point)), Qt::LeftButton, press ? Qt::LeftButton : Qt::NoButton,
+                          Qt::NoModifier);
+        QApplication::sendEvent(target, &event);
+    };
+    kobalt::diagnostic("scenario-run-start",
+                       kobalt::qt::object({{"scenarios", file.value("scenarios").toArray().size()}}), false);
+    const auto results = kobalt::scenario::run(file, host, options);
+    auto header = kobalt::qt::object({{"kind", "kobalt-device-run"},
+                                      {"target", QString("qt%1").arg(QT_VERSION >> 16)},
+                                      {"version", QString::fromLatin1(KOBALT_VERSION)},
+                                      {"qt", QString::fromLatin1(qVersion())}});
+    QFile version("/mnt/onboard/.kobo/version");
+    if (version.open(QIODevice::ReadOnly)) {
+        const auto device = kobalt::diagnosticDeviceFields(version.read(512));
+        for (auto it = device.begin(); it != device.end(); ++it)
+            header[it.key()] = it.value();
+    }
+    // One line per scenario, kept apart from the rotating event log.
+    QSaveFile output(environment_.paths.directory + "/diagnostics/scenarios.jsonl");
+    if (output.open(QIODevice::WriteOnly)) {
+        output.write(QJsonDocument(header).toJson(QJsonDocument::Compact) + '\n');
+        for (const auto &result : results)
+            output.write(QJsonDocument(result).toJson(QJsonDocument::Compact) + '\n');
+        output.commit();
+    }
+    kobalt::diagnostic("scenario-run-end", kobalt::qt::object({{"results", results.size()}}));
+}
+#endif
 
 ReaderCoordinator::~ReaderCoordinator() = default;
 }

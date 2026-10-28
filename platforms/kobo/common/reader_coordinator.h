@@ -54,6 +54,15 @@ public:
     void forgetSleepScreen();
 
 private:
+#ifdef KOBALT_SCENARIO_PLAYER
+    // Evaluation packages run the scenarios in the profile's scenarios folder
+    // once per process, after the first reader has opened.
+    void startScenarios();
+    void runScenarios(const QString &path);
+    bool scenariosStarted = false;
+    // A copy of the first opening, so scenarios can open the same book again.
+    std::unique_ptr<NativeOpening> scenarioOpening;
+#endif
     ReaderEnvironment &environment_;
     CoordinatorBindings bindings_;
     kobalt::NativeLifecycle *lifecycle;

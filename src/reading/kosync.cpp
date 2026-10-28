@@ -13,10 +13,20 @@
 #include <QSaveFile>
 #include <QTimer>
 #include <QUuid>
+#include <atomic>
 #include <cmath>
 #include <memory>
 
 namespace kobalt::kosync {
+namespace {
+std::atomic_bool paused{false};
+}
+void pauseAutomatic(bool value) {
+    paused = value;
+}
+bool automaticPaused() {
+    return paused;
+}
 namespace {
 QString message(const char *key) { return strings::get(key); }
 bool transientNetworkError(QNetworkReply::NetworkError error) {

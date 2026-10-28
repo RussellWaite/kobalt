@@ -3,14 +3,23 @@
 #include <QByteArray>
 #include <QJsonObject>
 #include <QString>
+#include <functional>
 
 namespace kobalt {
 QJsonObject diagnosticDeviceFields(const QByteArray &version);
 QString diagnosticErrorCode(const QString &reason);
 void pauseDiagnostics(bool paused);
+// True when events are being written, so callers can skip work that only feeds diagnostics.
+bool diagnosticsActive();
 void initializeDiagnostics(const QString &directory);
 bool diagnosticsRequested(const QString &profile);
 void diagnostic(const char *event, QJsonObject fields = {}, bool durable = true);
+// Whether durable events sync the log to storage. Performance scenarios turn
+// this off, because a reader without diagnostics never pays for those syncs.
+void setDiagnosticsSync(bool enabled);
+// Receives every event that is written, on the thread that wrote it. An empty
+// function removes the observer.
+void setDiagnosticObserver(std::function<void(const QJsonObject &)> observer);
 #if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
 // Qt 5.2 cannot build a QJsonObject from a braced list of fields.
 inline void diagnostic(const char *event, std::initializer_list<qt::JsonField> fields, bool durable = true) {

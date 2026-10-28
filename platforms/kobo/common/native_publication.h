@@ -18,6 +18,9 @@ public:
     NativeOpening &operator=(const NativeOpening &) = delete;
     static bool available();
     bool retain(const void *volume, const void *context);
+    // An independent copy of this request, so the same book can open again.
+    // Null when nothing is retained or the copy fails.
+    std::unique_ptr<NativeOpening> copy() const;
     const void *volume() const;
     const void *bookmark() const;
     const void *keys() const;

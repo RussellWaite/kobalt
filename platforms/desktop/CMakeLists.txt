@@ -11,7 +11,8 @@ set(CMAKE_AUTOMOC ON)
 include(CTest)
 set(qt_components Core Gui Widgets Network Sensors Sql)
 if(BUILD_TESTING)
-    list(APPEND qt_components Test)
+    # The scenario player sends input through the window system, as real input arrives.
+    list(APPEND qt_components Test GuiPrivate)
 endif()
 find_package(Qt6 6.11.3 EXACT REQUIRED COMPONENTS ${qt_components})
 file(REAL_PATH "${Qt6_DIR}/.." qt_config_root)
@@ -166,6 +167,10 @@ add_custom_command(OUTPUT "${bundle_assets}/manifest.json"
 add_custom_target(kobalt-runtime-assets DEPENDS "${bundle_assets}/manifest.json")
 add_dependencies(Kobalt kobalt-runtime-assets)
 
+# Compares two release-evaluation runs; see doc/release-evaluation.md.
+add_executable(kobalt-eval-compare EXCLUDE_FROM_ALL "${KOBALT_ROOT}/platforms/eval/compare.cpp")
+target_link_libraries(kobalt-eval-compare PRIVATE Qt6::Gui)
+
 if(BUILD_TESTING)
     add_executable(kobalt-annotation-engine-benchmark EXCLUDE_FROM_ALL "${KOBALT_ROOT}/tests/annotation_engine_benchmark.cpp")
     target_link_libraries(kobalt-annotation-engine-benchmark PRIVATE kobalt-desktop kobalt-core)
@@ -201,19 +206,20 @@ if(BUILD_TESTING)
         message(FATAL_ERROR "Variable-font fixture does not match its pinned source")
     endif()
     set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${test_variable_font}")
-    add_executable(kobalt-desktop-tests "${KOBALT_ROOT}/tests/desktop.cpp")
+    add_executable(kobalt-desktop-tests "${KOBALT_ROOT}/tests/desktop.cpp" "${source}/scenario/player.cpp")
     qt_add_resources(kobalt-desktop-tests "screenshot-gallery" PREFIX "/"
         BASE "${CMAKE_CURRENT_SOURCE_DIR}" FILES "${CMAKE_CURRENT_SOURCE_DIR}/screenshot-gallery.html")
-    target_link_libraries(kobalt-desktop-tests PRIVATE kobalt-desktop kobalt-core Qt6::Test)
+    target_link_libraries(kobalt-desktop-tests PRIVATE kobalt-desktop kobalt-core Qt6::Test Qt6::GuiPrivate)
     target_compile_definitions(kobalt-desktop-tests PRIVATE
         KOBALT_TEST_ASSETS="${KOBALT_ASSETS}" KOBALT_TEST_ZIP="${KOBALT_TEST_ZIP}" KOBALT_TEST_BOOK="${test_book}"
         KOBALT_TEST_CORPUS="${KOBALT_ROOT}/tests/fixtures/public-domain"
         KOBALT_SCREENSHOT_BOOKS="${KOBALT_ROOT}/build/screenshot-books"
         KOBALT_SCREENSHOT_REFERENCES="${KOBALT_ROOT}/tests/fixtures/screenshot-books.json"
-        KOBALT_TEST_VARIABLE_FONT="${test_variable_font}")
+        KOBALT_SOURCE_ROOT="${KOBALT_ROOT}" KOBALT_SCENARIOS="${KOBALT_ROOT}/platforms/eval/scenarios.json"
+        KOBALT_TEST_VARIABLE_FONT="${test_variable_font}" KOBALT_BUILD_TYPE="${CMAKE_BUILD_TYPE}")
     file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-tmp")
     set(headless_environment "QT_QPA_PLATFORM=minimal:enable_fonts:freetype" "QT_STYLE_OVERRIDE=Fusion" "TMPDIR=${CMAKE_CURRENT_BINARY_DIR}/test-tmp")
-    foreach(check annotationDefaultView galleryWorkerFailure galleryIntegrity sameProcessReadersDoNotRecoverEachOther standaloneHistorySourceKeys verticalJustification startup libraryOnboarding reading errors diagnostics storageDiagnostics features stylesheet bookmarks bookmarkMerge annotations annotationModeFeedback annotationSelection coordinateProbeSerialization annotationGripMenus annotationCrossPageDrag selectionCrossPageDrag annotationCrossPageOverlap annotationOverlap touchCursor touchCursorOutsideReader links tappableLinks bookmarkCornerLinks
+    foreach(check annotationDefaultView galleryWorkerFailure galleryIntegrity sameProcessReadersDoNotRecoverEachOther standaloneHistorySourceKeys verticalJustification startup libraryOnboarding reading errors diagnostics storageDiagnostics timingEvents features stylesheet bookmarks bookmarkMerge annotations annotationModeFeedback annotationSelection coordinateProbeSerialization annotationGripMenus annotationCrossPageDrag selectionCrossPageDrag annotationCrossPageOverlap annotationOverlap touchCursor touchCursorOutsideReader links tappableLinks bookmarkCornerLinks
             annotationSectionBoundary headerFooterDismissal settings advancedText globalLayout columns fullWidthPanels dictionaryRedraw dictionaryAppearance dictionaryEditing dictionaryDismissal opticalSize desktopControls navigation bookmarkReturn booxMenuDismissalRefresh booxRetirementFrame annotationTwoFingerTapConsumesWholeSequence annotationRightClickRejectsChords library libraryTextInheritance libraryGridRows libraryHold libraryAtStart)
         set(lane fast)
         if(check MATCHES "^(annotationDefaultView|sameProcessReadersDoNotRecoverEachOther|standaloneHistorySourceKeys|verticalJustification|features|diagnostics|stylesheet|bookmarks|bookmarkMerge|annotations|annotationModeFeedback|annotationSelection|coordinateProbeSerialization|annotationGripMenus|annotationCrossPageDrag|annotationSectionBoundary|selectionCrossPageDrag|annotationCrossPageOverlap|annotationOverlap|touchCursor|touchCursorOutsideReader|links|tappableLinks|bookmarkCornerLinks|headerFooterDismissal|settings|advancedText|globalLayout|columns|fullWidthPanels|dictionaryRedraw|dictionaryAppearance|dictionaryEditing|dictionaryDismissal|opticalSize|desktopControls|navigation|bookmarkReturn|booxMenuDismissalRefresh|booxRetirementFrame|library|libraryTextInheritance|libraryGridRows|libraryHold|libraryAtStart)$")
@@ -514,6 +520,20 @@ if(BUILD_TESTING)
             -P "${CMAKE_CURRENT_SOURCE_DIR}/prepare-screenshot-books.cmake"
         COMMAND "${CMAKE_COMMAND}" "-DTEST_EXECUTABLE=$<TARGET_FILE:kobalt-desktop-tests>"
             "-DTEST_ARGUMENTS=--screenshots;${KOBALT_ROOT}/build/screenshots/mac"
+            "-DTEST_TMP_ROOT=${CMAKE_CURRENT_BINARY_DIR}/test-tmp" "-DTEST_TIMEOUT=600"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/run-test.cmake"
+        DEPENDS kobalt-desktop-tests USES_TERMINAL VERBATIM)
+    # Timings come from one process at a time; KOBALT_PERF_FILTER and
+    # KOBALT_PERF_REPETITIONS narrow or lengthen a run. taskpolicy keeps the
+    # process on one kind of core, so repeated runs agree.
+    find_program(KOBALT_TASKPOLICY taskpolicy REQUIRED)
+    # The large-book scenario opens a pinned Gutenberg edition, fetched once.
+    add_custom_target(perf
+        COMMAND "${CMAKE_COMMAND}" "-DOUTPUT=${KOBALT_ROOT}/build/screenshot-books"
+            "-DREFERENCES=${KOBALT_ROOT}/tests/fixtures/screenshot-books.json" -DNAMES=war-and-peace
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/prepare-screenshot-books.cmake"
+        COMMAND "${CMAKE_COMMAND}" "-DTEST_EXECUTABLE=${KOBALT_TASKPOLICY}"
+            "-DTEST_ARGUMENTS=-t;0;-l;0;$<TARGET_FILE:kobalt-desktop-tests>;--perf;${CMAKE_BINARY_DIR}/perf/perf.json"
             "-DTEST_TMP_ROOT=${CMAKE_CURRENT_BINARY_DIR}/test-tmp" "-DTEST_TIMEOUT=600"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/run-test.cmake"
         DEPENDS kobalt-desktop-tests USES_TERMINAL VERBATIM)

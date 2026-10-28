@@ -14,10 +14,24 @@
       "binaryDir": "${sourceDir}/../../build/kobo-qt6",
       "toolchainFile": "${sourceDir}/toolchains/qt6.cmake",
       "cacheVariables": {"CMAKE_BUILD_TYPE": "RelWithDebInfo", "KOBALT_QT_MAJOR": "6"}
+    },
+    {
+      "name": "qt5-eval",
+      "inherits": "qt5",
+      "binaryDir": "${sourceDir}/../../build/kobo-qt5-eval",
+      "cacheVariables": {"KOBALT_EVAL_PACKAGE": "ON"}
+    },
+    {
+      "name": "qt6-eval",
+      "inherits": "qt6",
+      "binaryDir": "${sourceDir}/../../build/kobo-qt6-eval",
+      "cacheVariables": {"KOBALT_EVAL_PACKAGE": "ON"}
     }
   ],
   "buildPresets": [
     {"name": "qt5", "configurePreset": "qt5", "jobs": 2, "targets": ["package"]},
-    {"name": "qt6", "configurePreset": "qt6", "jobs": 2, "targets": ["package"]}
+    {"name": "qt6", "configurePreset": "qt6", "jobs": 2, "targets": ["package"]},
+    {"name": "qt5-eval", "configurePreset": "qt5-eval", "jobs": 2, "targets": ["package"]},
+    {"name": "qt6-eval", "configurePreset": "qt6-eval", "jobs": 2, "targets": ["package"]}
   ]
 }

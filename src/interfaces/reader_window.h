@@ -1,6 +1,7 @@
 #pragma once
 #include <QWidget>
 #include "reading/sleep_screen.h"
+#include "reader_timing.h"
 #include <functional>
 #include <memory>
 
@@ -43,6 +44,22 @@ public:
     virtual void refreshHostPresentation() = 0;
     // Logical forward/backward input, independent of touch swipe direction.
     virtual void pageButton(int direction) = 0;
+    // Whether the reading engine has work in flight, such as a layout, a render
+    // or drawing the pages beside the current one.
+    virtual bool busy() const { return false; }
+    // When the opening began and the host's stages before and around the
+    // window's construction. The window adds its own build, theme and show
+    // stages and writes "reader-shown" once its page has painted.
+    virtual void setOpeningTiming(const QElapsedTimer &, const QJsonObject &) {}
+    // When the close began and the stages the window has timed, so the host
+    // can add its own and write "book-close".
+    virtual ActionTiming closingTiming() const { return {}; }
+    // For the scenario player: finds `text` as a whole word, turns to the page
+    // of its first occurrence and reports its centre in the page widget.
+    virtual void locateText(const QString &, std::function<void(QPoint)> found) { found({-1, -1}); }
+    // For the scenario player: the centre of the link with this label on the
+    // current page, in the page widget.
+    virtual void locateLink(const QString &, std::function<void(QPoint)> found) { found({-1, -1}); }
 };
 
 ReaderWindow *createReaderWindow(std::unique_ptr<ReadingBook> book, ReaderOrientation *orientation,

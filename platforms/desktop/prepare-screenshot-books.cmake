@@ -1,11 +1,16 @@
-# Download only for the full gallery, never for ordinary builds or tests.
+# Download only for the full gallery and the performance scenarios, never for
+# ordinary builds or tests. NAMES selects the pinned books; the default is the
+# gallery's.
 if(NOT DEFINED OUTPUT OR NOT DEFINED REFERENCES)
     message(FATAL_ERROR "Screenshot book output and references are required")
+endif()
+if(NOT DEFINED NAMES)
+    set(NAMES alice maths moby-dick)
 endif()
 file(MAKE_DIRECTORY "${OUTPUT}")
 file(LOCK "${OUTPUT}/.prepare.lock" GUARD PROCESS TIMEOUT 30)
 file(READ "${REFERENCES}" references)
-foreach(name alice maths moby-dick)
+foreach(name IN LISTS NAMES)
     string(JSON filename GET "${references}" "${name}" filename)
     string(JSON expected GET "${references}" "${name}" sha256)
     string(JSON url GET "${references}" "${name}" download)

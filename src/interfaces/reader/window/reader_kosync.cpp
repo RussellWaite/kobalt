@@ -37,7 +37,7 @@ void Reader::buildKosync() {
         kosyncPage->setDeviceName(kosyncClient->customDeviceName(), kosyncClient->defaultDeviceName());
         kosyncPage->setAccount(kosyncClient->server(), kosyncClient->username(), kosyncClient->signedIn(),
                                kosyncClient->automatic());
-        if (kosyncClient->signedIn() && kosyncClient->automatic() && !book->usesNativeCloudSync())
+        if (kosyncClient->signedIn() && kosyncAutomatic() && !book->usesNativeCloudSync())
             kosyncTimer.start();
         else
             kosyncTimer.stop();
@@ -185,7 +185,7 @@ void Reader::requestManualKosync() {
     refresh();
 }
 void Reader::prepareKosyncPresentation(std::function<void(bool)> finished) {
-    if (kosyncStarted || book->usesNativeCloudSync() || !kosyncClient->signedIn() || !kosyncClient->automatic() ||
+    if (kosyncStarted || book->usesNativeCloudSync() || !kosyncClient->signedIn() || !kosyncAutomatic() ||
         book->pendingProgress() || book->deviceTransition() || model->pages() <= 0 || model->temporaryTypography()) {
         finished(true);
         return;
@@ -211,7 +211,7 @@ void Reader::synchronizeKosync(bool interactive) {
         return;
     }
     if (kosyncProgress.pending()) {
-        if (!interactive && !kosyncClient->automatic()) return;
+        if (!interactive && !kosyncAutomatic()) return;
         if (interactive) {
             kosyncPositionFailed = false;
             kosyncStatus(strings::get("kosync.pending"));
@@ -220,7 +220,7 @@ void Reader::synchronizeKosync(bool interactive) {
         showKosyncChoice();
         return;
     }
-    if (!kosyncClient->signedIn() || (!interactive && !kosyncClient->automatic()) || kosyncClient->busy() ||
+    if (!kosyncClient->signedIn() || (!interactive && !kosyncAutomatic()) || kosyncClient->busy() ||
         kosyncConnecting || kosyncAuthenticating || kosyncReaderReady ||
         kosyncDialog || closing || lifecycleHidden || exportRunning ||
         services.suspended() || book->deviceTransition() || book->pendingProgress() || (!interactive && model->busy()) || model->temporaryTypography() ||
@@ -346,7 +346,7 @@ void Reader::flushKosync(std::function<void()> finished) {
     // connection and never resolve a remote conflict while closing or asleep.
     if (kosyncConnecting || kosyncAuthenticating || kosyncReaderReady) cancelKosync();
     if ((kosyncNetwork && !kosyncNetwork->connected()) ||
-        book->usesNativeCloudSync() || !kosyncClient->signedIn() || !kosyncClient->automatic() ||
+        book->usesNativeCloudSync() || !kosyncClient->signedIn() || !kosyncAutomatic() ||
         kosyncProgress.pending() || book->pendingProgress() || model->temporaryTypography() ||
         model->pages() <= 0 || kosyncDocument().isEmpty() ||
         model->state().value("position").toString().isEmpty()) {

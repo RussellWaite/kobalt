@@ -37,7 +37,11 @@ int main(int argc, char **argv) {
     QTemporaryDir directory;
     if (!directory.isValid())
         qFatal("No temporary directory");
+    if (kobalt::diagnosticsActive())
+        qFatal("Diagnostics reported active before initialization");
     kobalt::initializeDiagnostics(directory.path());
+    if (!kobalt::diagnosticsActive())
+        qFatal("Initialized diagnostics reported inactive");
     const auto path = (directory.path() + "/" + "events.jsonl");
     auto writer = [] {
         for (int i = 0; i < 600; ++i) {
@@ -66,6 +70,8 @@ int main(int argc, char **argv) {
     }
     const auto before = read(path);
     kobalt::pauseDiagnostics(true);
+    if (kobalt::diagnosticsActive())
+        qFatal("Paused diagnostics reported active");
     kobalt::diagnostic("exported-storage");
     if (read(path) != before)
         qFatal("Wrote diagnostics during USB export");

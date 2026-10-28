@@ -17,6 +17,7 @@
 #include "platform/api/kobo_refresh.h"
 #include "support/diagnostics.h"
 #include "interfaces/reader/ui/style/metrics.h"
+#include "interfaces/reader/ui/panel_timing.h"
 #include "storage/reader_storage.h"
 #include "interfaces/reader/settings/settings_panel.h"
 #include "build_info.h"
@@ -139,6 +140,11 @@ Reader::Reader(std::unique_ptr<kobalt::ReadingBook> openedBook, kobalt::ReaderOr
     : ReaderWindow(nullptr, Qt::Window | Qt::FramelessWindowHint), services(std::move(hostServices)),
       book(std::move(openedBook)), model(book->session()), orientation(orientation) {
     Q_ASSERT(services.complete());
+    building.start();
+    // Qt 5.2 leaves default-constructed timers looking valid.
+    openingStarted.invalidate();
+    showing.invalidate();
+    turnStarted.invalidate();
     setObjectName("rrReader");
     setAttribute(Qt::WA_DeleteOnClose);
     presentation = services.presentation(this);
@@ -250,16 +256,31 @@ Reader::Reader(std::unique_ptr<kobalt::ReadingBook> openedBook, kobalt::ReaderOr
     setFont(kobalt::ui::interfaceFont());
     kobalt::ui::keepInterfaceUnhinted(this);
     readerStyle(this, styles::reader());
+    QElapsedTimer part;
+    part.start();
+    const auto built = [this, &part](const char *name) {
+        openingStages[QString("build_%1_ms").arg(QLatin1String(name))] = part.nsecsElapsed() / 1e6;
+        part.restart();
+    };
     buildReadingPage();
+    built("reading_page");
     startClockTimer();
     buildToolbar();
+    built("toolbar");
     buildBottomControls();
+    built("bottom_controls");
     const auto appearanceLayout = buildMenu();
+    built("menu");
     buildOverlays();
+    built("overlays");
     buildAppearance(appearanceLayout);
+    built("appearance");
     buildSettings();
+    built("settings");
     buildNotices();
+    built("notices");
     buildAnnotations();
+    built("annotations");
     connectLightGestures();
     configureNavigation();
     textRefresh(this);
@@ -330,6 +351,7 @@ Reader::Reader(std::unique_ptr<kobalt::ReadingBook> openedBook, kobalt::ReaderOr
         observeReading();
         book->checkpointReadingHistory(!services.suspended());
     });
+    openingStages["build_ms"] = building.nsecsElapsed() / 1e6;
 }
 
 void Reader::buildReadingPage() {
@@ -1309,7 +1331,9 @@ void Reader::buildSettings() {
         openScreenRefresh();
     });
     connect(settings->openAcknowledgments, &QPushButton::clicked, this, [this] {
+        kobalt::ui::PanelTiming timing("acknowledgments");
         acknowledgments->open();
+        timing.finish(acknowledgments);
         for (auto *widget : acknowledgments->findChildren<QWidget *>())
             textRefresh(widget);
     });

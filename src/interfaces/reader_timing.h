@@ -1,0 +1,19 @@
+#pragma once
+#include <QElapsedTimer>
+#include <QJsonObject>
+
+namespace kobalt {
+// When a timed reader action began, and the stages measured so far in ms.
+struct ActionTiming {
+    // Qt 5.2 leaves a default-constructed timer looking valid.
+    ActionTiming() { started.invalidate(); }
+    QElapsedTimer started;
+    QJsonObject stages;
+    // Adds the time since `timer` started to `stage`, so repeated work sums up.
+    void add(const char *stage, const QElapsedTimer &timer);
+};
+// Writes "book-close" with the stages, `sync_ms` as the sum of the storage
+// stages and `total_ms` since the close began. Does nothing without a start
+// or while diagnostics are off.
+void reportBookClose(const ActionTiming &timing);
+}

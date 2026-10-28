@@ -9,6 +9,7 @@
 #include "interfaces/reader/views/kosync_notice.h"
 #include "platforms/desktop/window.h"
 #include "platforms/desktop/services.h"
+#include "support/diagnostics.h"
 #include "platforms/android/start_screen.h"
 #include "platforms/android/canvas.h"
 #include "platforms/android/reader.h"
@@ -81,6 +82,7 @@
 #include <QSignalSpy>
 #include <QSignalBlocker>
 #include <QSet>
+#include <QMutex>
 #include <QTemporaryDir>
 #include <QTest>
 #include <QTimer>
@@ -207,18 +209,20 @@ struct Fixture {
 
     // `library` fills the profile with a synthetic library; `reading` marks one book in progress.
     explicit Fixture(bool dark = false, bool variableFont = false, bool library = false, bool reading = true,
-                     bool annotationExports = false, bool standaloneSettings = false)
+                     bool annotationExports = false, bool standaloneSettings = false,
+                     std::function<void(ReaderHostServices &)> configure = {})
         : fontInputs(fixtureFonts(variableFont ? directory.path() + "/fonts" : QString())),
           window(prepare(dark, variableFont, library, reading), fontInputs, fixturePlaceholder(),
                  [this] {
                      ++clockReads;
                      return QStringLiteral("09:00");
-                 }, [this, annotationExports, standaloneSettings](ReaderHostServices &services) {
+                 }, [this, annotationExports, standaloneSettings, configure](ReaderHostServices &services) {
                      if (annotationExports)
                          services.annotationExportDirectory = [this] { return paths.directory + "/exports/annotations"; };
                      // Dictionary management belongs to standalone hosts. Its
                      // gallery rows use the same reader sizes without Kobo chrome.
                      if (standaloneSettings) services.devicePreview = [] { return false; };
+                     if (configure) configure(services);
                  }) {
         window.resize(920, 800);
         window.show();
@@ -1346,6 +1350,60 @@ exit 7
         QVERIFY(limited.getUncompressedSize() > 1);
         limited.compact(0);
         QVERIFY(limited.warned());
+    }
+    // Opening and closing a book write "reader-shown" and "book-close" with
+    // stages that fit inside their totals.
+    void timingEvents() {
+        QTemporaryDir logs;
+        QVERIFY(logs.isValid());
+        kobalt::initializeDiagnostics(logs.path());
+        QMutex mutex;
+        QVector<QJsonObject> events;
+        kobalt::setDiagnosticObserver([&](const QJsonObject &event) {
+            QMutexLocker lock(&mutex);
+            events.append(event);
+        });
+        const auto find = [&](const char *name) {
+            QMutexLocker lock(&mutex);
+            for (const auto &event : events)
+                if (event.value("event").toString() == QLatin1String(name))
+                    return event;
+            return QJsonObject();
+        };
+        const auto sum = [](const QJsonObject &event, std::initializer_list<const char *> stages) {
+            double total = 0;
+            for (const auto *stage : stages)
+                total += event.value(QLatin1String(stage)).toDouble();
+            return total;
+        };
+        {
+            Fixture fixture;
+            fixture.window.openBook(book);
+            QTRY_VERIFY_WITH_TIMEOUT(!find("reader-shown").isEmpty(), 30000);
+            const auto shown = find("reader-shown");
+            for (const auto *field : {"engine_ms", "window_ms", "wait_ms", "build_ms", "build_reading_page_ms", "build_settings_ms",
+                                      "theme_ms", "show_ms", "total_ms"})
+                QVERIFY2(shown.value(QLatin1String(field)).isDouble(), field);
+            const double parts = sum(shown, {"engine_ms", "window_ms", "wait_ms", "show_ms"});
+            const double total = shown.value("total_ms").toDouble();
+            qInfo() << "reader-shown" << shown;
+            QVERIFY2(parts <= total + 1 && parts >= total * 0.9, "The opening stages do not fit its total");
+            QVERIFY(sum(shown, {"build_reading_page_ms", "build_toolbar_ms", "build_bottom_controls_ms", "build_menu_ms",
+                                "build_overlays_ms", "build_appearance_ms", "build_settings_ms", "build_notices_ms",
+                                "build_annotations_ms"}) <= shown.value("build_ms").toDouble() &&
+                    shown.value("build_ms").toDouble() <= shown.value("window_ms").toDouble());
+            QTest::keyClick(&fixture.window, Qt::Key_PageDown);
+            QTRY_VERIFY_WITH_TIMEOUT(!fixture.state().value("busy").toBool(), 30000);
+            fixture.window.readerWindow()->close();
+            QTRY_VERIFY_WITH_TIMEOUT(!find("book-close").isEmpty(), 30000);
+            const auto closed = find("book-close");
+            qInfo() << "book-close" << closed;
+            for (const auto *field : {"checkpoint_ms", "native_ms", "session_ms", "sync_ms", "total_ms"})
+                QVERIFY2(closed.value(QLatin1String(field)).isDouble(), field);
+            QVERIFY(closed.value("sync_ms").toDouble() <= closed.value("total_ms").toDouble());
+        }
+        kobalt::setDiagnosticObserver({});
+        kobalt::pauseDiagnostics(true);
     }
     void startup() {
         Fixture fixture;
@@ -6007,12 +6065,18 @@ private slots:
     }
 };
 
+#include "desktop_perf.h"
+
 int main(int argc, char **argv) {
-    qputenv("QT_QPA_PLATFORM", "minimal:enable_fonts:freetype");
+    // --watch is the one visible mode, for a person who asked to watch the
+    // performance scenarios. Every other mode stays headless.
+    const bool watching = argc == 2 && qstrcmp(argv[1], "--watch") == 0;
+    if (!watching)
+        qputenv("QT_QPA_PLATFORM", "minimal:enable_fonts:freetype");
     FontCopies fontCopies;
     copies = &fontCopies;
     QApplication app(argc, argv);
-    if (QGuiApplication::platformName() != "minimal") {
+    if (QGuiApplication::platformName() != "minimal" && !watching) {
         qCritical() << "This executable only runs headlessly.";
         return 2;
     }
@@ -6053,6 +6117,19 @@ int main(int argc, char **argv) {
     ui::setDensity(300);
     app.setFont(ui::interfaceFont());
     auto arguments = app.arguments();
+    if (watching) {
+        QTimer::singleShot(0, &app, [&] { app.exit(perf::watch()); });
+        return app.exec();
+    }
+    if (arguments.value(1) == "--perf") {
+        if (arguments.size() != 3 || !QDir::isAbsolutePath(arguments.at(2))) {
+            qCritical() << "Usage: kobalt-desktop-tests --perf ABSOLUTE_FILE";
+            return 2;
+        }
+        // The event loop's end stops the engine worker before the process exits.
+        QTimer::singleShot(0, &app, [&] { app.exit(perf::run(arguments.at(2))); });
+        return app.exec();
+    }
     if (arguments.size() == 3 && arguments.at(1) == "--regression") {
         // Share the offline EPUB fixture with the restored standalone checks.
         const auto name = QFileInfo(arguments.at(2)).fileName();

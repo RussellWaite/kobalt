@@ -1,0 +1,439 @@
+#include "player.h"
+#include "interfaces/reader_window.h"
+#include "reading/kosync.h"
+#include "support/diagnostics.h"
+#include "support/qt_compat.h"
+#include "support/qt_input.h"
+#include <QApplication>
+#include <QElapsedTimer>
+#include <QEventLoop>
+#include <QJsonArray>
+#include <QMap>
+#include <QMutex>
+#include <QMutexLocker>
+#include <QTimer>
+#include <QVector>
+#include <QWidget>
+#include <QWindow>
+#include <deque>
+
+namespace kobalt::scenario {
+namespace {
+// Polls every millisecond without sleeping, so a wait never adds to a measured
+// time. done() is called until it first holds and never again, because a check
+// that reads events consumes what it reads.
+bool waitUntil(const std::function<bool()> &done, int timeout) {
+    if (done())
+        return true;
+    bool met = false;
+    QEventLoop loop;
+    QTimer poll;
+    QElapsedTimer clock;
+    clock.start();
+    QObject::connect(&poll, &QTimer::timeout, &loop, [&] {
+        met = done();
+        if (met || clock.elapsed() > timeout)
+            loop.quit();
+    });
+    poll.start(1);
+    loop.exec();
+    return met;
+}
+
+// Diagnostics events from any thread, in the order they were written.
+class Events {
+public:
+    Events() {
+        setDiagnosticObserver([this](const QJsonObject &event) {
+            QMutexLocker lock(&mutex);
+            queue.push_back(event);
+        });
+    }
+    ~Events() { setDiagnosticObserver({}); }
+    void skip() {
+        QMutexLocker lock(&mutex);
+        queue.clear();
+    }
+    // Consumes events until one matches, and returns it.
+    QJsonObject next(const QString &name, const QString &panel, int timeout) {
+        QJsonObject found;
+        waitUntil([&] {
+            QMutexLocker lock(&mutex);
+            while (!queue.empty()) {
+                const auto event = queue.front();
+                queue.pop_front();
+                if (event.value("event").toString() == name &&
+                    (panel.isEmpty() || event.value("panel").toString() == panel)) {
+                    found = event;
+                    return true;
+                }
+            }
+            return false;
+        }, timeout);
+        return found;
+    }
+
+private:
+    QMutex mutex;
+    std::deque<QJsonObject> queue;
+};
+
+QWidget *find(const Host &host, const QString &name) {
+    if (auto *reader = host.reader ? host.reader() : nullptr) {
+        if (reader->objectName() == name)
+            return reader;
+        if (auto *widget = reader->findChild<QWidget *>(name))
+            return widget;
+    }
+    // Popups are windows of their own.
+    for (auto *window : QApplication::topLevelWidgets()) {
+        if (window->objectName() == name)
+            return window;
+        if (auto *widget = window->findChild<QWidget *>(name))
+            return widget;
+    }
+    return nullptr;
+}
+bool visible(const Host &host, const QString &name) {
+    const auto *widget = find(host, name);
+    return widget && widget->isVisible();
+}
+// A scenario value that is a list of names or of points takes the entry for
+// this repetition, so samples can alternate between targets.
+QJsonValue pick(const QJsonValue &value, int repetition) {
+    const auto list = value.toArray();
+    if (list.isEmpty() || !(list.first().isString() || list.first().isArray()))
+        return value;
+    return list.at(repetition % list.size());
+}
+// The point to press: the given fraction of the widget, or its centre. When a
+// panel covers the centre, try higher up, as a person would.
+bool pointIn(QWidget *target, const QJsonValue &at, QPoint &point) {
+    auto *window = target->window();
+    const auto hits = [&](const QPoint &candidate) {
+        auto *hit = window->childAt(target->mapTo(window, candidate));
+        return hit == target || target->isAncestorOf(hit) || (window == target && !hit);
+    };
+    const auto fraction = at.toArray();
+    if (fraction.size() == 2) {
+        point = QPoint(qRound(fraction.at(0).toDouble() * (target->width() - 1)),
+                       qRound(fraction.at(1).toDouble() * (target->height() - 1)));
+        return hits(point);
+    }
+    const auto centre = target->rect().center();
+    for (const int y : {centre.y(), target->height() / 3, target->height() / 4}) {
+        point = QPoint(centre.x(), y);
+        if (hits(point))
+            return true;
+    }
+    return false;
+}
+
+class Runner {
+public:
+    Runner(const Host &host, Events &events, QString open) : host(host), events(events), current(std::move(open)) {}
+
+    // Runs one step for the given repetition. Returns an empty string or the reason it failed.
+    QString step(const QJsonObject &step, int repetition) {
+        if (step.contains("press")) {
+            if (step.contains("unless") && visible(host, step.value("unless").toString()))
+                return {};
+            const auto name = pick(step.value("press"), repetition).toString();
+            auto *target = find(host, name);
+            if (!target || !target->isVisible() || !target->isEnabled())
+                return name + " is not visible";
+            QPoint point;
+            if (!pointIn(target, pick(step.value("at"), repetition), point))
+                return name + " is covered";
+            events.skip();
+            return click(target, point, 0) ? QString() : name + " has no window";
+        }
+        if (step.contains("hold"))
+            return hold(step.value("hold").toObject(), step.value("ms").toInt(650), repetition);
+        if (step.contains("open"))
+            return open(step.value("open").toString(), step.value("fresh").toBool());
+        if (step.contains("close")) {
+            // A book that cannot be opened again stays open for later scenarios.
+            if (!host.open) {
+                unsupported = true;
+                return "the host cannot open books again";
+            }
+            auto *reader = host.reader ? host.reader() : nullptr;
+            if (!reader)
+                return "no book is open";
+            events.skip();
+            reader->close();
+            current.clear();
+            return closed() ? QString() : "the book did not close";
+        }
+        // Page keys go where every platform's page buttons go.
+        if (step.contains("key")) {
+            const auto name = step.value("key").toString();
+            auto *reader = dynamic_cast<ReaderWindow *>(host.reader ? host.reader() : nullptr);
+            if (!reader || (name != "PageDown" && name != "PageUp"))
+                return "cannot send key " + name;
+            events.skip();
+            reader->pageButton(name == "PageDown" ? 1 : -1);
+            return {};
+        }
+        const int timeout = step.value("timeout").toInt(5000);
+        if (step.contains("visible")) {
+            const auto name = pick(step.value("visible"), repetition).toString();
+            return waitUntil([&] { return visible(host, name); }, timeout) ? QString() : name + " did not appear";
+        }
+        if (step.contains("hidden")) {
+            const auto name = step.value("hidden").toString();
+            return waitUntil([&] { return !visible(host, name); }, timeout) ? QString() : name + " did not close";
+        }
+        if (step.contains("event")) {
+            const auto name = step.value("event").toString(), panel = step.value("panel").toString();
+            const auto event = events.next(name, panel, step.value("timeout").toInt(10000));
+            if (event.isEmpty())
+                return "no " + name + " event";
+            matched[name] = event;
+            if (!panel.isEmpty())
+                matched[name + '/' + panel] = event;
+            return {};
+        }
+        if (step.contains("settle"))
+            return waitUntil([&] { return !host.busy(); }, step.value("timeout").toInt(10000)) ? QString()
+                                                                                                : "the reader stayed busy";
+        if (step.contains("mark")) {
+            mark.start();
+            return {};
+        }
+        return "unknown step";
+    }
+    QString steps(const QJsonArray &list, int repetition) {
+        for (int index = 0; index < list.size(); ++index) {
+            const auto failure = step(list.at(index).toObject(), repetition);
+            if (!failure.isEmpty())
+                return QString("step %1: %2").arg(index + 1).arg(failure);
+        }
+        return {};
+    }
+    // Opens the scenario's book unless it is the open one.
+    QString book(const QString &key) {
+        if (key.isEmpty() || (key == current && host.reader && host.reader()))
+            return {};
+        return open(key, false);
+    }
+    // Closes an open book first, as a person returns to the library.
+    QString open(const QString &key, bool fresh) {
+        if (!host.open || (host.opens && !host.opens(key))) {
+            unsupported = true;
+            return "the host cannot open " + key;
+        }
+        if (auto *reader = host.reader ? host.reader() : nullptr) {
+            reader->close();
+            current.clear();
+            if (!closed())
+                return "the open book did not close";
+        }
+        if (fresh && host.forget)
+            host.forget(key);
+        events.skip();
+        if (!host.open || !host.open(key)) {
+            unsupported = true;
+            return "the host cannot open " + key;
+        }
+        const bool ready = waitUntil([&] {
+            auto *reader = host.reader();
+            return reader && reader->isVisible() && !host.busy();
+        }, 120000);
+        if (!ready)
+            return key + " did not open";
+        current = key;
+        return {};
+    }
+    bool closed() {
+        return waitUntil([&] {
+            return !host.reader() && (!host.idle || host.idle());
+        }, 60000);
+    }
+    // Holds a word or a link, as a lookup or a link selection starts.
+    QString hold(const QJsonObject &target, int milliseconds, int repetition) {
+        auto *reader = dynamic_cast<ReaderWindow *>(host.reader ? host.reader() : nullptr);
+        auto *page = find(host, "rrPage");
+        if (!reader || !page)
+            return "no reader page";
+        // The reply may come after a timeout, so it must not refer to this frame.
+        auto located = std::make_shared<QPoint>(-2, -2);
+        const auto receive = [located](QPoint point) {
+            *located = point;
+        };
+        const auto text = pick(target.value("text"), repetition).toString();
+        if (!text.isEmpty())
+            reader->locateText(text, receive);
+        else
+            reader->locateLink(target.value("link").toString(), receive);
+        const auto name = text.isEmpty() ? target.value("link").toString() : text;
+        if (!waitUntil([&] { return located->x() != -2; }, 10000) || located->x() < 0)
+            return "could not find " + name;
+        // A turn to the word's page finishes before the hold.
+        if (!waitUntil([&] { return !host.busy(); }, 10000))
+            return "the reader stayed busy";
+        events.skip();
+        return click(page, *located, milliseconds) ? QString() : "the page has no window";
+    }
+    // Presses, holds for `milliseconds` and releases.
+    bool click(QWidget *widget, const QPoint &point, int milliseconds) {
+        if (host.press) {
+            host.press(widget, point, true);
+            if (milliseconds > 0)
+                waitUntil([] { return false; }, milliseconds);
+            host.press(widget, point, false);
+            return true;
+        }
+        const auto input = host.locate(widget, point);
+        if (!input.first)
+            return false;
+        qt::sendMouse(input.first, input.second, true);
+        if (milliseconds > 0)
+            waitUntil([] { return false; }, milliseconds);
+        qt::sendMouse(input.first, input.second, false);
+        return true;
+    }
+    // The sample for one repetition, and its stages.
+    bool sample(const QJsonObject &spec, double &value, QJsonObject &stages) {
+        // Every diagnostics event carries the process's memory use.
+        if (spec.contains("memory")) {
+            diagnostic("scenario-memory", QJsonObject(), false);
+            const auto field = spec.value("memory").toString();
+            const auto event = events.next("scenario-memory", {}, 5000);
+            value = event.value(field).toDouble();
+            return event.value(field).isDouble();
+        }
+        if (spec.contains("timer")) {
+            if (!mark.isValid())
+                return false;
+            value = mark.nsecsElapsed() / 1e6;
+            const auto parts = spec.value("stages").toObject();
+            for (auto it = parts.begin(); it != parts.end(); ++it) {
+                const auto source = it.value().toObject();
+                stages[it.key()] = matched.value(source.value("event").toString()).value(source.value("field").toString());
+            }
+            return true;
+        }
+        auto key = spec.value("event").toString();
+        if (spec.contains("panel"))
+            key += '/' + spec.value("panel").toString();
+        const auto event = matched.value(key);
+        const auto field = spec.value("field").toString();
+        if (!event.value(field).isDouble())
+            return false;
+        value = event.value(field).toDouble();
+        if (spec.value("stages").toBool())
+            for (auto it = event.begin(); it != event.end(); ++it)
+                if (it.key().endsWith("_ms") && it.key() != field && it.key() != "total_ms" &&
+                    it.key() != "monotonic_ms")
+                    stages[it.key()] = it.value();
+        return true;
+    }
+    void reset() {
+        matched.clear();
+        mark.invalidate();
+    }
+    // Set when a step needed a book the host cannot open.
+    bool unsupported = false;
+
+private:
+    const Host &host;
+    Events &events;
+    QMap<QString, QJsonObject> matched;
+    QElapsedTimer mark;
+    // The key of the open book, if the player knows it.
+    QString current;
+};
+// Qt 5.2's QJsonArray cannot search itself.
+bool needs(const QJsonObject &scenario, const QString &what) {
+    for (const auto &value : scenario.value("needs").toArray())
+        if (value.toString() == what)
+            return true;
+    return false;
+}
+bool wanted(const QString &id, const QString &filter) {
+    return filter.isEmpty() || id.startsWith(filter) || filter.startsWith(id);
+}
+}
+
+QVector<QJsonObject> run(const QJsonObject &file, const Host &host, const Options &options) {
+    QVector<QJsonObject> results;
+    // Durable diagnostics events would add storage syncs that a reader without
+    // diagnostics never makes.
+    setDiagnosticsSync(false);
+    // Nor may a run reach a sync server: it would measure the network and
+    // upload the test books' positions. A Kobo set up for scenarios pauses
+    // syncs for its whole session, so keep a pause that was already there.
+    const bool syncPaused = kosync::automaticPaused();
+    kosync::pauseAutomatic(true);
+    struct Restore {
+        bool syncPaused;
+        ~Restore() {
+            setDiagnosticsSync(true);
+            kosync::pauseAutomatic(syncPaused);
+        }
+    } restore{syncPaused};
+    Events events;
+    Runner runner(host, events, options.openBook);
+    for (const auto &value : file.value("scenarios").toArray()) {
+        const auto scenario = value.toObject();
+        const auto id = scenario.value("id").toString();
+        if (!wanted(id, options.filter))
+            continue;
+        if (options.started)
+            options.started(id);
+        auto result = qt::object({{"id", id},
+                                  {"kind", scenario.value("kind")},
+                                  {"paths", scenario.value("paths")},
+                                  {"unit", scenario.value("unit").toString("ms")},
+                                  {"fixture", scenario.value("fixture").toObject()}});
+        QJsonArray samples;
+        QJsonObject stages;
+        if (needs(scenario, "dictionary") && host.dictionary && !host.dictionary()) {
+            result["status"] = QStringLiteral("skipped");
+            result["reason"] = QStringLiteral("no dictionary is installed");
+            result["samples"] = samples;
+            result["stages"] = stages;
+            results.append(result);
+            continue;
+        }
+        runner.unsupported = false;
+        QString failure = runner.book(scenario.value("book").toString());
+        if (failure.isEmpty()) {
+            runner.reset();
+            failure = runner.steps(scenario.value("setup").toArray(), 0);
+        }
+        const int warmup = scenario.value("warmup").toInt();
+        const int repeat = qMax(1, qRound(scenario.value("repeat").toInt(5) * options.repeatScale));
+        for (int index = 0; failure.isEmpty() && index < warmup + repeat; ++index) {
+            runner.reset();
+            failure = runner.steps(scenario.value("steps").toArray(), index);
+            double sample = 0;
+            QJsonObject parts;
+            if (failure.isEmpty() && !runner.sample(scenario.value("sample").toObject(), sample, parts))
+                failure = "no sample";
+            if (failure.isEmpty())
+                failure = runner.steps(scenario.value("after").toArray(), index);
+            if (!failure.isEmpty() || index < warmup)
+                continue;
+            samples.append(sample);
+            for (auto it = parts.begin(); it != parts.end(); ++it) {
+                auto list = stages.value(it.key()).toArray();
+                list.append(it.value());
+                stages[it.key()] = list;
+            }
+        }
+        // Leave the reader as the next scenario expects it.
+        if (failure.isEmpty())
+            failure = runner.steps(scenario.value("teardown").toArray(), 0);
+        result["status"] = QString(failure.isEmpty() ? "completed" : runner.unsupported ? "skipped" : "failed");
+        if (!failure.isEmpty())
+            result["reason"] = failure;
+        result["samples"] = samples;
+        result["stages"] = stages;
+        results.append(result);
+    }
+    return results;
+}
+}

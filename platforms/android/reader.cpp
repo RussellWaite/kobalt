@@ -83,6 +83,7 @@ void ReaderController::open(const QString &path, QSize pixels, QString sourceKey
 }
 void ReaderController::begin(const QString &path, QSize pixels) {
     phase = Phase::Opening;
+    openingStarted.start();
     retirementNotified = false;
     if (!historyProfile && annotationDatabaseEnabled()) {
         QString error;
@@ -174,6 +175,9 @@ void ReaderController::begin(const QString &path, QSize pixels) {
             auto services = guard->services();
             if (services.backButtonLabel.isEmpty())
                 services.backButtonLabel = strings::get("library.exit_to_library");
+            const double engine = guard->openingStarted.nsecsElapsed() / 1e6;
+            QElapsedTimer creating;
+            creating.start();
             auto *window = createReaderWindow(std::move(book), &guard->orientation, std::move(services));
             window->setAttribute(Qt::WA_DeleteOnClose, false);
             window->setWindowFlags(Qt::Widget);
@@ -181,6 +185,8 @@ void ReaderController::begin(const QString &path, QSize pixels) {
             window->resize(pixels);
             guard->window_ = window;
             window->finished = [guard](std::unique_ptr<ReaderSession> retained) {
+                if (guard && guard->window_)
+                    guard->closing = guard->window_->closingTiming();
                 // Show the host's captured frame before this close event hides
                 // the reader and queued resource cleanup begins.
                 if (guard)
@@ -196,7 +202,10 @@ void ReaderController::begin(const QString &path, QSize pixels) {
             };
             QPointer<ReaderWindow> pendingWindow(window);
             const auto lease = guard->lease;
-            window->preparePresentation([guard, pendingWindow, lease](bool ready) {
+            const double created = creating.nsecsElapsed() / 1e6;
+            QElapsedTimer waiting;
+            waiting.start();
+            window->preparePresentation([guard, pendingWindow, lease, engine, created, waiting](bool ready) {
                 if (!guard || !pendingWindow || guard->phase != Phase::Opening || guard->window_ != pendingWindow ||
                     guard->lease != lease) {
                     return;
@@ -206,6 +215,9 @@ void ReaderController::begin(const QString &path, QSize pixels) {
                     return;
                 }
                 guard->phase = Phase::Reading;
+                pendingWindow->setOpeningTiming(guard->openingStarted,
+                                                QJsonObject{{"engine_ms", engine}, {"window_ms", created},
+                                                            {"wait_ms", waiting.nsecsElapsed() / 1e6}});
                 emit guard->opened();
             });
         },
@@ -267,6 +279,7 @@ void ReaderController::release() {
             guard->lease.reset();
             guard->current.clear();
             guard->phase = Phase::Idle;
+            reportBookClose(std::exchange(guard->closing, {}));
             if (!guard->pending.isEmpty()) {
                 guard->currentSourceKey = std::exchange(guard->pendingSourceKey, {});
                 guard->begin(std::exchange(guard->pending, {}), guard->pendingSize);

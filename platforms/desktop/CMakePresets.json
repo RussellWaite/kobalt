@@ -12,6 +12,13 @@
         "CMAKE_BUILD_TYPE": "Debug",
         "CMAKE_OSX_DEPLOYMENT_TARGET": "14.0"
       }
+    },
+    {
+      "name": "mac-perf",
+      "inherits": "mac",
+      "displayName": "Mac performance measurements",
+      "binaryDir": "${sourceDir}/../../build/desktop-mac-perf",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "RelWithDebInfo" }
     }
   ],
   "buildPresets": [
@@ -20,7 +27,9 @@
     { "name": "mac-fast-tests", "configurePreset": "mac", "targets": ["kobalt-fast-tests"], "jobs": 2 },
     { "name": "mac-light-tests", "configurePreset": "mac", "targets": ["kobalt-desktop-tests"], "jobs": 2 },
     { "name": "mac-light-screenshots", "configurePreset": "mac", "targets": ["screenshots-light"], "jobs": 2 },
-    { "name": "mac-screenshots", "configurePreset": "mac", "targets": ["screenshots"], "jobs": 2 }
+    { "name": "mac-screenshots", "configurePreset": "mac", "targets": ["screenshots"], "jobs": 2 },
+    { "name": "mac-perf", "configurePreset": "mac-perf", "targets": ["perf"], "jobs": 2 },
+    { "name": "mac-eval", "configurePreset": "mac", "targets": ["kobalt-eval-compare"], "jobs": 2 }
   ],
   "testPresets": [
     {

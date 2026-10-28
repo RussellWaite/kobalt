@@ -71,6 +71,18 @@ bool NativeOpening::retain(const void *volume, const void *context) {
     data_ = std::move(data);
     return true;
 }
+std::unique_ptr<NativeOpening> NativeOpening::copy() const {
+    if (!data_)
+        return nullptr;
+    // The stored context keeps the firmware layout. A library controller that
+    // has gone away must not be retained again.
+    alignas(void *) unsigned char context[24];
+    std::memcpy(context, data_->context, sizeof(context));
+    if (!data_->library)
+        std::memset(context + 12, 0, sizeof(void *));
+    auto result = std::make_unique<NativeOpening>();
+    return result->retain(data_->volume, context) ? std::move(result) : nullptr;
+}
 const void *NativeOpening::volume() const {
     return data_ ? data_->volume : nullptr;
 }

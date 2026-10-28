@@ -1,0 +1,142 @@
+# Release evaluation
+
+A release evaluation compares a candidate with a baseline. It records the same tests, screenshots and timings for both, and it writes a report of the differences. The person or agent who reads the report decides whether each difference is expected from the commits between the two. Use it before a release and while you make a subsystem faster.
+
+Run every command from the repository root on the development Mac, outside the agent sandbox. Configure the `mac` preset first, as described in [Building](building.md#mac). The evaluation uses the same Qt SDK as that build.
+
+## Record runs
+
+```sh
+cmake -DRECORD_BASELINE=ON -P platforms/eval/run.cmake
+cmake -P platforms/eval/run.cmake
+cmake -P platforms/eval/compare.cmake
+```
+
+The first command records a baseline. The second command records the current working tree after your changes. The third command compares the newest run with the baseline and prints the path of `report.md`.
+
+`run.cmake` accepts these options:
+
+| Option | Effect |
+| --- | --- |
+| `SUBJECT` | `worktree` (default) measures this checkout as it is, including uncommitted changes. A commit, tag or branch name exports that revision with `git archive` into `build/eval/<label>/src` and measures the export. No checkout or branch is created. |
+| `PROFILE` | `quick` (default) runs the light tests, the light screenshot set and three performance processes. `release` runs the full native suite, the full screenshot gallery, five performance processes and the device scenarios when a device runner is set. |
+| `PARTS` | Overrides the profile's parts: `tests`, `screenshots`, `perf`, `device`. |
+| `RUNS` | The number of performance processes. |
+| `PATCH` | A patch to apply to an exported revision. It never applies to the working tree. |
+| `DEVICE_RUNNER` | The external device runner. `KOBALT_DEVICE_RUNNER` in the environment does the same. |
+| `DEVICE_TARGETS` | The device builds to measure. The default is `qt5`. |
+| `KEEP_DEVICE` | Passed to the device runner to reuse one prepared device between runs. |
+| `RECORD_BASELINE` | Makes this run the baseline for later comparisons. |
+
+A run builds everything first and measures afterwards, so no build competes with a timing. A part that fails, such as a test, a screenshot scene or a performance process, is recorded in `meta.json` and the run continues, so the report still shows everything else. A run that stops early leaves its directory with a `.partial` suffix as evidence; delete it when you no longer need it. Each run writes `build/eval/<label>/runs/<time>/`. A working-tree label contains the commit and, for a modified tree, a hash of the changes. A run directory holds `meta.json`, `tests.xml` from CTest, `tests.log`, a copy of the screenshots and their manifest, one `perf-<n>.json` for each performance process, and `device-<target>/` for each device target. `build/eval/baseline.json` and `build/eval/latest.json` point at the recorded baseline and the newest run.
+
+An exported revision needs its own Mac and performance builds the first time. The export copies the verified dependency archives of this checkout and links its screenshot books, so it needs no network. Device builds of an export also reuse this checkout's Kobo archives when they exist. On the measured Mac, configuring and building a new performance directory took about a minute. Remove old exports from `build/eval/` when you no longer need them.
+
+## Compare runs
+
+```sh
+cmake [-DBASE=baseline] [-DTARGET=latest] -P platforms/eval/compare.cmake
+```
+
+`BASE` and `TARGET` accept `baseline`, `latest`, a label or a run directory. A label selects its newest run other than the target, so the same label on both sides compares its two newest runs. The report goes to `build/eval/compare/<base>__<target>-<run>/`:
+
+- `report.md` lists the timing changes first, then the tests, screenshots, performance, device results and changes.
+- `report.json` holds the same data for tools.
+- `screens/` holds base, target and difference crops for every changed screenshot.
+- `commits.txt` and `changes.txt` list the commits and the changed files between the two subjects.
+
+The report compares tests by name. It lists tests that newly fail, newly pass, were added or were removed.
+
+The report compares screenshots by checksum. For each changed image, it gives the number of changed pixels and their bounding box. Some screens change on every run by design. `platforms/eval/eval.json` lists them with the reason. The About screen shows the source commit and whether the tree is modified. The annotation-export screens show the export time and a temporary path.
+
+The report compares each timing metric as the median of the process medians. A slow process then counts once, not once per sample. The spread is the median absolute deviation between processes, relative to the median. The verdict is:
+
+- `slower` or `faster` when the change exceeds the metric's band and its absolute floor;
+- `noisy` when the change exceeds the band, but the spread of either run is larger than the band and the change is not much larger than that spread;
+- `same` otherwise.
+
+`touched_by` lists the changed files under a metric's source paths. A flagged metric that no changed file touches is reported as unexpected.
+
+Each performance process runs under `taskpolicy -t 0 -l 0`. Without it, macOS moves whole processes between fast and slow cores, and medians of the same build differed by up to 70% on the measured Mac. With it, they stayed within about 20%, mostly within 10%. Timings compare only on the same machine. The report tells you to measure again when the machine model, the power source or Low Power Mode differs between the runs. Do not run builds or other heavy work during a run.
+
+## Calibration
+
+The default bands in `eval.json` are 15% for micro-benchmarks, 20% for end-to-end scenarios, 25% for device scenarios and 10% for memory. Memory metrics are in KiB and use the `floors_kib` floor; the other metrics use `floors_ms`. Measure the noise on your machine before you rely on them:
+
+```sh
+cmake -P platforms/eval/run.cmake
+cmake -P platforms/eval/run.cmake
+cmake -DBASE=<label> -DTARGET=latest -DCALIBRATE=ON -P platforms/eval/compare.cmake
+```
+
+Both runs must measure the same subject. `CALIBRATE` adds the pair to `build/eval/calibration.json`. Each metric's band allows 1.5 times the largest change seen between same-subject runs, measured as a ratio, and at least 5%. Comparisons use these bands once three pairs are recorded; before that, they use the defaults. Record several pairs, at different times, before you treat a verdict as a gate. The evaluation does not fail a build; it only reports.
+
+## Mac performance scenarios
+
+`kobalt-desktop-tests --perf FILE` runs the performance scenarios in one headless process and writes raw samples to `FILE`. `cmake --build --preset mac-perf` builds the RelWithDebInfo directory `build/desktop-mac-perf` and writes `build/desktop-mac-perf/perf/perf.json`. Configure it once with `cmake --preset mac-perf -DCMAKE_PREFIX_PATH="$HOME/Qt/6.11.3/macos"`. The first run downloads the pinned War and Peace edition into `build/screenshot-books/`. `KOBALT_PERF_FILTER` selects scenarios by the start of an identifier. `KOBALT_PERF_REPETITIONS` sets the repetitions; the default is five. `KOBALT_PERF_EVENTS=FILE` keeps the reader's diagnostics events from the run in `FILE`, for audits of a single scenario. Use an absolute path, because the process runs in a temporary folder. The reader rotates its log at 128 KiB, so `FILE` holds only the newest part of a long run. `kobalt-desktop-tests --watch` runs the scenario file in a visible window at real speed and prints each scenario as it starts, so a person can follow the run. It saves no timings. It is the only mode that opens a window, so run it only when someone asked to watch.
+
+Micro-benchmarks lay out and draw text with new content in each sample, so the layout cache cannot hide the work: a dictionary entry, a footnote, the AGPL notice, a page draw, a wrapped label and an elided title.
+
+All other scenarios come from `platforms/eval/scenarios.json` and run through the reader's built-in scenario player, in the production desktop window. A scenario names its book, optional `setup` steps that run once, the `steps` of one sample, `after` steps that tidy up between samples and `teardown` steps that run at the end. Steps press a control by its object name, hold a word or a link found by its text, send a page key, wait for a control to appear or close, wait for the reader to settle, wait for a diagnostics event, and open or close a book. The reader has settled when its engine has no work queued or running, including drawing the pages beside the current one. A page key sent earlier waits for that drawing or misses the page cache, so a sample would measure the race instead of the turn. A list of names or points in a step takes the next entry in each sample. The sample is a field of a diagnostics event, the time since a `mark` step, or the process's memory from a diagnostics event. The player sends its input through the window system, as real input arrives. It is compiled only into the test executable and into evaluation packages.
+
+The scenarios cover book opening and closing, page turns, a page turn back into the previous chapter, the reading menu, a text-size change, long and short dictionary entries, a long footnote, Settings, Acknowledgments, the licence notice and memory use. They use the benchmark book, a small notes fixture and War and Peace. On the Mac, a substituted dictionary service gives "set" a long entry and other words a short one, as a real English dictionary does.
+
+`book.open` closes the open book and opens it again, so the parsed book comes from the cache, and samples `reader-shown`. `book.close` turns a page and closes the book, and samples `book-close`. On the measured Mac, a close took about 125 ms while picker fonts were added to Qt's font database, because removing them made Qt rebuild that database. With private picker fonts it takes about 22 ms. `book.open.large` removes the disposable caches and opens War and Peace, so each sample parses and lays out the whole book. `reflow.font-size` taps the larger and smaller text-size buttons in the reading menu, in turn. While the menu is open, only a preview of the current chapter reflows, so the scenario times the menu's close until the reflowed book page has rendered. It also records the engine's `render_ms`. `memory.reading` records the resident size after the reading scenarios, and `memory.peak` the peak resident size at the end of the run, both in KiB. Both depend on what ran earlier in the process, so compare them only between runs with the same filter.
+
+`panel-open` events time a panel from the input that opens it until its first paint has finished. They record `total_ms`, the synchronous `open_ms` and `paint_ms`, plus `range_ms` and `lookup_ms` for the dictionary and `details_ms` for a footnote. `page-turn-painted` records the turn until the page paints. `render_ms` ends when the reader starts to paint: it covers the engine's page and the wait on the GUI thread. `paint_ms` covers the changed area, the paint and the flush. On some screens the flush only queues the update, and the screen composes it on the GUI thread later. That time is not part of the event, but a following input waits for it.
+
+`reader-shown` times a book opening from the open request until the first reader page has painted. `total_ms` is the sum of four stages:
+
+- `engine_ms`: until the reading engine has laid out the book. On Kobo, `prepare_ms` gives the part before the engine started.
+- `window_ms`: creating and sizing the reader window. `build_ms` is the window's own construction, with one `build_<part>_ms` per part, such as `build_settings_ms`.
+- `wait_ms`: waiting until the window may be shown, for example for a pending sync.
+- `show_ms`: from handing the window over until its page has painted. `theme_ms` is the first theme pass inside it.
+
+`book-close` times a close from the close request until the reader has finished closing. `sync_ms` is the time spent on storage: `checkpoint_ms` for the reading position checkpoints, `native_ms` for the progress written back to the native library, `session_ms` for ending the native reading session and, on Kobo, `profile_ms` for closing the profile database. `total_ms` covers the whole close.
+
+These events do not sync the log to storage, so they do not slow the reader. On Kobo, they are written only when diagnostics are enabled.
+
+## Device scenarios
+
+A Kobo runs the same scenario file through the same built-in player. `bash platforms/kobo/build.sh qt5-eval` (or `qt6-eval`) builds an evaluation package, `build/kobo-qt5-eval/Kobalt-qt5-eval.zip`. It is the normal package plus:
+
+- the scenario player, compiled in;
+- the benchmark book in `kobalt-eval/`, a folder that the library lists;
+- the scenario file in `.adds/kobalt/scenarios/`;
+- `.adds/kobalt/diagnostics-enabled`.
+
+The release packages never contain these. Only books marked `"package": true` in the scenario file go into the package. The other books are not used on a Kobo, because the player cannot open them there.
+
+When diagnostics are on and the scenario file exists, the player starts two seconds after the first book opens in Kobalt, once per start of the reader. It writes one line per scenario to `.adds/kobalt/diagnostics/scenarios.jsonl`, after a header line with the target, version, firmware and model. That file does not rotate, unlike the event log. A `scenario-run-end` event marks the end.
+
+On a Kobo, books open from the library. The player can close the first book and open it again from a copy of its opening request, but it cannot open another book. The large-book and footnote scenarios are skipped with that reason. Dictionary scenarios are skipped when no dictionary is installed. The player sends its presses directly to the widget under the point: Kobalt's touch filter on Qt 5 stops translating touch after it sees a synthesized mouse press in its windows.
+
+To measure a Kobo connected over USB:
+
+```sh
+bash platforms/kobo/build.sh qt5-eval
+cmake -DPACKAGE=build/kobo-qt5-eval/Kobalt-qt5-eval.zip -DDEVICE=/Volumes/KOBOeReader -P platforms/kobo/install-eval.cmake
+cmake -DDEVICE=/Volumes/KOBOeReader -DOUTPUT=<run>/device-qt5 -P platforms/kobo/collect-eval.cmake
+```
+
+The install script warns when the Kobo has no dictionary. Between the two commands, eject the Kobo, let it restart, open ★ Kobalt Benchmark in Kobalt and wait for the run to end. KOSync stays paused while the scenario file is on the Kobo, so the run does not read or send the reading position. The collect script copies `scenarios.jsonl` and the event log into a run's `device-qt5` folder. `compare.cmake` then reports the device timings like the Mac ones. Device timings compare only with runs on the same model, storage and firmware.
+
+The evaluation can also drive a device through an external runner, a program outside this repository. Pass it with `DEVICE_RUNNER` or `KOBALT_DEVICE_RUNNER`. `run.cmake` builds each target's evaluation package and calls:
+
+```sh
+<runner> run --package <Kobalt-qt5-eval.zip> --target qt5 --output <run>/device-qt5 [--keep-device <name>]
+```
+
+The runner installs the package, opens the test book in Kobalt, waits for the `scenario-run-end` event and copies `scenarios.jsonl` into the output folder. It exits with zero when it wrote the file, even if a scenario failed. The comparator still reads `device.json` from runs recorded by an earlier runner.
+
+## Evaluate a candidate
+
+Read `report.md` from the top and decide:
+
+1. A failed part at the top of the report, or a newly failing test, blocks the release until it is explained. A removed test needs a reason in the commits.
+2. Each changed screenshot is explained by a commit, or it is listed as unexplained. Inspect the crops in `screens/`.
+3. Each `slower` or `faster` metric is checked against `touched_by` and the commit messages. An intended speed-up or an accepted cost is expected. A change that no commit explains is unexpected.
+4. A comparability warning, or a `noisy` verdict on a metric that matters, means measure again with more `RUNS`.
+5. State the verdict as ready, not ready or needs review, with the reasons.
+
+Never re-record the baseline to make a report pass.

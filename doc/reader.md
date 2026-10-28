@@ -79,6 +79,7 @@ Support files are in `.adds/kobalt/`. Annotation exports are in `Kobalt/Annotati
 | `reopen-layout.json` | Up to 20 layout-check results, keyed by archive digest, at most 8 KiB |
 | `.cache/` | Parsed books and their pages, so a book that was opened before opens without parsing. At most 128 MiB; the oldest books are removed first. Kobalt deletes any other file in this folder |
 | `events.jsonl`, `events.jsonl.previous` | Event log, two files of at most 128 KiB each |
+| `scenarios/scenarios.json`, `scenarios.jsonl` | Evaluation packages only: the performance scenarios that Kobalt runs after the first book opens, and their results. See [Release evaluation](release-evaluation.md#device-scenarios) |
 | `state.json`, `session.json` | Reader state from the last close, sleep or shutdown, and session status. Create `live-state` to write `state.json` on every save instead |
 | `startup-session`, `active-session.json` | Recovery markers, see above |
 | `uninstall`, `uninstall-now` | Removal control, see above |

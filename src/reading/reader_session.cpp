@@ -86,6 +86,21 @@ void captureChapters(ReaderFrame &result, ReaderModel &model) {
     result.contentsSelection = model.chapterSelection(result.chapters);
     result.graphSelection = model.chapterSelection(result.chapterGraph);
 }
+// Counts one neighbour job from the moment it is queued until it ends.
+class NeighbourJob {
+public:
+    explicit NeighbourJob(std::shared_ptr<std::atomic_int> count) : count(std::move(count)) {
+        ++*this->count;
+    }
+    ~NeighbourJob() {
+        --*count;
+    }
+    NeighbourJob(const NeighbourJob &) = delete;
+    NeighbourJob &operator=(const NeighbourJob &) = delete;
+
+private:
+    std::shared_ptr<std::atomic_int> count;
+};
 // Draws the pages beside the current one, so the next turn finds its image in
 // the cache. `direction` is the turn that led here; the page further that way
 // is the likelier next one and goes first. Stops when `current` reports a newer
@@ -368,6 +383,7 @@ void ReaderSession::open(OpenRequest request, std::function<void(OpeningResult)>
     const auto systemFont = placeholderFamily_;
     const auto latest = newest;
     const auto job = revision;
+    const auto neighbourCount = neighbourJobs;
     auto report = [guard, progress, lease, job](OpeningStage stage, int percent) {
         if (!progress)
             return;
@@ -383,7 +399,8 @@ void ReaderSession::open(OpenRequest request, std::function<void(OpeningResult)>
         engineWorker(),
         [guard, engine, path, identity, size, saved, nativeLocation, lease, factory, finished, report, systemFont,
          layoutCachePath, documentCachePath, retainedHash, retainedSettings, latest, job, positions, pinnedAppearance,
-         retainedWarning, retainedDetails, userStyleSheetPath, appearanceDefaults, markup, markupGeneration]() mutable {
+         retainedWarning, retainedDetails, userStyleSheetPath, appearanceDefaults, markup, markupGeneration,
+         neighbourCount]() mutable {
             EngineJob activity;
             QElapsedTimer timer;
             timer.start();
@@ -640,11 +657,16 @@ void ReaderSession::open(OpenRequest request, std::function<void(OpeningResult)>
                         {"layout_cache_stored", cacheStored},
                         {"document_cache_hit", !retainedHit && outcome.ready() && engine->openedFromCache()}});
             diagnostic("open-end",
-                       {{"elapsed_ms", double(timer.elapsed())},
+                       {{"elapsed_ms", timer.nsecsElapsed() / 1e6},
                         {"failed", !outcome.ready()},
                         {"error_code",
                          outcome.failure() ? QString::fromLatin1(outcome.failure()->reason.constData()) : QString()}});
             const bool opened = outcome.ready();
+            // The session reports the opening done before this job draws the
+            // pages beside the first one. Count that from before the report.
+            std::unique_ptr<NeighbourJob> neighbours;
+            if (opened)
+                neighbours = std::make_unique<NeighbourJob>(neighbourCount);
             kobalt::qt::invoke(
                 qApp,
                 [guard, result = std::move(result), outcome, digest, syncDigest, identity, savedMatches, finished, lease, job,
@@ -1875,10 +1897,11 @@ void ReaderSession::resumeIdleWork(int direction, quint64 job) {
     const auto engine = model;
     const auto latest = newest;
     const auto lease = lease_;
+    const auto neighbours = std::make_shared<NeighbourJob>(neighbourJobs);
     QPointer<ReaderSession> guard(this);
     kobalt::qt::invoke(
         engineWorker(),
-        [engine, latest, direction, job, guard, lease] {
+        [engine, latest, direction, job, guard, lease, neighbours] {
             EngineJob activity;
             QElapsedTimer timer;
             timer.start();

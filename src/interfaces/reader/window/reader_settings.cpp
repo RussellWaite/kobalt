@@ -11,6 +11,7 @@
 #include "reading/page_navigation.h"
 #include "support/diagnostics.h"
 #include "interfaces/reader/ui/style/metrics.h"
+#include "interfaces/reader/ui/panel_timing.h"
 #include "storage/reader_storage.h"
 #include "interfaces/reader/settings/settings_panel.h"
 #include "assets/bundled_fonts.h"
@@ -217,6 +218,7 @@ bool Reader::hideNativeStatus() const {
 void Reader::openSettings() {
     if (model->temporaryTypography())
         return;
+    kobalt::ui::PanelTiming timing("settings");
     kosyncPage->setAccount(kosyncClient->server(), kosyncClient->username(), kosyncClient->signedIn(),
                            kosyncClient->automatic());
     kosyncPage->setLastSync(kosyncClient->lastSync());
@@ -299,6 +301,7 @@ void Reader::openSettings() {
     general->show();
     general->raise();
     refresh();
+    timing.finish(general);
 }
 
 void Reader::showAdvancedText() {
@@ -506,6 +509,10 @@ void Reader::applyAutomaticOpening(bool enabled) {
 void Reader::applyTheme(bool dark) {
     if (themeReady && darkTheme == dark)
         return;
+    // The first theme is part of showing the reader.
+    const bool first = !themeReady;
+    QElapsedTimer theming;
+    theming.start();
     themeReady = true;
     darkTheme = dark;
     // Theme this window only. Nickel keeps its own palette when we close.
@@ -532,6 +539,8 @@ void Reader::applyTheme(bool dark) {
             kobalt::ui::refreshButtonIcon(button);
     }
     update();
+    if (first)
+        openingStages["theme_ms"] = theming.nsecsElapsed() / 1e6;
 }
 
 // Resolve the displayed book face and retain its bytes for GUI text. Publisher

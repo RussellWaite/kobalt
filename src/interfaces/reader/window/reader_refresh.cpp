@@ -4,6 +4,7 @@
 #include "reading/page_navigation.h"
 #include "support/strings.h"
 #include "support/diagnostics.h"
+#include <QElapsedTimer>
 #include <QtMath>
 #include <initializer_list>
 #include <utility>
@@ -110,7 +111,7 @@ void Reader::refresh() {
                              !general->isVisible() && !choices->isVisible() && !syncDialog && !kosyncDialog && !finishDialog &&
                              !services.suspended() && !applyingText && (model->turnDirection() != 0 || passageFrame) &&
                              nextImage.cacheKey() != previousPageImage);
-    if (!recordedOpening)
+    if (!recordedOpening && pagePainted)
         recordOpening();
     publishResize();
     if (appearanceEdit.finishPending() && appearanceEdit.ready()) {
@@ -251,6 +252,11 @@ void Reader::showPageImage(const QImage &nextImage) {
 }
 
 void Reader::paintTurn() {
+    // render_ms ends here: the engine's page and the GUI thread's wait for it.
+    // paint_ms covers the damage, the paint and the flush that follow.
+    const double rendered = turnStarted.isValid() ? turnStarted.nsecsElapsed() / 1e6 : 0;
+    QElapsedTimer painting;
+    painting.start();
     page->progressFraction = pageProgressFraction(model->page(), model->pages());
     page->preparedDamage = model->damage();
     page->preparedFrom = model->damageFrom();
@@ -263,7 +269,11 @@ void Reader::paintTurn() {
                                                                                                     : "pages");
     page->refreshContent(true, true);
     if (turnStarted.isValid()) {
-        kobalt::diagnostic("page-turn-painted", {{"elapsed_ms", double(turnStarted.elapsed())}}, false);
+        kobalt::diagnostic("page-turn-painted",
+                           {{"elapsed_ms", turnStarted.nsecsElapsed() / 1e6},
+                            {"render_ms", rendered},
+                            {"paint_ms", painting.nsecsElapsed() / 1e6}},
+                           false);
         turnStarted.invalidate();
     }
     // The screen composes the flushed page from the event loop. Return

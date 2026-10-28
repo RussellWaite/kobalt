@@ -1,0 +1,280 @@
+{
+  "schema": 1,
+  "kind": "kobalt-scenarios",
+  "books": {
+    "benchmark": {"file": "tests/fixtures/kobalt-benchmark.kepub.epub", "sha256": "db5ab9da816ec6a5e5db2a8026e4137867195e152c94b9c2181a9774d3c5b9e4", "package": true},
+    "war-and-peace": {"file": "build/screenshot-books/pg2600-epub3.epub", "sha256": "0353122c5a554193a8a777d8156e7a02d9c2014cce90b26891e2057edd30556c"},
+    "notes": {"file": "tests/fixtures/perf-notes.epub", "sha256": "0c2c3d7ef3f362a095cb32575da69dca01df459c0a35253cbd4aaeaa630389df"}
+  },
+  "scenarios": [
+    {
+      "id": "book.open",
+      "kind": "e2e",
+      "paths": ["src/reading/", "src/engine/", "src/publication/", "src/interfaces/reader/window/", "dependencies/"],
+      "book": "benchmark",
+      "steps": [
+        {"close": true},
+        {"event": "book-close"},
+        {"open": "benchmark"},
+        {"event": "reader-shown"}
+      ],
+      "sample": {"event": "reader-shown", "field": "total_ms", "stages": true}
+    },
+    {
+      "id": "book.close",
+      "kind": "e2e",
+      "paths": ["src/reading/", "src/storage/", "src/engine/", "src/interfaces/reader/window/", "src/interfaces/reader/ui/style/", "platforms/android/reader.cpp", "platforms/desktop/"],
+      "book": "benchmark",
+      "steps": [
+        {"key": "PageDown"},
+        {"settle": true},
+        {"close": true},
+        {"event": "book-close"}
+      ],
+      "after": [
+        {"open": "benchmark"}
+      ],
+      "sample": {"event": "book-close", "field": "total_ms", "stages": true}
+    },
+    {
+      "id": "page.turn",
+      "kind": "e2e",
+      "paths": ["src/reading/", "src/engine/", "src/interfaces/reader/views/", "src/interfaces/reader/window/reader_refresh.cpp"],
+      "book": "benchmark",
+      "repeat": 20,
+      "setup": [
+        {"press": "rrPage", "unless": "rrNavChapters"},
+        {"visible": "rrNavChapters"},
+        {"press": "rrNavChapters"},
+        {"visible": "rrChapter1"},
+        {"press": "rrChapter1"},
+        {"settle": true},
+        {"key": "PageDown"},
+        {"settle": true}
+      ],
+      "steps": [
+        {"key": "PageDown"},
+        {"event": "page-turn-painted"}
+      ],
+      "after": [
+        {"settle": true}
+      ],
+      "sample": {"event": "page-turn-painted", "field": "elapsed_ms", "stages": true},
+      "teardown": [
+        {"key": "PageUp"},
+        {"settle": true}
+      ]
+    },
+    {
+      "id": "page.turn.chapter",
+      "kind": "e2e",
+      "paths": ["src/reading/", "src/engine/", "src/interfaces/reader/views/", "src/interfaces/reader/window/reader_refresh.cpp"],
+      "book": "benchmark",
+      "steps": [
+        {"press": "rrPage", "unless": "rrNavChapters"},
+        {"visible": "rrNavChapters"},
+        {"press": "rrNavChapters"},
+        {"visible": ["rrChapter2", "rrChapter3", "rrChapter4", "rrChapter5", "rrChapter6"]},
+        {"press": ["rrChapter2", "rrChapter3", "rrChapter4", "rrChapter5", "rrChapter6"]},
+        {"settle": true},
+        {"key": "PageUp"},
+        {"event": "page-turn-painted"}
+      ],
+      "after": [
+        {"settle": true}
+      ],
+      "sample": {"event": "page-turn-painted", "field": "elapsed_ms", "stages": true}
+    },
+    {
+      "id": "panel.menu",
+      "kind": "e2e",
+      "paths": ["src/interfaces/reader/window/", "src/interfaces/reader/views/", "src/interfaces/reader/ui/"],
+      "book": "benchmark",
+      "steps": [
+        {"press": "rrPage"},
+        {"event": "panel-open", "panel": "menu"}
+      ],
+      "after": [
+        {"press": "rrPage"},
+        {"hidden": "rrControlsTop"}
+      ],
+      "sample": {"event": "panel-open", "panel": "menu", "field": "total_ms", "stages": true}
+    },
+    {
+      "id": "panel.dictionary.long",
+      "kind": "e2e",
+      "paths": ["src/interfaces/reader/panels/dictionary_panel.cpp", "src/interfaces/reader/ui/", "src/interfaces/reader/window/reader.cpp"],
+      "book": "benchmark",
+      "needs": ["dictionary"],
+      "steps": [
+        {"hold": {"text": "set"}},
+        {"event": "panel-open", "panel": "dictionary"}
+      ],
+      "after": [
+        {"press": "rrDictionaryClose"},
+        {"hidden": "rrDictionary"},
+        {"settle": true}
+      ],
+      "sample": {"event": "panel-open", "panel": "dictionary", "field": "total_ms", "stages": true}
+    },
+    {
+      "id": "panel.dictionary.short",
+      "kind": "e2e",
+      "paths": ["src/interfaces/reader/panels/dictionary_panel.cpp", "src/interfaces/reader/ui/", "src/interfaces/reader/window/reader.cpp"],
+      "book": "benchmark",
+      "needs": ["dictionary"],
+      "steps": [
+        {"hold": {"text": "discourtesy"}},
+        {"event": "panel-open", "panel": "dictionary"}
+      ],
+      "after": [
+        {"press": "rrDictionaryClose"},
+        {"hidden": "rrDictionary"},
+        {"settle": true}
+      ],
+      "sample": {"event": "panel-open", "panel": "dictionary", "field": "total_ms", "stages": true}
+    },
+    {
+      "id": "reflow.font-size",
+      "kind": "e2e",
+      "paths": ["src/reading/", "src/engine/", "src/interfaces/reader/window/", "dependencies/"],
+      "book": "benchmark",
+      "repeat": 6,
+      "steps": [
+        {"press": "rrPage", "unless": "rrNavText"},
+        {"visible": "rrNavText"},
+        {"press": "rrNavText"},
+        {"visible": "rrLarger"},
+        {"press": ["rrLarger", "rrSmaller"]},
+        {"event": "render-end"},
+        {"mark": true},
+        {"press": "rrPage"},
+        {"event": "render-end"}
+      ],
+      "after": [
+        {"settle": true}
+      ],
+      "sample": {"timer": true, "stages": {"render_ms": {"event": "render-end", "field": "elapsed_ms"}}}
+    },
+    {
+      "id": "memory.reading",
+      "kind": "memory",
+      "unit": "KiB",
+      "paths": ["src/", "dependencies/"],
+      "book": "benchmark",
+      "repeat": 1,
+      "sample": {"memory": "rss_kib"}
+    },
+    {
+      "id": "panel.settings",
+      "kind": "e2e",
+      "paths": ["src/interfaces/reader/settings/", "src/interfaces/reader/ui/", "src/interfaces/reader/window/reader_settings.cpp"],
+      "book": "benchmark",
+      "steps": [
+        {"press": "rrPage", "unless": "rrSettings"},
+        {"visible": "rrSettings"},
+        {"press": "rrSettings"},
+        {"event": "panel-open", "panel": "settings"}
+      ],
+      "after": [
+        {"press": "rrSettingsClose"},
+        {"hidden": "rrSettingsPages"}
+      ],
+      "sample": {"event": "panel-open", "panel": "settings", "field": "total_ms", "stages": true}
+    },
+    {
+      "id": "panel.acknowledgments",
+      "kind": "e2e",
+      "paths": ["src/interfaces/reader/settings/acknowledgments.cpp", "src/interfaces/reader/ui/"],
+      "book": "benchmark",
+      "setup": [
+        {"press": "rrPage", "unless": "rrSettings"},
+        {"visible": "rrSettings"},
+        {"press": "rrSettings"},
+        {"visible": "rrSettingsAbout"},
+        {"press": "rrSettingsAbout"},
+        {"visible": "rrAboutVersion"}
+      ],
+      "steps": [
+        {"press": "rrOpenAcknowledgments"},
+        {"event": "panel-open", "panel": "acknowledgments"}
+      ],
+      "after": [
+        {"press": "rrAcknowledgmentsBack"},
+        {"visible": "rrAboutVersion"}
+      ],
+      "sample": {"event": "panel-open", "panel": "acknowledgments", "field": "total_ms", "stages": true},
+      "teardown": [
+        {"press": "rrSettingsClose"},
+        {"hidden": "rrSettingsPages"}
+      ]
+    },
+    {
+      "id": "panel.licence",
+      "kind": "e2e",
+      "paths": ["src/interfaces/reader/settings/acknowledgments.cpp", "src/interfaces/reader/ui/"],
+      "book": "benchmark",
+      "setup": [
+        {"press": "rrPage", "unless": "rrSettings"},
+        {"visible": "rrSettings"},
+        {"press": "rrSettings"},
+        {"visible": "rrSettingsAbout"},
+        {"press": "rrSettingsAbout"},
+        {"visible": "rrAboutVersion"},
+        {"press": "rrOpenAcknowledgments"},
+        {"visible": "rrAcknowledgment0"}
+      ],
+      "steps": [
+        {"press": "rrAcknowledgment0"},
+        {"event": "panel-open", "panel": "licence"}
+      ],
+      "after": [
+        {"press": "rrAcknowledgmentsBack"},
+        {"visible": "rrAcknowledgment0"}
+      ],
+      "sample": {"event": "panel-open", "panel": "licence", "field": "total_ms", "stages": true},
+      "teardown": [
+        {"press": "rrAcknowledgmentsBack"},
+        {"visible": "rrAboutVersion"},
+        {"press": "rrSettingsClose"},
+        {"hidden": "rrSettingsPages"}
+      ]
+    },
+    {
+      "id": "panel.footnote",
+      "kind": "e2e",
+      "paths": ["src/interfaces/reader/panels/link_panel.cpp", "src/interfaces/reader/ui/", "src/interfaces/reader/window/reader.cpp"],
+      "book": "notes",
+      "steps": [
+        {"hold": {"link": "long note"}},
+        {"visible": "rrSelectionLink"},
+        {"press": "rrSelectionLink"},
+        {"event": "panel-open", "panel": "footnote"}
+      ],
+      "after": [
+        {"press": "rrLinkClose"},
+        {"hidden": "rrLinkPanel"}
+      ],
+      "sample": {"event": "panel-open", "panel": "footnote", "field": "total_ms", "stages": true}
+    },
+    {
+      "id": "book.open.large",
+      "kind": "e2e",
+      "paths": ["src/reading/", "src/engine/", "src/publication/", "src/interfaces/reader/window/", "dependencies/"],
+      "book": "war-and-peace",
+      "steps": [
+        {"open": "war-and-peace", "fresh": true},
+        {"event": "reader-shown"}
+      ],
+      "sample": {"event": "reader-shown", "field": "total_ms", "stages": true}
+    },
+    {
+      "id": "memory.peak",
+      "kind": "memory",
+      "unit": "KiB",
+      "paths": ["src/", "dependencies/"],
+      "repeat": 1,
+      "sample": {"memory": "peak_rss_kib"}
+    }
+  ]
+}
