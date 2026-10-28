@@ -32,7 +32,6 @@ void Reader::buildKosync() {
     kosyncTimer.setInterval(30000);
     connect(&kosyncTimer, &QTimer::timeout, this, [this] { synchronizeKosync(); });
     const auto account = [this] {
-        kosyncPage->setManualExplanation(kosyncClient->manualExplanation());
         kosyncPage->setFilenameMatching(kosyncClient->filenameMatching());
         kosyncPage->setDeviceName(kosyncClient->customDeviceName(), kosyncClient->defaultDeviceName());
         kosyncPage->setAccount(kosyncClient->server(), kosyncClient->username(), kosyncClient->signedIn(),
@@ -109,11 +108,6 @@ void Reader::buildKosync() {
         kosyncStatus(kosyncMessage);
     };
     kosyncPage->syncRequested = [this] { synchronizeKosync(true); };
-    kosyncPage->manualExplanationChanged = [this](bool enabled) {
-        const bool saved = kosyncClient->setManualExplanation(enabled);
-        kosyncPage->setManualExplanation(kosyncClient->manualExplanation());
-        if (!saved) kosyncStatus(strings::get("kosync.storage_error"));
-    };
     const auto status = book->usesNativeCloudSync() ? strings::get("kosync.native_sync")
         : strings::get(kosyncClient->signedIn() ? "kosync.signed_in" : "kosync.signed_out");
     kosyncStatus(kosyncClient->storageError().isEmpty() ? status : kosyncClient->storageError());
@@ -169,7 +163,6 @@ void Reader::requestManualKosync() {
     connect(dialog->primaryButton(), &QPushButton::clicked, this, [this, dismiss] {
         dismiss();
         const bool saved = kosyncClient->setManualExplanation(false);
-        kosyncPage->setManualExplanation(kosyncClient->manualExplanation());
         if (!saved) {
             kosyncStatus(strings::get("kosync.storage_error"));
             refresh();

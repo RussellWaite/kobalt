@@ -485,8 +485,6 @@ int main(int argc, char **argv) {
             "manual sync acknowledgment survives restart without changing sync mode or account");
     require(explained.setDeviceName("Manual reader") && explained.setAutomatic(true), "other account edits succeed");
     require(!kosync::Client(path).manualExplanation(), "account edits preserve the manual sync preference");
-    require(explained.setManualExplanation(true) && kosync::Client(path).manualExplanation(),
-            "Settings can restore the manual sync explanation");
     require(!client.lastSync().isValid(), "login alone does not count as a progress sync");
     require(client.recordSyncSuccess(), "successful progress exchange records a timestamp");
     const auto synced = client.lastSync();

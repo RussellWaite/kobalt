@@ -25,9 +25,8 @@
 "kosync.automatic_description" = "Sync on open, close, sleep and wake, and while reading. Ask before moving to a synced position.";
 "kosync.sync_now" = "Sync now";
 "kosync.manual_description" = "With automatic sync disabled, a manual sync button is added to the top toolbar.";
-"kosync.manual_explanation" = "Show manual sync explanation";
 "kosync.manual_prompt" = "Would you like to sync progress with KOsync?";
-"kosync.manual_prompt_description" = "This button syncs progress when you choose. Automatic sync is disabled, so Kobalt will not sync on open, close, sleep or wake. Later taps sync immediately. You can show this explanation again in Settings → Sync.";
+"kosync.manual_prompt_description" = "This button syncs progress when you choose. Automatic sync is disabled, so Kobalt will not sync on open, close, sleep or wake. Later taps sync immediately.";
 "kosync.show_password" = "Show";
 "kosync.hide_password" = "Hide";
 "kosync.show_password_accessible" = "Show password";
@@ -635,11 +634,12 @@
 "settings.section_frontlight" = "Frontlight";
 "settings.section_new_books" = "New Book";
 "settings.section_book_content" = "Book content";
-"settings.advanced_text" = "Advanced typography";
+"settings.section_words_letters" = "Words and letters";
+"settings.section_page_breaks" = "Page breaks";
+"settings.section_smart_styling" = "Smart styling";
+"settings.styling_preview_same" = "These sample pages look the same with every option.";
 "settings.justification_tracking" = "Justification tracking";
-/* Arguments: %1 (Justify icon) */
-"settings.justification_tracking_description" = "Only affects justified text. Select %1 in Text > Alignment. Distribute spare space between letters to reduce wide word gaps.";
-"settings.justification_tracking_off" = "Off";
+"settings.justification_tracking_off" = "Normal";
 "settings.justification_tracking_subtle" = "Subtle";
 "settings.justification_tracking_more" = "More";
 "settings.widows_orphans" = "Widows and orphans";
@@ -872,8 +872,12 @@
 "settings.inherit_header_footer" = "Inherit header and footer from the last book";
 "settings.inherit_header_footer_description" = "New books start with the last book's header and footer. Books with saved settings keep them.";
 
-"settings.avoid_wasteful_styling" = "Smart Styling";
-"settings.avoid_wasteful_styling_description" = "Kobalt will automatically improve book rendering appearance. If you prefer the original book CSS, disable this.";
+"settings.avoid_wasteful_styling" = "Reduce publisher spacing";
+"settings.avoid_wasteful_styling_description" = "Use Kobalt's page margins and reduce blank space at chapter starts.";
+"settings.avoid_wasteful_styling_changes" = "What this changes:";
+"settings.avoid_wasteful_styling_margins" = "Ignores the book's own page margins and padding, so your Layout margins apply.";
+"settings.avoid_wasteful_styling_breaks" = "Removes the space a book adds above text that starts on a new page, such as a chapter opening.";
+"settings.avoid_wasteful_styling_illustrations" = "Preserves the book's space above illustrations at chapter starts.";
 
 "settings.minimal_annotation_mode" = "Minimal annotation mode";
 "settings.minimal_annotation_mode_description" = "Hide the annotation bar. Tap text or blank space, then choose Stop highlighting to exit.";
@@ -1055,7 +1059,7 @@
 "settings.vertical_spacing_mode" = "Page spacing";
 "settings.vertical_spacing_apply_to" = "Pages to adjust";
 "settings.vertical_spacing_description" = "Keep spacing unchanged, spread lines, or center nearly full prose pages.";
-"settings.vertical_spacing_off" = "Off";
+"settings.vertical_spacing_off" = "Normal";
 "settings.vertical_spacing_off_description" = "Keep the usual line spacing and top alignment.";
 "settings.vertical_spacing_expand" = "Expand line spacing";
 "settings.vertical_spacing_expand_description" = "Spread spare height between lines. Keep the first line in place.";

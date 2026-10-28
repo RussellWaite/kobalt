@@ -127,6 +127,8 @@ inline QString screenshotTitle(const QString &scene, const QJsonObject &book) {
         {"kosync-syncing", "Sync in progress"},
         {"kosync-completed", "Sync complete"},
         {"settings-styling", "Styling settings"},
+        {"styling-widows", "Widows and orphans preview"},
+        {"styling-word-spacing", "Word spacing preview"},
         {"settings-system", "System settings"},
         {"stats", "Reading statistics"},
         {"stats-dense-graph", "Dense chapter graph"},

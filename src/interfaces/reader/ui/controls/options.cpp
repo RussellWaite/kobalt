@@ -1,4 +1,5 @@
 #include "options.h"
+#include "icons.h"
 #include "../style/metrics.h"
 #include "../style/styles.h"
 #include "../style/fonts.h"
@@ -85,6 +86,14 @@ void DescribedOption::setPreview(QWidget *widget, QSize size) {
     updateGeometry();
     update();
 }
+void DescribedOption::setLeadingIcon(ControlIcon icon) {
+    leadingIcon = int(icon);
+    updateGeometry();
+    update();
+}
+int DescribedOption::iconSpace() const {
+    return leadingIcon < 0 ? 0 : int(m::chrome::cellIcon) + px(20);
+}
 int DescribedOption::heightForWidth(int width) const {
     if (description.isEmpty() && !preview)
         return m::control::stepSize;
@@ -93,7 +102,7 @@ int DescribedOption::heightForWidth(int width) const {
     descriptionFont.setWeight(QFont::Normal);
     descriptionFont.setItalic(false);
     const int textWidth = qMax(1, width - 2 * appearance.horizontalInset - m::settings::labelLeft -
-                                      appearance.indicatorSize.width() - m::settings::toggleGap -
+                                      appearance.indicatorSize.width() - m::settings::toggleGap - iconSpace() -
                                       (preview ? previewSize.width() + m::settings::toggleGap : 0));
     const int textHeight = description.isEmpty() ? int(m::control::stepSize) : m::settings::descriptionTop +
                                                  wrappedInterfaceTextHeight(description, descriptionFont, textWidth) +
@@ -119,7 +128,7 @@ void DescribedOption::paintEvent(QPaintEvent *) {
     descriptionFont.setWeight(QFont::Normal);
     descriptionFont.setItalic(false);
     const int textWidth = qMax(1, width() - 2 * appearance.horizontalInset - m::settings::labelLeft -
-                                      appearance.indicatorSize.width() - m::settings::toggleGap -
+                                      appearance.indicatorSize.width() - m::settings::toggleGap - iconSpace() -
                                       (preview ? previewSize.width() + m::settings::toggleGap : 0));
     const int textBottom =
         description.isEmpty()
@@ -131,8 +140,9 @@ void DescribedOption::paintEvent(QPaintEvent *) {
                             ? appearance.horizontalInset + m::settings::labelLeft
                             : width() - appearance.horizontalInset - appearance.indicatorSize.width();
     const QRect box(boxLeft, boxTop, appearance.indicatorSize.width(), appearance.indicatorSize.height());
-    const int textLeft = appearance.leadingIndicator ? box.right() + 1 + m::settings::toggleGap
-                                                     : appearance.horizontalInset + m::settings::labelLeft;
+    const int textLeft = (appearance.leadingIndicator ? box.right() + 1 + m::settings::toggleGap
+                                                      : appearance.horizontalInset + m::settings::labelLeft) +
+                         iconSpace();
     const bool held = appearance.pressedFill && isEnabled() && isDown();
     // The pressed gray of list rows such as Chapters.
     painter.fillRect(rect(), held ? themeColors(this).pressedPaper : paper);
@@ -177,6 +187,12 @@ void DescribedOption::paintEvent(QPaintEvent *) {
         painter.setPen(Qt::NoPen);
         painter.setBrush(isChecked() ? paper : ink);
         painter.drawEllipse(QRect(thumbX, box.top() + thumbInset, diameter, diameter));
+    }
+    if (leadingIcon >= 0) {
+        // The same place as a list action row's icon, balancing its bearings.
+        const int size = m::chrome::cellIcon;
+        controlIcon(ControlIcon(leadingIcon), ink)
+            .paint(&painter, QRect(textLeft - iconSpace() - px(7), (height() - size) / 2 + px(1), size, size));
     }
     painter.setPen(ink);
     QFont labelFont = font();

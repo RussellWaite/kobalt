@@ -53,12 +53,6 @@ KosyncPage::KosyncPage(QWidget *parent, QWidget *overlayParent, KeyboardFactory 
     connect(automatic_, &QAbstractButton::clicked, this, [this] {
         if (automaticChanged) automaticChanged(automatic_->isChecked());
     });
-    manualExplanation_ = new ui::DescribedOption(strings::get("kosync.manual_explanation"), {}, this);
-    manualExplanation_->setObjectName("rrKosyncManualExplanation");
-    rows->addWidget(manualExplanation_);
-    connect(manualExplanation_, &QAbstractButton::clicked, this, [this] {
-        if (manualExplanationChanged) manualExplanationChanged(manualExplanation_->isChecked());
-    });
     sync_ = ui::makeButton(this, rows, "rrKosyncNow", strings::get("kosync.sync_now"), [this] {
         if (syncRequested) syncRequested();
     });
@@ -143,9 +137,6 @@ void KosyncPage::setFilenameMatching(bool enabled) {
     filenameMatching_ = enabled;
     matchingButton_->setCaption(strings::get(enabled ? "kosync.match_filename" : "kosync.match_binary"));
 }
-void KosyncPage::setManualExplanation(bool enabled) {
-    manualExplanation_->setChecked(enabled);
-}
 QString KosyncPage::takePassword() {
     const auto value = password_;
     password_.clear();
@@ -170,7 +161,6 @@ void KosyncPage::setStatus(const QString &status, bool busy) {
     passwordButton_->setVisible(authenticating);
     login_->setVisible(authenticating);
     automatic_->setVisible(!nativeCloudSync_ && signedIn_ && !accountEdited_);
-    manualExplanation_->setVisible(!nativeCloudSync_ && signedIn_ && !accountEdited_ && !automatic_->isChecked());
     sync_->setVisible(!nativeCloudSync_ && signedIn_ && !accountEdited_);
     logout_->setVisible(!nativeCloudSync_ && signedIn_);
     lastSync_->setVisible(signedIn_ && !accountEdited_);
@@ -178,7 +168,6 @@ void KosyncPage::setStatus(const QString &status, bool busy) {
                          static_cast<QPushButton *>(passwordButton_), static_cast<QPushButton *>(deviceNameButton_),
                          static_cast<QPushButton *>(matchingButton_), login_}) button->setEnabled(!busy);
     automatic_->setEnabled(!busy && signedIn_ && !accountEdited_);
-    manualExplanation_->setEnabled(!busy && signedIn_ && !accountEdited_);
     sync_->setEnabled(!busy && signedIn_ && !accountEdited_);
     logout_->setEnabled(!busy && signedIn_);
 }

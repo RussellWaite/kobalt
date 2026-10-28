@@ -300,11 +300,12 @@ void Reader::openSettings() {
     fitSettings();
     general->show();
     general->raise();
+    renderStylingSamples();
     refresh();
     timing.finish(general);
 }
 
-void Reader::showAdvancedText() {
+void Reader::showAdvancedText(int changed) {
     auto *panel = static_cast<SettingsPanel *>(general);
     const QString wordSpacing = settingsWordSpacing == 80 ? "narrow" : settingsWordSpacing == 120 ? "wide" : "normal";
     panel->wordSpacingButton->setCaption(strings::get(("settings.word_spacing_" + wordSpacing).toUtf8().constData()).toUpper());
@@ -313,8 +314,116 @@ void Reader::showAdvancedText() {
     panel->widowsOrphansButton->setCaption(strings::get(("settings.widows_orphans_" + settingsWidowsOrphans).toUtf8().constData()).toUpper());
     panel->verticalSpacingButton->setCaption(strings::get(("settings.vertical_spacing_" + settingsVerticalSpacing).toUtf8().constData()).toUpper());
     panel->verticalSpacingScopeButton->setCaption(strings::get(("settings.vertical_spacing_scope_" + settingsVerticalSpacingScope).toUtf8().constData()).toUpper());
+    // The scope chooses which gaps page spacing adjusts, so it waits for a mode.
     panel->verticalSpacingScopeButton->setEnabled(settingsVerticalSpacing != "off");
+    renderStylingSamples(changed);
+}
 
+void Reader::cancelStylingSamples() {
+    for (auto &render : stylingSampleRenders)
+        if (render)
+            render->store(true);
+}
+
+int Reader::stylingChoice(int feature) const {
+    using Feature = SettingsPanel::AdvancedText;
+    switch (Feature(feature)) {
+    case Feature::WordSpacing:
+        return settingsWordSpacing == 80 ? 0 : settingsWordSpacing == 120 ? 2 : 1;
+    case Feature::Tracking:
+        return settingsTracking == 15 ? 2 : settingsTracking == 5 ? 1 : 0;
+    case Feature::Pagination:
+        return settingsWidowsOrphans == "allow" ? 2 : settingsWidowsOrphans == "avoid" ? 1 : 0;
+    case Feature::VerticalSpacing:
+        return settingsVerticalSpacing == "expand" ? 2 : settingsVerticalSpacing == "center" ? 1 : 0;
+    case Feature::VerticalSpacingScope:
+        return settingsVerticalSpacingScope == "protection" ? 1 : 0;
+    }
+    return 0;
+}
+
+void Reader::renderStylingSamples(int unchanged) {
+    auto *panel = static_cast<SettingsPanel *>(general);
+    if (!general->isVisible() || panel->settingsPages->currentIndex() != StylingSettings || page->image.isNull())
+        return;
+    using Feature = SettingsPanel::AdvancedText;
+    // The sample uses the book's typography with the Styling choices made so
+    // far, which are applied to the book only when Settings closes.
+    auto settings = styleSampleSettings(model->state());
+    settings["dark_mode"] = darkOption->isChecked();
+    settings["word_spacing"] = settingsWordSpacing;
+    settings["justification_tracking"] = settingsTracking;
+    settings["widows_orphans"] = settingsWidowsOrphans;
+    settings["vertical_justification"] = settingsVerticalSpacing;
+    settings["vertical_spacing_scope"] = settingsVerticalSpacingScope;
+    for (const auto *key : appearance::fallbackFontKeys)
+        settings[key] = settingsFontFaces.value(key).toString();
+    const auto size = page->image.size();
+    const int margin = settings.value("margin_pixels").toInt();
+    // Crops keep a little paper beside the text.
+    const int side = qMin(margin, int(ui::px(16)));
+    const int top = settings.value("top_margin_pixels").toInt();
+    auto crop = panel->stylingCropSize(size, margin);
+    crop = QSize(qMin(size.width(), crop.width() + 2 * side), qMin(size.height() - top, crop.height()));
+    const QPoint cropOrigin(margin - side, top);
+    const struct {
+        Feature feature;
+        const char *key;
+        QVector<QJsonValue> values;
+    } requests[] = {
+        {Feature::WordSpacing, "word_spacing", {80, 100, 120}},
+        {Feature::Tracking, "justification_tracking", {0, 5, 15}},
+        {Feature::Pagination, "widows_orphans", {QStringLiteral("publisher"), QStringLiteral("avoid"), QStringLiteral("allow")}},
+        {Feature::VerticalSpacing, "vertical_justification", {QStringLiteral("off"), QStringLiteral("center"), QStringLiteral("expand")}},
+        {Feature::VerticalSpacingScope, "vertical_spacing_scope", {QStringLiteral("all"), QStringLiteral("protection")}},
+    };
+    for (const auto &entry : requests) {
+        const int feature = int(entry.feature);
+        if (feature == unchanged)
+            continue;
+        // With page spacing Normal, both scopes draw the same pages and the
+        // row is unavailable, so a render would only search in vain.
+        if (entry.feature == Feature::VerticalSpacingScope && settingsVerticalSpacing == "off")
+            continue;
+        const bool spacing = entry.feature == Feature::WordSpacing || entry.feature == Feature::Tracking;
+        StyleSampleRequest request;
+        request.key = entry.key;
+        request.values = entry.values;
+        const bool vertical = entry.feature == Feature::VerticalSpacing || entry.feature == Feature::VerticalSpacingScope;
+        if (spacing) {
+            // Spacing depends on the font, so these samples use the book's typography.
+            request.settings = settings;
+            // Tracking only acts on justified lines, so its sample is justified.
+            if (entry.feature == Feature::Tracking)
+                request.settings["text_alignment"] = QStringLiteral("justify");
+            request.page = size;
+        } else {
+            request.settings = styleSamplePageSettings(settings);
+            request.page = styleSamplePageSize();
+        }
+        request.thumbnail = panel->stylingPageSize(request.page, vertical);
+        if (vertical) {
+            request.readingArea = styleSampleReadingArea();
+            request.detail = panel->stylingEdgeSize(request.page);
+        }
+        if (spacing) {
+            request.crop = crop;
+            request.cropOrigin = cropOrigin;
+        }
+        auto &render = stylingSampleRenders[feature];
+        if (render)
+            render->store(true);
+        panel->setStylingSample(entry.feature, {});
+        render = request.cancelled = std::make_shared<std::atomic_bool>(false);
+        ++stylingSamplesPending;
+        renderStyleSample(model->fontInputs(), request, this,
+                          [this, panel, entry = entry.feature, cancelled = render](StyleSample sample) {
+                              --stylingSamplesPending;
+                              if (cancelled->load() || !sample.valid())
+                                  return;
+                              panel->setStylingSample(entry, sample);
+                          });
+    }
 }
 
 void Reader::fitSettings() {

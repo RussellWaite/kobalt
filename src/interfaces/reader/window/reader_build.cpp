@@ -1217,41 +1217,39 @@ void Reader::buildSettings() {
         });
     });
     connect(settings->wordSpacingButton, &QPushButton::clicked, this, [this, settings] {
-        const int selected = settingsWordSpacing == 80 ? 0 : settingsWordSpacing == 120 ? 2 : 1;
-        const auto face = bookFace();
-        settings->showAdvancedTextChoices(SettingsPanel::AdvancedText::WordSpacing, selected, [this](int index) {
+        settings->showAdvancedTextChoices(SettingsPanel::AdvancedText::WordSpacing,
+            stylingChoice(int(SettingsPanel::AdvancedText::WordSpacing)), [this](int index) {
             settingsWordSpacing = 80 + index * 20;
-            showAdvancedText();
-        }, ui::fontSample(face));
+            showAdvancedText(int(SettingsPanel::AdvancedText::WordSpacing));
+        });
     });
     connect(settings->trackingButton, &QPushButton::clicked, this, [this, settings] {
-        const int selected = settingsTracking == 15 ? 2 : settingsTracking == 5 ? 1 : 0;
-        const auto face = bookFace();
-        settings->showAdvancedTextChoices(SettingsPanel::AdvancedText::Tracking, selected, [this](int index) {
+        settings->showAdvancedTextChoices(SettingsPanel::AdvancedText::Tracking,
+            stylingChoice(int(SettingsPanel::AdvancedText::Tracking)), [this](int index) {
             settingsTracking = index == 2 ? 15 : index == 1 ? 5 : 0;
-            showAdvancedText();
-        }, ui::fontSample(face), model->alignment());
+            showAdvancedText(int(SettingsPanel::AdvancedText::Tracking));
+        }, model->alignment());
     });
     connect(settings->widowsOrphansButton, &QPushButton::clicked, this, [this, settings] {
-        const int selected = settingsWidowsOrphans == "allow" ? 2 : settingsWidowsOrphans == "avoid" ? 1 : 0;
-        settings->showAdvancedTextChoices(SettingsPanel::AdvancedText::Pagination, selected, [this](int index) {
+        settings->showAdvancedTextChoices(SettingsPanel::AdvancedText::Pagination,
+            stylingChoice(int(SettingsPanel::AdvancedText::Pagination)), [this](int index) {
             settingsWidowsOrphans = index == 2 ? "allow" : index == 1 ? "avoid" : "publisher";
-            showAdvancedText();
+            showAdvancedText(int(SettingsPanel::AdvancedText::Pagination));
         });
     });
     connect(settings->verticalSpacingButton, &QPushButton::clicked, this, [this, settings] {
-        const int current = settingsVerticalSpacing == "center" ? 2 : settingsVerticalSpacing == "expand" ? 1 : 0;
-        settings->showAdvancedTextChoices(SettingsPanel::AdvancedText::VerticalSpacing, current, [this](int index) {
-            settingsVerticalSpacing = QStringList{"off", "expand", "center"}.at(index);
-            showAdvancedText();
+        settings->showAdvancedTextChoices(SettingsPanel::AdvancedText::VerticalSpacing,
+            stylingChoice(int(SettingsPanel::AdvancedText::VerticalSpacing)), [this](int index) {
+            settingsVerticalSpacing = QStringList{"off", "center", "expand"}.at(index);
+            showAdvancedText(int(SettingsPanel::AdvancedText::VerticalSpacing));
         });
     });
     connect(settings->verticalSpacingScopeButton, &QPushButton::clicked, this, [this, settings] {
         settings->showAdvancedTextChoices(SettingsPanel::AdvancedText::VerticalSpacingScope,
-            settingsVerticalSpacingScope == "protection" ? 1 : 0, [this](int index) {
-                settingsVerticalSpacingScope = index ? "protection" : "all";
-                showAdvancedText();
-            });
+            stylingChoice(int(SettingsPanel::AdvancedText::VerticalSpacingScope)), [this](int index) {
+            settingsVerticalSpacingScope = index ? "protection" : "all";
+            showAdvancedText(int(SettingsPanel::AdvancedText::VerticalSpacingScope));
+        });
     });
     bionicOption = settings->bionicOption;
     refreshButton = settings->refreshButton;
@@ -1300,6 +1298,7 @@ void Reader::buildSettings() {
             openSettingsFont(appearance::fallbackFontKeys[index]);
         });
     }
+    settings->stylingHidden = [this] { cancelStylingSamples(); };
     connect(darkOption, &QCheckBox::clicked, this, [this](bool enabled) {
         applyDarkMode(enabled);
     });
@@ -1366,8 +1365,10 @@ void Reader::buildSettings() {
         showProgressDebug();
     });
 #endif
-    connect(settingsPages, &QStackedWidget::currentChanged, this, [this](int) {
+    connect(settingsPages, &QStackedWidget::currentChanged, this, [this](int index) {
         fitSettings();
+        if (index == StylingSettings)
+            renderStylingSamples();
         refresh();
     });
 }

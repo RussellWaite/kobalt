@@ -97,6 +97,11 @@ Geometry geometry(ControlIcon icon, bool sideButtons) {
         result.canvas = 256;
         result.filled = true;
         phosphorGeometry(QStringLiteral("arrow-down-right"), path);
+    } else if (icon >= ControlIcon::SpreadHorizontal && icon <= ControlIcon::Hidden) {
+        const char *names[] = {"arrows-horizontal", "paragraph", "arrows-vertical", "magic-wand", "eye-slash"};
+        result.canvas = 256;
+        result.filled = true;
+        phosphorGeometry(QString::fromLatin1(names[int(icon) - int(ControlIcon::SpreadHorizontal)]), path);
     } else if (icon == ControlIcon::OneColumn || icon == ControlIcon::TwoColumns || icon == ControlIcon::Sort) {
         result.canvas = 256;
         result.filled = true;
@@ -428,7 +433,8 @@ QIcon controlIcon(ControlIcon icon, QColor color, bool sideButtons) {
          icon != ControlIcon::NextChapter && icon != ControlIcon::Sync && icon != ControlIcon::Sort &&
          icon != ControlIcon::ArrowDownRight && icon != ControlIcon::EditHighlight &&
          (icon < ControlIcon::Rows || icon > ControlIcon::Export) &&
-         (icon < ControlIcon::KeyboardShift || icon > ControlIcon::KeyboardReturn)))
+         (icon < ControlIcon::KeyboardShift || icon > ControlIcon::KeyboardReturn) &&
+         (icon < ControlIcon::SpreadHorizontal || icon > ControlIcon::Hidden)))
         return {};
     return QIcon(new VectorIconEngine(icon, color, sideButtons));
 }

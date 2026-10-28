@@ -86,6 +86,7 @@
 #include <QMutex>
 #include <QTemporaryDir>
 #include <QTest>
+#include <tuple>
 #include <QTimer>
 
 #include "engine/crengine/engine_activity.h"
@@ -835,16 +836,24 @@ void verticalJustificationTour(Fixture &fixture, const QString &name, bool scree
         if (config) QVERIFY(scene("settings"));
         QVERIFY(fixture.press("rrVerticalSpacing"));
         QTRY_VERIFY(fixture.visible("rrVerticalSpacing_off"));
+        // Wait for the rendered sample before capturing the sheet.
+        QTRY_VERIFY_WITH_TIMEOUT(fixture.widget("rrStylingPreview")->property("sample_ready").toBool(), 10000);
         if (config) QVERIFY(scene("choices"));
         QVERIFY(fixture.press(qPrintable("rrVerticalSpacing_" + mode)));
+        QVERIFY(fixture.visible("rrVerticalSpacingPopup"));
+        QVERIFY(fixture.press("rrVerticalSpacingClose"));
         QTRY_VERIFY(!fixture.visible("rrVerticalSpacingPopup"));
+        // Which pages to adjust has its own row, available once a mode is chosen.
         QVERIFY(reveal("rrVerticalSpacingScope"));
         QCOMPARE(fixture.widget("rrVerticalSpacingScope")->isEnabled(), mode != "off");
         if (mode != "off") {
             QVERIFY(fixture.press("rrVerticalSpacingScope"));
             QTRY_VERIFY(fixture.visible("rrVerticalSpacingScope_all"));
-            if (config) QVERIFY(scene("scope"));
+            QTRY_VERIFY_WITH_TIMEOUT(fixture.widget("rrStylingPreview")->property("sample_ready").toBool(), 10000);
             QVERIFY(fixture.press(protection ? "rrVerticalSpacingScope_protection" : "rrVerticalSpacingScope_all"));
+            if (config) QVERIFY(scene("scope"));
+            QVERIFY(fixture.press("rrVerticalSpacingScopeClose"));
+            QTRY_VERIFY(!fixture.visible("rrVerticalSpacingScopePopup"));
         }
         if (columns) {
             QVERIFY(fixture.press("rrSettingsDisplay"));
@@ -1048,6 +1057,20 @@ void tour(Fixture &fixture, const QString &name, bool screenshots) {
         for (const auto *tab : {"Display", "Controls", "Defaults", "Styling", "System", "Kosync"}) {
             QVERIFY(fixture.press(qPrintable(QString("rrSettings") + tab)));
             capturePages(fixture, name + "-settings-" + QString(tab).toLower(), "rrSettingsOptions");
+        }
+        QVERIFY(fixture.press("rrSettingsStyling"));
+        for (auto *previous = fixture.widget("rrSettingsOptionsPrevious");
+             previous && previous->isVisible() && previous->isEnabled();)
+            QVERIFY(fixture.press("rrSettingsOptionsPrevious"));
+        for (const auto &[row, popup, suffix] : {std::tuple{"rrWordSpacing", "rrWordSpacingPopup", "styling-word-spacing"},
+                                                std::tuple{"rrWidowsOrphans", "rrWidowsOrphansPopup", "styling-widows"}}) {
+            QVERIFY(revealSettingsOption(fixture, row));
+            QVERIFY(fixture.press(row));
+            QTRY_VERIFY(fixture.visible(popup));
+            QTRY_VERIFY_WITH_TIMEOUT(fixture.widget("rrStylingPreview")->property("sample_ready").toBool(), 10000);
+            QVERIFY(scene(suffix));
+            QVERIFY(fixture.press(qPrintable(QString(popup).replace("Popup", "Close"))));
+            QTRY_VERIFY(!fixture.visible(popup));
         }
     }
     const bool fill = fixture.window.findChild<QComboBox *>("desktopScreenPicker")->currentIndex() == 0;
@@ -4036,7 +4059,26 @@ exit 7
         QVERIFY(fixture.press("rrPage"));
         QTRY_VERIFY(fixture.visible("rrSettings"));
         QVERIFY(fixture.press("rrSettings"));
-        QVERIFY(fixture.press("rrSettingsStyling"));
+        // A scenario must not settle while sample renders are queued behind
+        // other engine work, even though the book itself is idle.
+        {
+            struct Gate {
+                QSemaphore release;
+                std::atomic_bool entered{false};
+            };
+            auto gate = std::make_shared<Gate>();
+            auto unblock = qScopeGuard([gate] { gate->release.release(); });
+            qt::invoke(engineWorker(), [gate] {
+                EngineJob activity;
+                gate->entered.store(true);
+                gate->release.acquire();
+            }, Qt::QueuedConnection);
+            QTRY_VERIFY(gate->entered.load());
+            QVERIFY(fixture.press("rrSettingsStyling"));
+            QVERIFY(fixture.window.readerWindow()->busy());
+            gate->release.release();
+            QTRY_VERIFY_WITH_TIMEOUT(!fixture.window.readerWindow()->busy(), 10000);
+        }
         QTRY_VERIFY(fixture.visible("rrSettingsClose"));
         QVERIFY(fixture.visible("rrSettingsTitle"));
         QCOMPARE(fixture.widget("rrSettingsTitle")->font().family(),
@@ -4069,124 +4111,40 @@ exit 7
         QCOMPARE(wordSpacing->caption(), strings::get("settings.word_spacing_normal").toUpper());
         QVERIFY(fixture.press("rrWordSpacing"));
         QTRY_VERIFY(fixture.visible("rrWordSpacing_wide"));
-        QVERIFY(ui::registerPrivateInterfaceFont(QStringLiteral(KOBALT_TEST_ASSETS) + "/fonts/InstrumentSerif-Regular.ttf",
-                                                 "Sample Private Serif"));
-        // Force the private renderer used by fonts that Qt cannot load.
-        // Words with descenders must share the capital's baseline.
-        const auto verifySample = [](QWidget *preview, int tracking, int spacing) {
-            const auto savedFont = preview->font();
-            const auto savedStyle = preview->styleSheet();
-            const auto savedSize = preview->size();
-            preview->setStyleSheet("font-family: 'Sample Private Serif';");
-            auto font = preview->font();
-            font.setPixelSize(32);
-            font.setLetterSpacing(QFont::AbsoluteSpacing, 32 * tracking / 100.0);
-            font.setWordSpacing(0);
-            QVERIFY(ui::needsPrivateText("A quiet evening", font));
-            const QString text = "A quiet evening";
-            font.setWordSpacing(spacing > 0
-                ? ui::interfaceTextWidth(" ", font) * (spacing / 100.0 - 1)
-                : (312 - ui::interfaceTextWidth(text, font)) / 2.0);
-            preview->resize(360, 150);
-            const auto image = preview->grab().toImage().scaled(360, 150);
-            int baseline = -1;
-            for (const auto &word : {QString("A"), QString("quiet"), QString("evening")}) {
-                const int offset = text.indexOf(word);
-                const int x = 24 + (312 - ui::interfaceTextWidth(text, font)) / 2 +
-                              (offset ? ui::measurePrivateText(text.left(offset), font) +
-                                            qRound(font.letterSpacing()) : 0);
-                const auto glyphs = ui::renderPrivateText(word, font);
-                QRect actualInk, expectedInk;
-                for (int y = 24; y < 68; ++y)
-                    for (int column = x; column < x + glyphs.advance; ++column)
-                        if (qGray(image.pixel(column, y)) < 128)
-                            actualInk = actualInk.united(QRect(column, y, 1, 1));
-                for (int y = 0; y < glyphs.image.height(); ++y)
-                    for (int column = 0; column < glyphs.image.width(); ++column)
-                        if (qAlpha(glyphs.image.pixel(column, y)) >= 128)
-                            expectedInk = expectedInk.united(QRect(column, y, 1, 1));
-                QVERIFY(!actualInk.isEmpty() && !expectedInk.isEmpty());
-                QVERIFY(qAbs(actualInk.width() - expectedInk.width()) <= 1);
-                const int wordBaseline = actualInk.bottom() - glyphs.origin.y() - expectedInk.bottom();
-                if (baseline >= 0)
-                    QVERIFY2(qAbs(wordBaseline - baseline) <= 1, "Sample words do not share a baseline");
-                baseline = wordBaseline;
-            }
-            // Compare the first glyph with a direct raster at the output
-            // font size. Scaling an already rendered sample must fail this.
-            preview->resize(320, 134);
-            for (qreal scale : {.73, 1.0, 1.37}) {
-                for (qreal dpr : {1.0, 2.0}) {
-                    QImage output(qCeil((preview->width() * scale + 4) * dpr),
-                                  qCeil((preview->height() * scale + 4) * dpr), QImage::Format_ARGB32);
-                    output.setDevicePixelRatio(dpr);
-                    output.fill(Qt::white);
-                    QRect pixels;
-                    {
-                        QPainter painter(&output);
-                        painter.translate(.33, .47);
-                        painter.scale(scale, scale);
-                        pixels = painter.deviceTransform().mapRect(QRectF(preview->rect())).toAlignedRect();
-                        preview->render(&painter);
-                    }
-                    auto pixelFont = font;
-                    pixelFont.setPixelSize(qRound(pixels.height() * 32 / 150.0));
-                    pixelFont.setLetterSpacing(QFont::AbsoluteSpacing, pixelFont.pixelSize() * tracking / 100.0);
-                    pixelFont.setWordSpacing(0);
-                    const int lineWidth = qRound(pixels.width() * 312 / 360.0);
-                    pixelFont.setWordSpacing(spacing > 0
-                        ? ui::interfaceTextWidth(" ", pixelFont) * (spacing / 100.0 - 1)
-                        : (lineWidth - ui::interfaceTextWidth(text, pixelFont)) / 2.0);
-                    const auto glyph = ui::renderPrivateText("A", pixelFont);
-                    const int left = pixels.left() + qRound(pixels.width() * 24 / 360.0) +
-                                     (lineWidth - ui::interfaceTextWidth(text, pixelFont)) / 2;
-                    const int top = pixels.top() + qRound(pixels.height() * 24 / 150.0);
-                    const int lineHeight = qRound(pixels.height() * 44 / 150.0);
-                    QRect actualInk, expectedInk;
-                    for (int y = top; y < top + lineHeight; ++y)
-                        for (int x = left; x < left + glyph.image.width() + 2; ++x)
-                            if (qGray(output.pixel(x, y)) < 128)
-                                actualInk = actualInk.united(QRect(x, y, 1, 1));
-                    for (int y = 0; y < glyph.image.height(); ++y)
-                        for (int x = 0; x < glyph.image.width(); ++x)
-                            if (qAlpha(glyph.image.pixel(x, y)) >= 128)
-                                expectedInk = expectedInk.united(QRect(x, y, 1, 1));
-                    QRect lineInk;
-                    for (int y = top; y < top + lineHeight; ++y)
-                        for (int x = pixels.left() + 2; x < pixels.right() - 1; ++x)
-                            if (qGray(output.pixel(x, y)) < 128)
-                                lineInk = lineInk.united(QRect(x, y, 1, 1));
-                    QVERIFY(!lineInk.isEmpty());
-                    QVERIFY2(qAbs(lineInk.center().x() - pixels.center().x()) <= 2,
-                             "Sample text is not centered in its box");
-                    QCOMPARE(actualInk.size(), expectedInk.size());
-                    for (int y = 0; y < actualInk.height(); ++y)
-                        for (int x = 0; x < actualInk.width(); ++x)
-                            QVERIFY2(qAbs(qGray(output.pixel(actualInk.topLeft() + QPoint(x, y))) -
-                                          (255 - qAlpha(glyph.image.pixel(expectedInk.topLeft() + QPoint(x, y))))) <= 1,
-                                     "Sample glyph was resampled instead of rasterized at output resolution");
-                }
-            }
-            preview->resize(savedSize);
-            preview->setStyleSheet(savedStyle);
-            preview->setFont(savedFont);
+        // The sheet shows CREngine pages of a bundled sample. They arrive from
+        // the engine worker, and every option must look different.
+        const auto preview = [&fixture] {
+            auto *widget = fixture.widget("rrStylingPreview");
+            return widget ? widget->grab().toImage() : QImage();
         };
-        QImage previousSpaces;
-        for (const auto *name : {"rrWordSpacingPreview_narrow", "rrWordSpacingPreview_normal", "rrWordSpacingPreview_wide"}) {
-            auto *preview = fixture.widget(name);
-            QVERIFY(preview && preview->isVisible());
-            QVERIFY(preview->visibleRegion().contains(preview->rect()));
-            auto *defaultFont = dynamic_cast<ui::CaptionButton *>(fixture.widget("rrDefaultFont"));
-            QVERIFY(defaultFont);
-            QCOMPARE(preview->font().family(), sampleFace);
-            if (!bookFont.isEmpty())
-                QVERIFY(preview->font().family() != defaultFont->typefacePreview());
-            const auto image = preview->grab().toImage();
-            QVERIFY(!image.isNull() && image != previousSpaces);
-            previousSpaces = image;
-            verifySample(preview, 0, QString(name).endsWith("narrow") ? 80 : QString(name).endsWith("wide") ? 120 : 100);
-        }
-        QVERIFY(fixture.click(fixture.widget("rrWordSpacingPreview_wide")));
+        // Some options can lay out these lines the same way, for example two
+        // spacings on justified text. At least two options must differ.
+        const auto compareOptions = [&](const char *popup, const QStringList &names) {
+            QVector<QImage> images;
+            int descriptionHeight = -1;
+            for (const auto &name : names) {
+                QVERIFY(fixture.press(qPrintable(name)));
+                QTRY_VERIFY(qobject_cast<QPushButton *>(fixture.widget(qPrintable(name)))->isChecked());
+                // Choosing keeps the sheet open, so the options can be compared.
+                QVERIFY(fixture.visible(popup));
+                // A longer description must not move the controls below it.
+                const int height = fixture.widget("rrAdvancedTextDescription")->height();
+                QVERIFY2(descriptionHeight < 0 || height == descriptionHeight, qPrintable(name));
+                descriptionHeight = height;
+                QCoreApplication::processEvents();
+                const auto image = preview();
+                QVERIFY(!image.isNull());
+                if (!images.contains(image))
+                    images.append(image);
+            }
+            QVERIFY2(images.size() > 1, popup);
+        };
+        QTRY_VERIFY_WITH_TIMEOUT(fixture.widget("rrStylingPreview")->property("sample_ready").toBool(), 10000);
+        compareOptions("rrWordSpacingPopup", {"rrWordSpacing_narrow", "rrWordSpacing_normal", "rrWordSpacing_wide"});
+        auto *description = qobject_cast<QLabel *>(fixture.widget("rrAdvancedTextDescription"));
+        QVERIFY(description);
+        QVERIFY(description->text().startsWith(strings::get("settings.word_spacing_wide")));
+        QVERIFY(fixture.press("rrWordSpacingClose"));
         QTRY_VERIFY(!fixture.visible("rrWordSpacingPopup"));
         QCOMPARE(wordSpacing->caption(), strings::get("settings.word_spacing_wide").toUpper());
         QVERIFY(!storage::readJson(fixture.paths.preferences()).contains("word_spacing"));
@@ -4197,101 +4155,46 @@ exit 7
         QCOMPARE(tracking->accessibleDescription(), strings::get("settings.justification_tracking_summary"));
         QCOMPARE(widows->accessibleDescription(), strings::get("settings.widows_orphans_summary"));
         QVERIFY(tracking->height() >= tracking->heightForWidth(tracking->width()));
-        const auto *fontsHeading = fixture.widget("rrFontsFamiliesSection");
         const auto *advancedHeading = fixture.widget("rrAdvancedTextSection");
+        const auto *breaksHeading = fixture.widget("rrVerticalSpacingSection");
+        const auto *smartHeading = fixture.widget("rrSmartStylingSection");
         const auto *contentHeading = fixture.widget("rrAdvancedContentSection");
-        QVERIFY(fontsHeading && advancedHeading && contentHeading);
-        QVERIFY(fontsHeading->y() < advancedHeading->y() && advancedHeading->y() < contentHeading->y());
+        QVERIFY(advancedHeading && breaksHeading && smartHeading && contentHeading);
+        QVERIFY(advancedHeading->y() < breaksHeading->y() && breaksHeading->y() < smartHeading->y() &&
+                smartHeading->y() < contentHeading->y());
+        // Fallback fonts are font defaults, in the Defaults tab with Default font.
+        auto *defaultsPage = fixture.widget("rrDefaultsOptions");
+        QVERIFY(defaultsPage);
+        for (const auto *name : {"rrFontsFamiliesSection", "rrSerifFont", "rrSansFont", "rrMonoFont"})
+            QVERIFY2(defaultsPage->isAncestorOf(fixture.widget(name)), name);
         QCOMPARE(tracking->caption(), strings::get("settings.justification_tracking_off").toUpper());
         QCOMPARE(widows->caption(), strings::get("settings.widows_orphans_publisher").toUpper());
         QVERIFY(fixture.press("rrJustificationTracking"));
         QTRY_VERIFY(fixture.visible("rrTracking_more"));
         auto *notice = qobject_cast<QLabel *>(fixture.widget("rrTrackingAlignmentNotice"));
         QVERIFY(notice && notice->isVisible());
-        QVERIFY(notice->font().italic());
-        QCOMPARE(notice->palette().color(QPalette::WindowText), ui::noteColor(notice));
         const auto suffix = alignment == "left" ? "left" : alignment == "justify" ? "justified"
                             : alignment == "publisher" ? "publisher" : "other";
         QCOMPARE(notice->text(), strings::get((QString("settings.justification_tracking_current_") + suffix).toUtf8().constData()));
         QVERIFY(notice->visibleRegion().contains(notice->rect()));
-        auto *footer = fixture.widget("rrTrackingAlignmentFooter");
-        QVERIFY(footer);
-        auto *lastChoice = fixture.widget("rrTracking_more");
-        QVERIFY(lastChoice);
-        auto *choices = lastChoice->parentWidget();
-        QCOMPARE(choices->parentWidget(), footer->parentWidget());
-        QVERIFY2(choices->geometry().bottom() < footer->y(), "Tracking alignment footer overlaps the choices");
-        QVERIFY(footer->parentWidget()->rect().contains(footer->geometry()));
-        QVERIFY(notice->mapTo(footer, QPoint()).x() >= int(ui::metrics::chrome::inset));
-        QVERIFY(notice->mapTo(footer, QPoint()).y() >= int(ui::metrics::spacing::row));
-        auto *hint = fixture.widget("rrTrackingPopup")->findChild<QLabel *>("rrAdvancedTextHint");
-        QVERIFY(hint && hint->textFormat() == Qt::RichText);
-        QCOMPARE(hint->font().pixelSize(), int(ui::metrics::chrome::descriptionText + ui::Px{1}));
-        QVERIFY(hint->text().contains("data:image/png;base64,"));
-        QVERIFY(hint->visibleRegion().contains(hint->rect()));
-        QImage previousPreview;
-        for (const auto *name : {"rrTrackingPreview_off", "rrTrackingPreview_subtle", "rrTrackingPreview_more"}) {
-            auto *preview = fixture.widget(name);
-            QVERIFY(preview && preview->isVisible());
-            auto *defaultFont = dynamic_cast<ui::CaptionButton *>(fixture.widget("rrDefaultFont"));
-            QVERIFY(defaultFont);
-            QCOMPARE(preview->font().family(), sampleFace);
-            if (!bookFont.isEmpty())
-                QVERIFY(preview->font().family() != defaultFont->typefacePreview());
-            QVERIFY(preview->visibleRegion().contains(preview->rect()));
-            const auto image = preview->grab().toImage();
-            QVERIFY(!image.isNull() && image != previousPreview);
-            previousPreview = image;
-            verifySample(preview, QString(name).endsWith("more") ? 15 : QString(name).endsWith("subtle") ? 5 : 0, 0);
-        }
-        QVERIFY(fixture.click(fixture.widget("rrTrackingPreview_more")));
+        QTRY_VERIFY_WITH_TIMEOUT(fixture.widget("rrStylingPreview")->property("sample_ready").toBool(), 10000);
+        compareOptions("rrTrackingPopup", {"rrTracking_off", "rrTracking_subtle", "rrTracking_more"});
+        QVERIFY(fixture.press("rrTrackingClose"));
         QTRY_VERIFY(!fixture.visible("rrTrackingPopup"));
         QCOMPARE(tracking->caption(), strings::get("settings.justification_tracking_more").toUpper());
         QVERIFY(reveal("rrWidowsOrphans"));
         QVERIFY(fixture.press("rrWidowsOrphans"));
         QTRY_VERIFY(fixture.visible("rrWidowsOrphans_avoid"));
-        auto *example = fixture.widget("rrPaginationPreview_avoid");
-        QVERIFY(example && example->isVisible());
-        QVERIFY(example->visibleRegion().contains(example->rect()));
-        QVERIFY(fixture.widget("rrWidowsOrphansPopup")->rect().contains(
-            QRect(example->mapTo(fixture.widget("rrWidowsOrphansPopup"), QPoint()), example->size())));
-        // The native canvas paints controls at fractional screen scales.
-        // All four dark paragraph bars must retain one output-pixel height.
-        for (qreal scale : {.73, 1.11, 1.37}) {
-            for (qreal dpr : {1.0, 2.0}) {
-                QImage image(qCeil((example->width() * scale + 4) * dpr),
-                             qCeil((example->height() * scale + 4) * dpr), QImage::Format_ARGB32);
-                image.setDevicePixelRatio(dpr);
-                image.fill(Qt::white);
-                {
-                    QPainter painter(&image);
-                    painter.translate(.33, .47);
-                    painter.scale(scale, scale);
-                    example->render(&painter);
-                }
-                QVector<int> heights;
-                bool inLine = false;
-                for (int y = 0; y < image.height(); ++y) {
-                    int ink = 0;
-                    for (int x = 0; x < image.width(); ++x)
-                        ink += qGray(image.pixel(x, y)) < 50;
-                    if (ink > 10) {
-                        if (!inLine)
-                            heights.append(0);
-                        ++heights.last();
-                        inLine = true;
-                    } else {
-                        inLine = false;
-                    }
-                }
-                QCOMPARE(heights.size(), 4);
-                QCOMPARE(heights[0], heights[1]);
-                QCOMPARE(heights[1], heights[2]);
-                QCOMPARE(heights[2], heights[3]);
-            }
-        }
-        QVERIFY(fixture.click(example));
+        QTRY_VERIFY_WITH_TIMEOUT(fixture.widget("rrStylingPreview")->property("sample_ready").toBool(), 10000);
+        auto *sheet = fixture.widget("rrWidowsOrphansPopup");
+        auto *samplePages = fixture.widget("rrStylingPreview");
+        QVERIFY(sheet && samplePages && samplePages->visibleRegion().contains(samplePages->rect()));
+        // The sample is long enough that keeping lines together moves a break.
+        compareOptions("rrWidowsOrphansPopup", {"rrWidowsOrphans_allow", "rrWidowsOrphans_avoid"});
+        QVERIFY(!fixture.visible("rrStylingSameNote"));
+        QVERIFY(fixture.press("rrWidowsOrphansClose"));
         QTRY_VERIFY(!fixture.visible("rrWidowsOrphansPopup"));
+        QVERIFY(!storage::readJson(fixture.paths.preferences()).contains("justification_tracking"));
         QVERIFY(!storage::readJson(fixture.paths.preferences()).contains("justification_tracking"));
         auto *closeSettings = qobject_cast<QPushButton *>(fixture.widget("rrSettingsClose"));
         QVERIFY(closeSettings);
@@ -6257,7 +6160,7 @@ int main(int argc, char **argv) {
         return app.exec();
     }
     QFile fixture(book);
-    const int expectedScreenshots = lightGallery ? 56 : 738;
+    const int expectedScreenshots = lightGallery ? 56 : 744;
     if (captures.size() != expectedScreenshots)
         qCritical() << "Expected" << expectedScreenshots << "screenshots, captured" << captures.size();
     if (!fixture.open(QIODevice::ReadOnly) || captures.size() != expectedScreenshots) {

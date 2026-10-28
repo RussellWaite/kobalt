@@ -3389,15 +3389,9 @@ private slots:
         QVERIFY(!window->findChild<QWidget *>("rrKosyncManualPrompt"));
         complete = std::move(network->completed);
         complete(false);
-        auto *explanation = window->findChild<QCheckBox *>("rrKosyncManualExplanation");
-        QVERIFY(explanation && !explanation->isChecked());
-        explanation->click();
-        QVERIFY(kosync::Client(paths.syncAccount()).manualExplanation());
-        manual->click();
-        QVERIFY(window->findChild<QWidget *>("rrKosyncManualPrompt"));
         window->sleepReader();
         QCOMPARE(network->requests, 2);
-        QVERIFY(kosync::Client(paths.syncAccount()).manualExplanation());
+        QVERIFY(!kosync::Client(paths.syncAccount()).manualExplanation());
     }
     void kosyncManualConnection_data() {
         QTest::addColumn<QString>("connection");

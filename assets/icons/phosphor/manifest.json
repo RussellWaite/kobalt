@@ -19,6 +19,14 @@
       "sha256": "37975867f2e89f745250d3601a5674ca37883a8d79f52abcb082beba4df28df7"
     },
     {
+      "file": "arrows-horizontal.svg",
+      "sha256": "964d441543e0dc71ad40b234424fae92be4dea3e0eff7237dad53c50c88143b4"
+    },
+    {
+      "file": "arrows-vertical.svg",
+      "sha256": "986995d65122f130dac1f37d9b07bce44ec132301a0d4795c7765edeb6785ec8"
+    },
+    {
       "file": "bluetooth.svg",
       "sha256": "b7acd2d97b06217902bfe61cafd4dda5432a0823ebee5cca8a26175efab46b91"
     },
@@ -83,6 +91,10 @@
       "sha256": "3e2e2a1f466051a32abed16cd8e6eadf30f9c560aeb6dcf2545f9c8a95ddfdef"
     },
     {
+      "file": "eye-slash.svg",
+      "sha256": "070b0296a7df89ebf4cec12436e323b5531d458aa9aed3608924085889e1fd17"
+    },
+    {
       "file": "eye.svg",
       "sha256": "91d39f20bf95e0f36c07bd79b83a85fe6ff4ca20e2759c4afee7419ef80403fe"
     },
@@ -139,6 +151,10 @@
       "sha256": "7f9e0acc09a417a48328cd5b74e95de98989c5af1710ca5da705179da75c72d9"
     },
     {
+      "file": "magic-wand.svg",
+      "sha256": "91081dfdad19006625f8a40a64ea967bb77ecf3d11cebda06c25b217b228dc12"
+    },
+    {
       "file": "magnifying-glass.svg",
       "sha256": "f9fa2561978a9a3291e8ae0ebfcb651104f5069fade8f84871627bca68889cde"
     },
@@ -149,6 +165,10 @@
     {
       "file": "paint-brush-broad.svg",
       "sha256": "f91cd53b559766993b6b10111077ac90024c9a36fbc8ce4d9c4b2458b4265dba"
+    },
+    {
+      "file": "paragraph.svg",
+      "sha256": "62f5329938f7bc1d4885b28fcd700d349eadfcfe1b160c9c52eed98608f8933a"
     },
     {
       "file": "pencil-simple.svg",

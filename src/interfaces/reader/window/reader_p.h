@@ -34,6 +34,8 @@
 #include "platform/api/reader_orientation.h"
 #include "ui/screen_refresh.h"
 #include <QCheckBox>
+#include <array>
+#include <atomic>
 #include <QElapsedTimer>
 #include <QFile>
 #include <QFrame>
@@ -85,7 +87,7 @@ public:
     void refreshHostPresentation() override;
     void pageButton(int direction) override;
     bool busy() const override {
-        return model->busy() || model->preparingNeighbours();
+        return model->busy() || model->preparingNeighbours() || stylingSamplesPending > 0;
     }
     // Automatic syncs follow the account setting, unless a performance run
     // has paused them for the whole process.
@@ -531,7 +533,18 @@ private:
     int settingsTracking = 0;
     QString settingsWidowsOrphans = "publisher";
     QString settingsVerticalSpacing = "off", settingsVerticalSpacingScope = "all";
-    void showAdvancedText();
+    // `changed` is the styling setting that just changed, as a
+    // SettingsPanel::AdvancedText value, or -1. Its samples already show
+    // every option, so only the others are drawn again.
+    void showAdvancedText(int changed = -1);
+    void renderStylingSamples(int unchanged = -1);
+    // The selected option of a SettingsPanel::AdvancedText setting, in sheet order.
+    int stylingChoice(int feature) const;
+    // The latest sample render of each setting. Setting one stops its render.
+    std::array<std::shared_ptr<std::atomic_bool>, 5> stylingSampleRenders;
+    // Includes queued renders until their results reach the GUI thread.
+    int stylingSamplesPending = 0;
+    void cancelStylingSamples();
     static QString refreshExplanation(kobalt::ScreenRefresh mode);
     static QString refreshLabel(kobalt::ScreenRefresh mode);
     void showScreenRefresh();

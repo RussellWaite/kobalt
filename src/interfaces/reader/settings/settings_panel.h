@@ -7,6 +7,8 @@
 #include "dictionaries_page.h"
 #include "kosync_page.h"
 #include "assets/font_catalog.h"
+#include "reading/style_sample.h"
+#include <QHash>
 #include <QStackedWidget>
 #include <QVector>
 #include <QPointer>
@@ -49,8 +51,23 @@ public:
     void showColumnSpacingChoices(int current, std::function<void(int)> chosen);
     static QString columnSpacingLabel(int percent);
     enum class AdvancedText { WordSpacing, Tracking, Pagination, VerticalSpacing, VerticalSpacingScope };
+    // The sheet stays open while choosing, so each choice can be compared in
+    // its preview.
     void showAdvancedTextChoices(AdvancedText feature, int current, std::function<void(int)> chosen,
-                                 const QFont &sampleFont = {}, const QString &alignment = {});
+                                 const QString &alignment = {});
+    // Rendered sample pages for every option of one setting, shown when its
+    // sheet is open.
+    void setStylingSample(AdvancedText feature, const StyleSample &sample);
+    void clearStylingSamples();
+    // Called when the panel hides, so pending sample renders can stop.
+    std::function<void()> stylingHidden;
+    // Sizes the sample is drawn at, in device pixels, for a reading page.
+    // `edge` leaves room for the magnified bottom edge of page spacing.
+    QSize stylingPageSize(QSize readingPage, bool edge = false) const;
+    int stylingEdgeHeight() const;
+    // The page region, in device pixels, that fills the magnified edge.
+    QSize stylingEdgeSize(QSize readingPage) const;
+    QSize stylingCropSize(QSize readingPage, int horizontalMargin) const;
     QPointer<ui::ModalOverlay> fontDialog;
     ui::CellButton *closeButton = nullptr;
     void showDictionaries(bool visible);
@@ -96,5 +113,12 @@ private:
     void fitRail(int availableHeight = 0);
     QLabel *aboutDescription = nullptr;
     QPointer<ui::ChoiceModal> restoreDialog;
+    QHash<int, StyleSample> stylingSamples;
+    // The open styling sheet, if any, and the option its preview shows.
+    QPointer<QWidget> stylingPreview;
+    std::function<void()> stylingSampleReady;
+    AdvancedText stylingFeature = AdvancedText::WordSpacing;
+    int stylingChoice = 0;
+    void showStylingPreview();
 };
 }

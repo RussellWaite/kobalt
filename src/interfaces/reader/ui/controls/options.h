@@ -6,6 +6,7 @@
 #include <functional>
 
 namespace kobalt::ui {
+enum class ControlIcon;
 class DescribedOption : public QCheckBox {
 public:
     DescribedOption(const QString &text, const QString &description, QWidget *parent);
@@ -50,6 +51,8 @@ public:
     void setValue(const QString &value, const ValueStyle &style);
     // A non-interactive thumbnail shares the row's click target.
     void setPreview(QWidget *widget, QSize size);
+    // An icon before the label, placed like the icons of list action rows.
+    void setLeadingIcon(ControlIcon icon);
 
 protected:
     void mouseReleaseEvent(QMouseEvent *event) override;
@@ -63,6 +66,8 @@ private:
     ValueStyle valueStyle;
     QWidget *preview = nullptr;
     QSize previewSize;
+    int leadingIcon = -1;
+    int iconSpace() const;
 };
 
 // A pick-one list: a row per choice with a radio on the left, its label and
