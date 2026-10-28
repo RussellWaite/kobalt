@@ -24,7 +24,6 @@
 #include <QApplication>
 #include <QJsonArray>
 #include <QFontInfo>
-#include <QFontDatabase>
 #include <QHideEvent>
 #include <QResizeEvent>
 #include <QMouseEvent>
@@ -75,8 +74,6 @@ Reader::~Reader() {
     light.reset();
     presentation->clearSleepScreen();
     presentation->resumeBackground();
-    for (int id : registeredFonts)
-        QFontDatabase::removeApplicationFont(id);
     kobalt::ui::setInterfaceFontFamily({});
     kobalt::ui::setInterfaceMonoFontFamily({});
     kobalt::ui::setHeaderFooterFontFamily({});
@@ -471,6 +468,10 @@ bool Reader::eventFilter(QObject *watched, QEvent *event) {
     if (type == QEvent::TouchBegin || type == QEvent::TouchUpdate || type == QEvent::MouseButtonPress ||
         type == QEvent::KeyPress)
         lastInput.start();
+    // Widgets that forward a press, such as a canvas, send a copy without the
+    // input's time. Keep the time of the press the platform delivered.
+    if ((type == QEvent::TouchBegin || type == QEvent::MouseButtonPress) && event->spontaneous())
+        lastPressTime = quint32(static_cast<QInputEvent *>(event)->timestamp());
     if (watched == bookmarkList && type == QEvent::Hide)
         closeMarksActions();
     if (type == QEvent::Show && (watched == topControls || watched == general || watched == choices ||

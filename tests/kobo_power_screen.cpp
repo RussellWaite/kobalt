@@ -112,6 +112,9 @@ private slots:
             {
                 kobalt::nickel::HomeSleepScreen screen(paths, nullptr);
                 screen.remember(snapshot, "book");
+                // The file is written on another thread. Every later use of it
+                // waits for that write first.
+                screen.finishSave();
                 QVERIFY(QFile::exists(paths.sleepScreen()));
             }
             // A new owner simulates Nickel starting with only the saved file.
@@ -150,8 +153,9 @@ private slots:
             screen.present();
             QVERIFY(!power.findChild<QWidget *>("rrSleepFrame"));
             screen.remember(snapshot, "book");
-            QVERIFY(QFile::exists(paths.sleepScreen()));
+            // Preparing waits for the background write before it reads the file.
             screen.prepare(true, true);
+            QVERIFY(QFile::exists(paths.sleepScreen()));
             power.hide();
             power.show();
             frame = power.findChild<QWidget *>("rrSleepFrame");

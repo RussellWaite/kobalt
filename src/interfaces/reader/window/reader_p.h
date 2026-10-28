@@ -346,9 +346,7 @@ private:
     quint64 warmScheduledGeneration = 0;
     quint64 warmAttemptGeneration = 0;
     using AppearanceDestination = kobalt::reader::AppearanceEditSession::Destination;
-    QVector<int> registeredFonts;
     QStringList pickerNativeFamilies;
-    QSet<QString> registeredFontPaths;
     bool resizePending = false;
     bool choosingTypography = false, dismissingFontTouch = false, dismissingFontMouse = false;
     QString navigationFontFace;
@@ -488,12 +486,18 @@ private:
     bool pageList(int direction);
     // Runs from a tap or swipe until its page is painted; invalid otherwise.
     QElapsedTimer turnStarted;
-    // Exit Kobalt ignores taps from when the chapter list closes until a short
-    // time after the reader has handled the close. A tap that waited in the
-    // queue while the screen repainted still counts as part of the double tap.
+    // Exit Kobalt ignores the second tap of a double tap on a panel's close
+    // control, which sits where Exit Kobalt is. A tap that waited in the queue
+    // while the screen repainted still counts as part of the double tap, but
+    // only if it was pressed within the guard time of the first. Closing
+    // Settings can hold the GUI longer than that on a device.
     bool exitGuarded = false;
     int exitGuardGeneration = 0;
+    // Source timestamps of the newest press and of the press that armed the
+    // exit guard. Zero when the platform gives no timestamp.
+    quint32 lastPressTime = 0, exitGuardPressTime = 0;
     void guardExit();
+    bool exitGuardElapsed() const;
     // Full flashes clear the ghosting that partial page turns leave behind.
     // Turns since the last flash, for the Refresh the screen setting.
     int pagesSinceFlash = 0;

@@ -10,6 +10,7 @@
 #include <QEvent>
 #include <QSqlDatabase>
 #include <dlfcn.h>
+#include <future>
 
 namespace kobalt::nickel {
 namespace {
@@ -63,7 +64,17 @@ void HomeSleepScreen::save(const sleep::Snapshot &next, const QString &identity)
     const auto token = currentToken(identity);
     if (token.isEmpty())
         return;
-    if (storage::writeSleepSnapshot(paths.sleepScreen(), next, token))
+    // Encoding a screen-sized PNG takes most of a second on a Kobo, and the
+    // reader saves it while it closes. Write it on another thread, so Home can
+    // paint at once. clear() waits for it before the file is used or removed.
+    pendingSave = std::async(std::launch::async, [path = paths.sleepScreen(), next, token] {
+        return storage::writeSleepSnapshot(path, next, token);
+    });
+}
+void HomeSleepScreen::finishSave() {
+    if (!pendingSave.valid())
+        return;
+    if (pendingSave.get())
         invalidated = false;
     else
         diagnostic("sleep-snapshot-save-failed");
@@ -93,8 +104,11 @@ void HomeSleepScreen::preparePowerOff(sleep::Snapshot next) {
     compose();
 }
 void HomeSleepScreen::persistPowerOff(const QString &identity) {
-    if (poweredOff && !shutdownBackdrop.image.isNull())
+    if (poweredOff && !shutdownBackdrop.image.isNull()) {
         save(shutdownBackdrop, identity);
+        // Nickel powers off once the shutdown continues.
+        finishSave();
+    }
     shutdownBackdrop = {};
 }
 bool HomeSleepScreen::eventFilter(QObject *object, QEvent *event) {
@@ -119,6 +133,9 @@ void HomeSleepScreen::present() {
         presentation->presentSleepScreen(snapshot.image, snapshot.orientation);
 }
 void HomeSleepScreen::clear() {
+    // Sleep, wake, USB and power-off all clear first. None of them may meet a
+    // half-written file or unmount storage under the writer.
+    finishSave();
     presentation->clearSleepScreen();
     snapshot = {};
     shutdownBackdrop = {};

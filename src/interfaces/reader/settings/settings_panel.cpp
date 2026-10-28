@@ -251,7 +251,8 @@ SettingsPanel::SettingsPanel(QWidget *parent, const SettingsPanelInputs &inputs)
     settingsPages->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
     settingsPages->layout()->setSizeConstraint(QLayout::SetNoConstraint);
     settingsPages->setObjectName("rrSettingsPages");
-    readerStyle(settingsPages, styles::tabFrame());
+    readerStyle(settingsPages,
+                QString("QStackedWidget{border:0;border-left:%1px solid palette(window-text);}").arg(int(m::control::border)));
     auto *tabGroup = new QButtonGroup(this);
     const char *tabNames[] = {"rrSettingsDisplay",      "rrSettingsControls", "rrSettingsDefaults", "rrSettingsStyling",
                               "rrSettingsDictionaries", "rrSettingsSystem",   "rrSettingsAbout", "rrSettingsKosync"};
@@ -700,9 +701,6 @@ SettingsPanel::SettingsPanel(QWidget *parent, const SettingsPanelInputs &inputs)
                 .arg(int(m::control::border)));
     }
     fitRail();
-    ui::readerStyle(
-        settingsPages,
-        QString("QStackedWidget{border:0;border-left:%1px solid palette(window-text);}").arg(int(m::control::border)));
     ui::readerStyle(description, ui::styles::font(c::labelText));
     ui::readerStyle(version, ui::styles::font(c::descriptionText));
     ui::readerStyle(commit, ui::styles::font(ui::px(21)));

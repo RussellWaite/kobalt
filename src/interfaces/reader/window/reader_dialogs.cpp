@@ -438,6 +438,7 @@ void Reader::showFinishChoice() {
 
 void Reader::guardExit() {
     exitGuarded = true;
+    exitGuardPressTime = lastPressTime;
     const int generation = ++exitGuardGeneration;
     kobalt::qt::later(0, this, [this, generation] {
         kobalt::qt::later(m::contents::exitGuardMilliseconds, this, [this, generation] {
@@ -445,6 +446,16 @@ void Reader::guardExit() {
                 exitGuarded = false;
         });
     });
+}
+
+bool Reader::exitGuardElapsed() const {
+    // The timer above starts once the reader has handled the close. Source
+    // timestamps tell a tap pressed later apart from one that only waited.
+    // Without them, the timer alone decides. Subtraction permits clock wrap.
+    if (!exitGuardPressTime || !lastPressTime)
+        return false;
+    const quint32 elapsed = lastPressTime - exitGuardPressTime;
+    return elapsed < 0x80000000u && elapsed >= quint32(m::contents::exitGuardMilliseconds);
 }
 
 void Reader::askRemoveBookmark(const QString &position) {

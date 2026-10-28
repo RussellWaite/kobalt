@@ -341,8 +341,8 @@ void Reader::buildReadingPage() {
     page->setFont(kobalt::ui::headerFooterFont());
     readerStyle(page, "font-family:@header-footer-font@;");
     dictionaryPanel = new kobalt::DictionaryPanel(this, services.keyboard);
-    dictionaryPanel->prepareEditorFont = [this](const QFont &font) {
-        registerEditorFont(font, registeredFonts);
+    dictionaryPanel->prepareEditorFont = [](const QFont &font) {
+        registerEditorFont(font);
     };
     dictionaryPanel->setDefinitionFont(settingsDictionaryFontFace, settingsDictionaryFontSize);
     dictionaryPanel->setLanguage(model->state().value("language").toString());
@@ -541,7 +541,7 @@ void Reader::buildToolbar() {
     connect(back, &QPushButton::clicked, this, [this] {
         // The chapter list's close cell sits where Exit Kobalt is. A second
         // tap that lands after the list closed must not leave the reader.
-        if (exitGuarded)
+        if (exitGuarded && !exitGuardElapsed())
             return;
         close();
     });

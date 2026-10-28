@@ -257,6 +257,15 @@ int main(int argc, char **argv) {
                         theme.sleepDim == QColor(0, 0, 0, 40),
                     "Theme flattened an intentional surface or caption color");
         }
+        // Reader sheets are cached, so the same source must follow a new
+        // interface font as well as a new theme.
+        QLabel sample(&host);
+        for (const auto &family : {QString(), QStringLiteral("Kobalt Test Face"), QString()}) {
+            setInterfaceFontFamily(family);
+            readerStyle(&sample, "font-family:\"@ui-font-family@\";");
+            require(sample.styleSheet().contains("font-family:\"" + interfaceFont().family() + "\";"),
+                    "A cached reader sheet kept the previous interface font");
+        }
     }
     {
         QWidget host;
@@ -2341,14 +2350,10 @@ int main(int argc, char **argv) {
         editorFont.setPixelSize(36);
         require(QRawFont::fromFont(editorFont).familyName() != nativeFamily,
                 "The private editor fixture was already registered with Qt");
-        QVector<int> editorIds;
-        kobalt::reader::registerEditorFont(editorFont, editorIds);
-        require(editorIds.size() == 1 && QRawFont::fromFont(renewedFont(editorFont)).familyName() == nativeFamily,
+        require(kobalt::reader::registerEditorFont(editorFont) &&
+                    QRawFont::fromFont(renewedFont(editorFont)).familyName() == nativeFamily,
                 "A native editor must resolve the private reading face instead of a fallback");
-        kobalt::reader::registerEditorFont(editorFont, editorIds);
-        require(editorIds.size() == 1, "Reopening the editor must not register its face again");
-        for (int id : editorIds)
-            QFontDatabase::removeApplicationFont(id);
+        require(!kobalt::reader::registerEditorFont(editorFont), "Reopening the editor must not register its face again");
         PagedText preview;
         preview.resize(500, 150);
         preview.setMargins({});

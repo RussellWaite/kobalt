@@ -766,8 +766,13 @@ void ReaderCoordinator::showReader() {
     services.presentation = [this, identity](QWidget *reader) {
         return makeWindowPresentation(reader, nativeReaderSleepScreenAvailable(),
             [this, identity](const sleep::Snapshot &snapshot) {
-                if ((!lifecycle->blocked() && !NativeLifecycle::suspended()) || NativeLifecycle::usbSaveAllowed())
+                if ((!lifecycle->blocked() && !NativeLifecycle::suspended()) || NativeLifecycle::usbSaveAllowed()) {
                     homeSleep->remember(snapshot, identity);
+                    // USB export unmounts this storage after the reader's
+                    // final save. Write the file before that continues.
+                    if (lifecycle->blocked())
+                        homeSleep->finishSave();
+                }
             });
     };
     services.coverImagePath = run.nativePublication ? run.nativePublication->coverPath() : QString();

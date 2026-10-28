@@ -32,6 +32,8 @@ Run native Qt commands outside the agent sandbox on the development Mac. Headles
 
 Do not open a visible app or run visible UI tests without authorization. Prefer native headless validation while editing, then validate Kobo and Android integrations last. Reuse prepared SDKs and verified dependencies.
 
+Treat storage IO on Kobo as expensive. Devices store data on eMMC or, on older models, an SD card, and their speed differs widely. Measure storage-bound work, such as syncs and saves, on both kinds, and judge changes by the slower one.
+
 Stop and reap run-owned helper processes and remove scratch profiles, staging directories and temporary containers when a run ends, including on failure or interruption. Preserve the user's app state, active runs, SDKs and incremental caches. Retain useful current results and unresolved failure evidence rather than every successful raw log indefinitely.
 
 ## Repository practice

@@ -1821,6 +1821,46 @@ private slots:
         QTRY_COMPARE_WITH_TIMEOUT(closed.count(), 2, 10000);
     }
 
+    // Closing Settings guards Exit against the second half of a double tap.
+    // The guard judges a tap by when it was pressed, so a tap that only waited
+    // while a slow close held the GUI still exits. QTest gives each event a
+    // timestamp and puts a double-click interval between two clicks.
+    void exitGuardUsesTapTime() {
+        ReaderFixture host(testPaths(), testFonts, testPlaceholder);
+        CloseHost cleanup{host};
+        QSignalSpy opened(&host, &ReaderFixture::opened), closed(&host, &ReaderFixture::closed);
+        host.open(fixture(), nativeSize);
+        QTRY_COMPARE_WITH_TIMEOUT(opened.count(), 1, 30000);
+        Canvas canvas(host.window(), nativeSize);
+        canvas.resize(900, 900);
+        canvas.show();
+        canvas.setUpdatesEnabled(true);
+        QVERIFY(QTest::qWaitForWindowExposed(&canvas));
+        QTRY_VERIFY(!host.session()->busy());
+        QVERIFY(clickAt(canvas, QPoint(nativeSize.width() / 2, nativeSize.height() / 2)));
+        auto *exit = host.window()->findChild<QPushButton *>("rrReturn");
+        auto *settings = host.window()->findChild<QWidget *>("rrGeneralSettings");
+        QVERIFY(exit && settings);
+        const auto closeSettings = [&] {
+            QTRY_VERIFY(exit->isVisible() && exit->isEnabled());
+            QVERIFY(click(canvas, host.window()->findChild<QPushButton *>("rrSettings")));
+            QTRY_VERIFY(settings->isVisible());
+            QVERIFY(click(canvas, host.window()->findChild<QPushButton *>("rrSettingsClose")));
+            QTRY_VERIFY(!settings->isVisible() && exit->isVisible() && exit->isEnabled());
+        };
+        closeSettings();
+        // Pressed a few milliseconds after the close: part of a double tap.
+        QTest::lastMouseTimestamp -= QTest::mouseDoubleClickInterval;
+        QVERIFY(click(canvas, exit));
+        QTest::qWait(ui::metrics::contents::exitGuardMilliseconds + 100);
+        QCOMPARE(closed.count(), 0);
+        QVERIFY(host.window());
+        closeSettings();
+        // Pressed half a second after the close, before the guard timer ends.
+        QVERIFY(click(canvas, exit));
+        QTRY_COMPARE_WITH_TIMEOUT(closed.count(), 1, 10000);
+    }
+
     void staleSearchReplyIgnored() {
         ReaderFixture host(testPaths(), testFonts, testPlaceholder);
         CloseHost cleanup{host};

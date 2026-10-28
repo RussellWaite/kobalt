@@ -13,7 +13,6 @@
 #include "interfaces/reader/ui/style/metrics.h"
 #include "storage/reader_storage.h"
 #include "interfaces/reader/settings/settings_panel.h"
-#include "font_registration.h"
 #include "assets/bundled_fonts.h"
 #include <QFontDatabase>
 
@@ -554,12 +553,15 @@ QString Reader::bookFace() {
 }
 
 void Reader::registerPickerFonts(const QString &family) {
-    // Keep font-picker samples outside Qt's font database.
+    // Samples draw from the private faces, never from Qt's font database. Adding
+    // a font there and removing it when the reader closes makes Qt rebuild the
+    // whole database on the next text it draws, Nickel's Home included. On the
+    // Mac that rebuild was about 100 ms of a 125 ms close.
     const auto registerFont = [](const QString &path, const QString &family) {
         ui::registerPrivateInterfaceFont(path, family);
     };
     // Match the engine's source precedence so duplicate sideloads cannot
-    // replace a bundled face in Qt's font-name previews.
+    // replace a bundled face in font-name previews.
     // Qt 5.2 on firmware 4 keeps the first face it sees for a weight and
     // slant. A bold face whose PANOSE weight says "medium" is filed under
     // normal weight there, so register each family's regular face first.

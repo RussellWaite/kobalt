@@ -63,10 +63,6 @@ inline QString textAction() {
                .arg(px(4))
                .arg(px(12));
 }
-inline QString tabFrame() {
-    return QString("QStackedWidget#rrSettingsPages{border:%1px solid palette(mid);border-top:none;}")
-        .arg(int(metrics::settings::tabBorder));
-}
 inline QString tab(bool first) {
     return QString(
                "QPushButton{border-radius:0;min-height:%1px;padding:%2px %3px;border:%4px solid palette(mid);border-left-width:%5px;background:palette(midlight);} QPushButton:checked{background:palette(window-text);color:palette(window);padding-bottom:%2px;} QPushButton[kobalt_selected=\"true\"]{font-weight:normal;} QPushButton:pressed{background:palette(mid);}")

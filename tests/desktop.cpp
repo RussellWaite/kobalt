@@ -4241,6 +4241,9 @@ exit 7
         QVERIFY(!fixture.visible("rrSettingsClose"));
         // Closing Settings and exiting the reader share the leftmost cell.
         // Ignore the second half of a double tap after the header changes.
+        // The guard reads press times; QTest puts a double-click interval
+        // between clicks, so take it back to press within the double tap.
+        QTest::lastMouseTimestamp -= QTest::mouseDoubleClickInterval;
         QVERIFY(fixture.press("rrReturn"));
         QVERIFY(!fixture.window.idle());
         QTest::qWait(ui::metrics::contents::exitGuardMilliseconds + 10);

@@ -3,6 +3,7 @@
 #include "reading/sleep_screen.h"
 #include "platform/api/window_presentation.h"
 #include <QObject>
+#include <future>
 
 namespace kobalt::nickel {
 class HomeSleepScreen final : public QObject {
@@ -15,6 +16,8 @@ public:
     void persistPowerOff(const QString &identity);
     void present();
     void clear();
+    // Waits for the background write of a remembered screen.
+    void finishSave();
 
 private:
     bool eventFilter(QObject *, QEvent *) override;
@@ -25,5 +28,6 @@ private:
     bool poweredOff = false, invalidated = false;
     void compose();
     std::unique_ptr<WindowPresentation> presentation;
+    std::future<bool> pendingSave;
 };
 }

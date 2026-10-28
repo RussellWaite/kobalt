@@ -341,9 +341,10 @@ private:
         erase->setFixedWidth(width * 3 / 2);
         shift->setFixedHeight(height);
         erase->setFixedHeight(height);
+        // Style the keys before showing their row. Showing polishes them, and
+        // a style sheet on a polished widget polishes it again.
         for (int row = 0; row < rows.size(); ++row)
         {
-            rowWidgets[row]->setVisible(!rows[row].isEmpty());
             for (int column = 0; column < keys[row].size(); ++column) {
                 auto *key = keys[row][column];
                 const auto character = column < rows[row].size() ? rows[row].mid(column, 1) : QString();
@@ -354,6 +355,7 @@ private:
                 key->setVisible(!shown.isEmpty());
                 key->setFixedSize(width, height);
             }
+            rowWidgets[row]->setVisible(!rows[row].isEmpty());
         }
     }
     QPointer<Button> done;

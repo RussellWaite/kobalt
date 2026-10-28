@@ -1,8 +1,13 @@
 #include "theme.h"
 #include "metrics.h"
 #include "fonts.h"
+#include <QHash>
 #include <QPainter>
 #include <QVariant>
+#include <algorithm>
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
+#include <private/qwidget_p.h>
+#endif
 
 namespace kobalt::ui {
 namespace m = metrics;
@@ -63,6 +68,31 @@ QRectF pixelAlignedRect(const QPainter &painter, const QRectF &rect) {
                          qMax(1, qRound(device.bottom()) - qRound(device.top())));
     return transform.inverted().mapRect(aligned);
 }
+// Qt 6 keeps the new sheet of a widget whose subtree is not polished yet and
+// styles the widget when it is first polished. Qt 5.2 polishes the widget and
+// its whole subtree at once whenever an ancestor already has a sheet, and
+// again when the widgets are shown, so each sheet of a new panel costs a full
+// pass. Store the sheet the way Qt 6 does instead.
+// Qt 5.2 caches each parsed sheet until the next repolish, and its polish
+// does not drop that copy as Qt 6 does. A widget that already has a sheet may
+// have a parsed copy, so a changed sheet still takes the repolish.
+void applyStyleSheet(QWidget *widget, const QString &style) {
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
+    const auto polished = [](QWidget *candidate) {
+        return static_cast<QWidgetPrivate *>(QObjectPrivate::get(candidate))->polished != nullptr;
+    };
+    auto *d = static_cast<QWidgetPrivate *>(QObjectPrivate::get(widget));
+    if (d->extra && d->extra->style && d->extra->style->inherits("QStyleSheetStyle") &&
+        d->extra->styleSheet.isEmpty() && !polished(widget)) {
+        const auto children = widget->findChildren<QWidget *>();
+        if (std::none_of(children.begin(), children.end(), polished)) {
+            d->extra->styleSheet = style;
+            return;
+        }
+    }
+#endif
+    widget->setStyleSheet(style);
+}
 }
 void paintEdges(QPainter &painter, const QRect &rect, Edges edges, const QColor &ink, int width) {
     if (rect.isEmpty() || width <= 0 || !edges)
@@ -119,30 +149,48 @@ void paintHeaderRules(QPainter &painter, const QWidget *view) {
 }
 void readerStyle(QWidget *widget, const QString &source) {
     widget->setProperty("reader_style", source);
-    const auto &colors = themeColors(widget);
-    auto style = QString("QPushButton{border-radius:%1px;} ").arg(int(m::control::buttonRadius));
-    style += source.contains('{') ? source : QString("*{%1}").arg(source);
-    const auto escapedFamily = [](QString name) {
-        name.replace('\\', "\\\\");
-        name.replace('\"', "\\\"");
-        name.replace('\'', "\\'");
-        return name;
-    };
-    style.replace("@ui-font-family@", escapedFamily(interfaceFont().family()));
-    style.replace("@ui-caption-family@", escapedFamily(chromeFont().family()));
-    style.replace("@header-footer-font@", "\"" + escapedFamily(headerFooterFont().family()) + "\"");
-    style += " QPushButton:disabled,QPushButton:checked:disabled,QPushButton:pressed:disabled{"
-             "color:palette(mid);background:palette(window);border-color:palette(midlight);}";
-    style.replace("palette(window-text)", colors.ink.name());
-    style.replace("palette(window)", colors.paper.name());
-    style.replace("palette(midlight)", colors.pressedPaper.name());
-    style.replace("palette(mid)", colors.disabledInk.name());
-    style.replace("palette(light)", colors.divider.name());
-    style.replace("palette(placeholder-text)", colors.secondaryInk.name());
-    style.replace("palette(dark)", colors.outline.name());
-    style.replace("@swipe-caption-ink@", colors.swipeCaptionInk.name());
-    if (widget->styleSheet() != style)
-        widget->setStyleSheet(style);
+    const bool dark = darkTheme(widget);
+    // The sheet depends only on the source, the theme and the fonts that the
+    // source names. On Kobo, building it costs about as much as setting it, and
+    // a book opening builds the same few sources hundreds of times.
+    static const char *const placeholders[] = {"@ui-font-family@", "@ui-caption-family@", "@header-footer-font@"};
+    QString families[3];
+    for (int index = 0; index < 3; ++index)
+        if (source.contains(QLatin1String(placeholders[index])))
+            families[index] = (index == 0 ? interfaceFont() : index == 1 ? chromeFont() : headerFooterFont()).family();
+    const auto key = QString(dark ? "1\n" : "0\n") + families[0] + '\n' + families[1] + '\n' + families[2] + '\n' + source;
+    static QHash<QString, QString> sheets;
+    auto sheet = sheets.constFind(key);
+    if (sheet == sheets.constEnd()) {
+        // Sources that name a book font can keep adding entries.
+        if (sheets.size() >= 512)
+            sheets.clear();
+        const auto &colors = themeColors(dark);
+        auto style = QString("QPushButton{border-radius:%1px;} ").arg(int(m::control::buttonRadius));
+        style += source.contains('{') ? source : QString("*{%1}").arg(source);
+        const auto escapedFamily = [](QString name) {
+            name.replace('\\', "\\\\");
+            name.replace('\"', "\\\"");
+            name.replace('\'', "\\'");
+            return name;
+        };
+        style.replace(placeholders[0], escapedFamily(families[0]));
+        style.replace(placeholders[1], escapedFamily(families[1]));
+        style.replace(placeholders[2], "\"" + escapedFamily(families[2]) + "\"");
+        style += " QPushButton:disabled,QPushButton:checked:disabled,QPushButton:pressed:disabled{"
+                 "color:palette(mid);background:palette(window);border-color:palette(midlight);}";
+        style.replace("palette(window-text)", colors.ink.name());
+        style.replace("palette(window)", colors.paper.name());
+        style.replace("palette(midlight)", colors.pressedPaper.name());
+        style.replace("palette(mid)", colors.disabledInk.name());
+        style.replace("palette(light)", colors.divider.name());
+        style.replace("palette(placeholder-text)", colors.secondaryInk.name());
+        style.replace("palette(dark)", colors.outline.name());
+        style.replace("@swipe-caption-ink@", colors.swipeCaptionInk.name());
+        sheet = sheets.insert(key, style);
+    }
+    if (widget->styleSheet() != *sheet)
+        applyStyleSheet(widget, *sheet);
 }
 QPalette readerPalette(QPalette colors, bool dark) {
     const auto &theme = themeColors(dark);

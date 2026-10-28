@@ -18,6 +18,11 @@ if(KOBALT_QT_MAJOR EQUAL 5)
     set_target_properties(Qt5::GuiPrivate PROPERTIES
         INTERFACE_INCLUDE_DIRECTORIES "${Qt5Gui_PRIVATE_INCLUDE_DIRS};${Qt5Core_PRIVATE_INCLUDE_DIRS}"
         INTERFACE_LINK_LIBRARIES Qt5::Gui)
+    # Reader styling stores style sheets the way Qt 6 does; see theme.cpp.
+    add_library(Qt5::WidgetsPrivate INTERFACE IMPORTED)
+    set_target_properties(Qt5::WidgetsPrivate PROPERTIES
+        INTERFACE_INCLUDE_DIRECTORIES "${Qt5Widgets_PRIVATE_INCLUDE_DIRS}"
+        INTERFACE_LINK_LIBRARIES "Qt5::Widgets;Qt5::GuiPrivate")
     set(KOBALT_SYSTEM_FONT_DIRECTORY "/usr/local/Trolltech/QtEmbedded-4.6.2-arm/lib/fonts")
 else()
     set(KOBALT_SYSTEM_FONT_DIRECTORY "/usr/share/fonts")
@@ -115,6 +120,9 @@ target_link_libraries(kobalt PRIVATE Qt${KOBALT_QT_MAJOR}::Widgets Qt${KOBALT_QT
     "${engine}" "${prefix}/lib/libharfbuzz.a" "${prefix}/lib/libxxhash.a" "${prefix}/lib/libutf8proc.a"
     "${prefix}/lib/libjpeg.a" "${prefix}/lib/liblunasvg.a" "${prefix}/lib/libfreetype.a"
     "${prefix}/lib/libfribidi.a" "${prefix}/lib/libunibreak.a" "${KOBALT_TEST_PNG}" z dl pthread)
+if(KOBALT_QT_MAJOR EQUAL 5)
+    target_link_libraries(kobalt PRIVATE Qt5::WidgetsPrivate)
+endif()
 target_link_options(kobalt PRIVATE -Wl,--no-undefined
     "LINKER:--whole-archive,${prefix}/lib/libfreetype.a,--no-whole-archive"
     "LINKER:--exclude-libs,libharfbuzz.a:libjpeg.a:liblunasvg.a:libutf8proc.a:libfribidi.a:libunibreak.a:libfreetype.a")
