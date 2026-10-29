@@ -1,5 +1,6 @@
 #include "support/qt_compat.h"
 #include "native_lifecycle.h"
+#include "startup_recovery.h"
 #include "screensaver_compatibility.h"
 #include "reader_environment.h"
 #include "engine/crengine/engine_activity.h"
@@ -155,11 +156,17 @@ void (*nativeAboutUsbConnect)(void *);
 void (*nativePowerOff)(void *, bool);
 void (*nativeReboot)(void *);
 extern "C" __attribute__((visibility("default"))) void kobalt_power_off(void *manager, bool batteryLow) {
+#ifdef KOBALT_READER_HARDWARE
+    kobalt_startup_complete(nickel::startupPath);
+#endif
     const auto mode = batteryLow ? NativeLifecycle::Shutdown::BatteryLow : NativeLifecycle::Shutdown::PowerOff;
     if (!NativeLifecycle::interceptShutdown(static_cast<QObject *>(manager), mode))
         nativePowerOff(manager, batteryLow);
 }
 extern "C" __attribute__((visibility("default"))) void kobalt_reboot(void *manager) {
+#ifdef KOBALT_READER_HARDWARE
+    kobalt_startup_complete(nickel::startupPath);
+#endif
     if (!NativeLifecycle::interceptShutdown(static_cast<QObject *>(manager), NativeLifecycle::Shutdown::Reboot))
         nativeReboot(manager);
 }

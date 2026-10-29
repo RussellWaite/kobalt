@@ -1,5 +1,6 @@
 #include "support/qt_compat.h"
 #include "hooks.h"
+#include "platforms/kobo/common/startup_recovery.h"
 #include "platforms/kobo/common/book_menu.h"
 #include "opening_context.h"
 #include "touch_input.h"
@@ -104,6 +105,7 @@ bool setAlternativeEnabled(bool on) {
     return writeJson(selectionPath, config);
 }
 #ifdef KOBALT_READER_HARDWARE
+#ifdef KOBALT_READER_TEMPORARY
 bool armFlag(const char *path, const QByteArray &message) {
     const int fd = ::open(path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0644);
     if (fd < 0)
@@ -122,6 +124,7 @@ bool armFlag(const char *path, const QByteArray &message) {
         ok = false;
     return ok;
 }
+#endif
 bool supportedFirmware() {
     QFile version("/mnt/onboard/.kobo/version");
     if (!version.open(QIODevice::ReadOnly))
@@ -250,7 +253,7 @@ public:
 #ifdef KOBALT_READER_HARDWARE
         // Waiting for Nickel or a usable screen runs no Kobalt initialization.
         // Arm only the synchronous attempt, so deferral cannot look like a crash.
-        if (!armFlag(startupPath, "Kobalt startup did not complete.\n")) {
+        if (!kobalt_startup_begin(startupPath)) {
             rejected = true;
             retry.stop();
             kobalt::diagnostic("startup-arm-failed");
@@ -261,7 +264,7 @@ public:
         reentered = false;
         const auto finish = [this]([[maybe_unused]] bool deferred = true) {
 #ifdef KOBALT_READER_HARDWARE
-            if (deferred && !QFile::remove(startupPath)) {
+            if (deferred && !kobalt_startup_complete(startupPath)) {
                 rejected = true;
                 retry.stop();
                 kobalt::diagnostic("startup-disarm-failed");
@@ -314,7 +317,7 @@ public:
             return;
         }
 #ifdef KOBALT_READER_HARDWARE
-        if (!QFile::remove(startupPath)) {
+        if (!kobalt_startup_complete(startupPath)) {
             delete candidate;
             waiting("startup-guard");
             finish();
@@ -378,13 +381,6 @@ int initialize() {
         kobalt::diagnostic("disabled");
         return 0;
     }
-#ifdef KOBALT_READER_HARDWARE
-    if (QFile::exists(startupPath)) {
-        kobalt::diagnostic("interrupted-startup");
-        nh_log("reader: interrupted startup; leaving stock Nickel active");
-        return 0;
-    }
-#endif
     if (!firmwareSupported()) {
         kobalt::diagnostic("firmware-rejected");
         return 0;

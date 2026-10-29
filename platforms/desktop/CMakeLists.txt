@@ -311,6 +311,14 @@ if(BUILD_TESTING)
     set_target_properties(kobalt-regression-runtime PROPERTIES AUTOMOC OFF)
     target_link_libraries(kobalt-regression-runtime PUBLIC kobalt-core)
     add_custom_target(kobalt-tests DEPENDS kobalt-desktop-tests kobalt-eval-compare)
+    add_executable(kobalt-startup-recovery-tests "${KOBALT_ROOT}/tests/startup_recovery.c"
+        "${KOBALT_ROOT}/platforms/kobo/common/startup_recovery.c")
+    set_target_properties(kobalt-startup-recovery-tests PROPERTIES AUTOMOC OFF)
+    target_include_directories(kobalt-startup-recovery-tests PRIVATE "${KOBALT_ROOT}")
+    target_compile_options(kobalt-startup-recovery-tests PRIVATE -Wall -Wextra -Werror)
+    add_dependencies(kobalt-tests kobalt-startup-recovery-tests)
+    add_test(NAME platform.startup-recovery COMMAND kobalt-startup-recovery-tests)
+    set_tests_properties(platform.startup-recovery PROPERTIES LABELS "platform" TIMEOUT 30)
     add_test(NAME build.eval-device-outcomes COMMAND "${CMAKE_COMMAND}"
         "-DTEST_EXECUTABLE=${CMAKE_COMMAND}"
         "-DTEST_ARGUMENTS=-DCOMPARE=$<TARGET_FILE:kobalt-eval-compare>;-P;${KOBALT_ROOT}/tests/eval_device_outcomes.cmake"
@@ -362,6 +370,7 @@ if(BUILD_TESTING)
             LABELS "lifecycle;integration" TIMEOUT 125)
     endforeach()
     add_executable(kobalt-shutdown-tests "${KOBALT_ROOT}/tests/kobo_shutdown.cpp"
+        "${KOBALT_ROOT}/platforms/kobo/common/startup_recovery.c"
         "${KOBALT_ROOT}/platforms/kobo/common/native_lifecycle.cpp"
         "${KOBALT_ROOT}/platforms/kobo/common/screensaver_compatibility.cpp")
     if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
