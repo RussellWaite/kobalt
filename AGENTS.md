@@ -30,6 +30,20 @@ When adding a UI screen that needs screenshot coverage, include its scenes in th
 
 The root `./start.sh` builds and opens the Qt developer launcher on Linux and Mac. Keep launcher sources and presets under `platforms/launcher/`. Startup checks must explain missing dependencies in the terminal, keep Docker optional for desktop work, and never install tools or pull SDK images automatically. Its actions delegate to the existing platform presets, Kobo build script and autonomous scenario player. Keep visible scenarios separate from the full headless assertion suite. Preserve run-owned process, container and scratch cleanup when changing launcher actions.
 
+## UI integration and verification
+
+Before changing UI, identify the closest existing control or screen. Trace its construction, shared styling, metrics and later presentation adjustments. Reusing its widget class alone is not enough.
+
+Preserve the existing typography, caption/value alignment, padding, dividers and interaction behavior unless the user requests a change. Use established preview content when suitable.
+
+For new layout controls, make the units understandable without reading implementation details. The preview must visibly demonstrate the setting.
+
+Share an early screenshot for a new or substantially redesigned control. Include both its entry in the surrounding UI and its opened state. Do this before broad polishing and gallery generation.
+
+Before declaring the UI complete, compare it directly with the closest existing example. Verify the actual font, size, alignment and spacing. Passing functional tests and generating screenshots do not establish visual consistency.
+
+When reviewers are requested, give them these specific comparisons. Require findings or explicit verification for both the surrounding screen and the new control.
+
 ## Execution and cleanup
 
 For repeated development deployments, it is imperative to assess only the changes since the last validated build and reuse applicable validation results. Do not automatically rerun the full test suite or a smoke test for every minor change. Small UI spacing or styling adjustments may need only a build and visual inspection. Use focused checks when the change warrants them, and do not delay an explicitly requested deployment with redundant validation. Keep full release validation separate. State which checks were run, reused or skipped.
