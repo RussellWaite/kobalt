@@ -6612,7 +6612,7 @@ int main(int argc, char **argv) {
         return app.exec();
     }
     QFile fixture(book);
-    const int expectedScreenshots = lightGallery ? 56 : 774;
+    const int expectedScreenshots = lightGallery ? 56 : 782;
     if (captures.size() != expectedScreenshots)
         qCritical() << "Expected" << expectedScreenshots << "screenshots, captured" << captures.size();
     if (!fixture.open(QIODevice::ReadOnly) || captures.size() != expectedScreenshots) {
