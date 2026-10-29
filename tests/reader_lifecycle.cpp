@@ -244,6 +244,7 @@ public:
     ReaderOrientation *rotation = nullptr;
     std::shared_ptr<test::HostProgress> progress;
     PositionCodec positions;
+    ReadingHistory::UtcClock utc;
     std::function<void(ReaderHostServices &)> configureServices;
     void open(const QString &path, QSize size = nativeSize) {
         Q_ASSERT(idle());
@@ -280,7 +281,7 @@ public:
             const auto baseline = progress ? progress->current : ReadingProgress{};
             auto book = std::make_unique<ReadingBook>(std::move(opening), statePath, paths, identity, hash,
                                                       progress ? test::hostReadingBridge(progress) : nullptr,
-                                                      baseline, baseline);
+                                                      baseline, baseline, QString(), utc);
             book_ = book.get();
             auto services = desktop::readerServices();
             services.desktopUi = false;
@@ -612,7 +613,7 @@ private slots:
             AnnotationDatabase::transaction(profile, [&](QSqlDatabase &db) {
                 QSqlQuery query(db);
                 if (!query.exec("SELECT COUNT(*) FROM reading_sessions WHERE status='active'") || !query.next()) return false;
-                checkpointSawPausedSession = query.value(0).toInt() == 0;
+                checkpointSawPausedSession = query.value(0).toInt() == 1 && !host.book()->readingActive();
                 return true;
             });
         });
@@ -677,10 +678,10 @@ private slots:
         value("DROP TRIGGER fail_background");
         suspended = false;
         qApp->applicationStateChanged(Qt::ApplicationActive);
-        QTRY_COMPARE(value("SELECT SUM(active_ms) FROM reading_sessions WHERE status='completed'").toLongLong(), paused);
-        QCOMPARE(value("SELECT COUNT(*) FROM reading_sessions").toInt(), 2);
+        QTRY_VERIFY(value("SELECT SUM(active_ms) FROM reading_sessions").toLongLong() >= paused);
+        QCOMPARE(value("SELECT COUNT(*) FROM reading_sessions").toInt(), 1);
         qApp->applicationStateChanged(Qt::ApplicationActive);
-        QCOMPARE(value("SELECT COUNT(*) FROM reading_sessions").toInt(), 2);
+        QCOMPARE(value("SELECT COUNT(*) FROM reading_sessions").toInt(), 1);
     }
     void standaloneReadingHistory_data() {
         QTest::addColumn<bool>("native");
@@ -691,8 +692,10 @@ private slots:
         QFETCH(bool, native);
         qputenv("KOBALT_ANNOTATIONS_SQLITE", "1");
         bool suspended = false;
+        qint64 utc = 100000;
         ReaderFixture host(testPaths(), testFonts, testPlaceholder);
         CloseHost cleanup{host};
+        host.utc = [&] { return utc; };
         host.configureServices = [&](ReaderHostServices &services) {
             services.suspended = [&] { return suspended; };
         };
@@ -729,7 +732,7 @@ private slots:
         QTRY_VERIFY(value("SELECT SUM(active_ms) FROM reading_sessions").toLongLong() > 0);
         suspended = true;
         qApp->applicationStateChanged(Qt::ApplicationInactive);
-        QCOMPARE(value("SELECT COUNT(*) FROM reading_sessions WHERE status='active'").toInt(), 0);
+        QCOMPARE(value("SELECT COUNT(*) FROM reading_sessions WHERE status='active'").toInt(), 1);
         const auto paused = value("SELECT SUM(active_ms) FROM reading_sessions").toLongLong();
         QTest::qWait(40);
         QCOMPARE(value("SELECT SUM(active_ms) FROM reading_sessions").toLongLong(), paused);
@@ -737,6 +740,23 @@ private slots:
         qApp->applicationStateChanged(Qt::ApplicationActive);
         QTRY_COMPARE(value("SELECT COUNT(*) FROM reading_sessions WHERE status='active'").toInt(), 1);
         QTRY_VERIFY(value("SELECT SUM(active_ms) FROM reading_sessions").toLongLong() > paused);
+        auto *page = host.window()->findChild<QWidget *>("rrPage");
+        auto *menu = host.window()->findChild<QWidget *>("rrControlsTop");
+        auto *sessionLabel = host.window()->findChild<QLabel *>("rrMenuSession");
+        QVERIFY(page && menu && sessionLabel);
+        QVERIFY(clickAt(canvas, page->mapTo(canvas.surface(), page->rect().center())));
+        QTRY_VERIFY(menu->isVisible());
+        // Seed an already-visible session label without waiting five minutes.
+        sessionLabel->setText("Previous session");
+        sessionLabel->show();
+        suspended = true;
+        qApp->applicationStateChanged(Qt::ApplicationInactive);
+        utc += 15 * 60000;
+        suspended = false;
+        qApp->applicationStateChanged(Qt::ApplicationActive);
+        QVERIFY(sessionLabel->text().isEmpty());
+        QVERIFY(!sessionLabel->isVisible());
+        QCOMPARE(value("SELECT COUNT(*) FROM reading_sessions").toInt(), 2);
         host.window()->hide();
         QCOMPARE(value("SELECT COUNT(*) FROM reading_sessions WHERE status='completed'").toInt(), 2);
         host.window()->show();

@@ -3,6 +3,7 @@
 #include "page_navigation.h"
 #include "header_footer.h"
 #include "sleep_screen.h"
+#include "session_timeout.h"
 #include <QStringList>
 
 namespace kobalt::appearance {
@@ -86,6 +87,9 @@ QJsonObject cleanPreferences(QJsonObject preferences) {
     choice("marks_sort", {"position", "newest", "oldest"});
     choice("sleep_screen", {"stock", "cover", "page"});
     choice("sleep_tile", {"card", "band", "bookmark"});
+    if (preferences.contains(sessionTimeout::preferenceKey) &&
+        !sessionTimeout::valid(preferences.value(sessionTimeout::preferenceKey)))
+        preferences.remove(sessionTimeout::preferenceKey);
     choice("header_footer", {"default", "alternative_a", "alternative_b", "custom"});
     choice("default_menu_view", {"none", "seek", "stats"});
     choice("navigation_bar_buttons", {"chapters", "pages"});

@@ -2,6 +2,7 @@
 #include "check.h"
 #include "reading/reading_book.h"
 #include "reading/appearance_settings.h"
+#include "reading/session_timeout.h"
 #include "interfaces/opening_message.h"
 #include "reading/reader_session.h"
 #include "storage/reader_storage.h"
@@ -567,6 +568,64 @@ int main(int argc, char **argv) {
         require(historyValue("SELECT COUNT(*) FROM reading_sessions WHERE identity='legacy-history'").toInt() == 0,
                 "Legacy diagnostic backend wrote session history");
         qputenv("KOBALT_ANNOTATIONS_SQLITE", "1");
+    }
+    for (const auto minutes : sessionTimeout::choices) {
+        auto session = open(QSize(400, 600));
+        const auto hash = session->sourceHash();
+        const auto identity = QString("timeout-%1").arg(minutes);
+        qint64 utc = 100000;
+        ReadingBook book(std::move(session), paths.bookState(identity), paths, identity, hash, nullptr, {}, {}, {}, [&] { return utc; });
+        const auto count = [&] {
+            return historyValue("SELECT COUNT(*) FROM reading_sessions WHERE identity='" + identity + "'").toInt();
+        };
+        book.observeReading(); tick();
+        const QJsonObject preferences{{sessionTimeout::preferenceKey, minutes}};
+        book.sleepReading(preferences);
+        const auto first = book.sessionReadingMilliseconds();
+        require(first > 0, "Session timer fixture");
+        utc -= 60000;
+        book.observeReading();
+        require(book.sessionReadingMilliseconds() >= first, "Backward wall clock expired the session");
+        book.sleepReading(preferences);
+        utc += minutes ? qint64(minutes) * 60000 - 1 : qint64(30) * 86400000;
+        book.sleepReading(preferences); book.stopReading();
+        book.observeReading();
+        require(book.sessionReadingMilliseconds() >= first, "Short sleep or Never reset the session timer");
+        book.checkpointReadingHistory();
+        require(count() == 1, "Short sleep or Never split session history");
+        book.sleepReading(preferences);
+        const auto total = book.readingMilliseconds();
+        utc += minutes ? qint64(minutes) * 60000 : qint64(30) * 86400000;
+        book.observeReading();
+        require(book.readingMilliseconds() >= total, "Rollover reset the cumulative reading clock");
+        require(minutes ? book.sessionReadingMilliseconds() < first : book.sessionReadingMilliseconds() >= first,
+                "Expired sleep did not reset session time or Never did reset it");
+        book.checkpointReadingHistory();
+        require(count() == (minutes ? 2 : 1), "Exact timeout boundary split the wrong session count");
+        book.stopReading();
+    }
+    {
+        auto session = open();
+        const auto hash = session->sourceHash();
+        ReadingBook book(std::move(session), paths.bookState("sleep-history"), paths, "sleep-history", hash,
+                         nullptr, {}, {});
+        book.observeReading(); tick();
+        book.sleepReading({});
+        const auto paused = book.readingMilliseconds();
+        book.stopReading();
+        book.checkpointReadingHistory();
+        tick();
+        require(!book.readingActive() && book.readingMilliseconds() == paused,
+                "Sleeping book kept counting reading time");
+        require(historyValue("SELECT COUNT(*) FROM reading_sessions WHERE identity='sleep-history' AND status='active'").toInt() == 1,
+                "Sleep or hide completed a short session");
+        book.observeReading(); tick();
+        book.sleepReading({});
+        bool closed = false;
+        book.checkpointForClose([&](bool saved) { require(saved, "Sleeping close save"); closed = true; });
+        waitUntil([&] { return closed; });
+        require(historyValue("SELECT COUNT(*) FROM reading_sessions WHERE identity='sleep-history' AND status='completed'").toInt() == 1,
+                "Closing while sleeping did not finish the retained session");
     }
     {
         Calls calls;

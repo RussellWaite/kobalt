@@ -622,6 +622,15 @@
 "settings.automatic_book_opening" = "Open books automatically in Kobalt";
 "settings.automatic_book_opening_description" = "Use Kobalt when opening supported books from your library. This is the same setting as in Kobo's Reading settings.";
 "settings.sleep_screen" = "Sleep screen";
+"settings.session_timeout" = "New session after sleep";
+"settings.session_timeout_description" = "Waking your device after this amount of time starts a new reading session. You do not need to close and reopen your book, this is automatic.";
+"settings.session_timeout_15" = "15 minutes";
+"settings.session_timeout_60" = "1 hour";
+"settings.session_timeout_240" = "4 hours";
+"settings.session_timeout_360" = "6 hours";
+"settings.session_timeout_720" = "12 hours";
+"settings.session_timeout_0" = "Never";
+"settings.session_timeout_never_description" = "A session always continues when the device wakes, even after a longer period of inactivity.";
 "settings.page_navigation" = "Page navigation";
 "settings.section_navigation_bar" = "Navigate panel";
 "settings.navigation_bar_buttons" = "Button action";

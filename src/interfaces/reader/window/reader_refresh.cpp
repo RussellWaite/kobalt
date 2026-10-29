@@ -504,7 +504,7 @@ void Reader::updateMenuStatus() {
         menuClock->setText(time);
     const auto battery = services.battery();
     menuBattery->setStatus(battery.percent, battery.charging);
-    const auto reading = book->readingMilliseconds();
+    const auto reading = book->sessionReadingMilliseconds();
     const auto session = reading > 300000 ? strings::get("reader.session_minutes").arg(reading / 60000) : QString();
     if (menuSession->text() != session)
         menuSession->setText(session);
@@ -515,7 +515,7 @@ void Reader::updateMenuStatus() {
 
 // Stats and the reading strips use the same platform or session estimates.
 void Reader::updateReadingStats() {
-    const auto reading = book->readingMilliseconds();
+    const auto reading = book->sessionReadingMilliseconds();
     const auto estimates = book->estimates();
     chapterGraph->setReading(int(reading / 60000), model->totalWords(), estimates.chapterMilliseconds,
                              estimates.bookMilliseconds);

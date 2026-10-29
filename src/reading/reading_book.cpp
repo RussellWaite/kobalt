@@ -1,6 +1,7 @@
 #include "support/strings.h"
 #include "reading_book.h"
 #include "appearance_settings.h"
+#include "session_timeout.h"
 #include "reader_session.h"
 #include "storage/profile_database.h"
 #include "storage/reader_storage.h"
@@ -8,16 +9,18 @@
 #include "support/diagnostics.h"
 #include "support/qt_compat.h"
 #include <QCoreApplication>
+#include <QDateTime>
 #include <QTimer>
 
 namespace kobalt {
 ReadingBook::ReadingBook(std::unique_ptr<ReaderSession> session, QString statePath, storage::Paths paths,
                          QString identity, QByteArray digest, std::unique_ptr<ReadingBridge> bridge,
-                         ReadingProgress baseline, ReadingProgress diskBaseline, QString sourceKey)
+                         ReadingProgress baseline, ReadingProgress diskBaseline, QString sourceKey, ReadingHistory::UtcClock utc)
     : model(std::move(session)), statePath(std::move(statePath)), identity_(std::move(identity)),
       paths_(std::move(paths)), digest(std::move(digest)), bridge(std::move(bridge)),
       nativeCloudSync(this->bridge && !identity_.startsWith("file:///")), baseline(std::move(baseline)),
       reconciliation(std::move(diskBaseline)) {
+    this->utc = utc ? std::move(utc) : ReadingHistory::UtcClock([] { return QDateTime::currentMSecsSinceEpoch(); });
     auto saved = storage::readBookState(paths_, identity_, this->statePath).object;
     // The native opener resets its snapshot before the database record is
     // replaced. Apply the same reset before retaining fields or preferences.
@@ -38,13 +41,14 @@ ReadingBook::ReadingBook(std::unique_ptr<ReaderSession> session, QString statePa
     speedSaved.invalidate();
     if (annotationDatabaseEnabled())
         history = std::make_unique<ReadingHistory>(paths_.directory, identity_, this->digest, std::move(sourceKey),
-                                                   model->title(), model->author());
+                                                   model->title(), model->author(), this->utc);
     if (!this->bridge) {
         speed = std::make_unique<ReadingSpeed>();
         speed->restore(storage::readRecord(paths_.directory, "reading-speed", paths_.readingSpeed()).object);
     }
 }
 ReadingBook::~ReadingBook() {
+    sleepingReading = false;
     if (history)
         stopReading();
     else
@@ -63,6 +67,7 @@ bool ReadingBook::canWriteNative() const {
     return bridge && bridge->writable();
 }
 void ReadingBook::releaseNative(bool save) {
+    sleepingReading = false;
     stopReading(true, save);
     ++nativeFinishGeneration;
     const auto callbacks = std::exchange(nativeFinishCallbacks, {});
@@ -74,6 +79,7 @@ void ReadingBook::releaseNative(bool save) {
         callback(false);
 }
 void ReadingBook::finishReading(std::function<void(bool)> done) {
+    sleepingReading = false;
     stopReading(true);
     if (!bridge) {
         done(true);
@@ -114,6 +120,15 @@ void ReadingBook::observeReading(bool learnPace) {
         return;
     }
     if (!activeReading.isValid()) {
+        if (sleepingReading) {
+            const auto now = utc();
+            if (sleepingTimeout > 0 && now >= sleepingAt && now - sleepingAt >= sleepingTimeout) {
+                if (history)
+                    history->stop(completedReadingMilliseconds, model->state().value("position").toString());
+                sessionBaseline = completedReadingMilliseconds;
+            }
+        }
+        sleepingReading = false;
         activeReading.start();
         if (history) {
             history->start(completedReadingMilliseconds, model->state().value("position").toString());
@@ -154,11 +169,21 @@ ReadingEstimates ReadingBook::estimates() const {
     return {pace_.estimate(chapterLeft, reading), pace_.estimate(model->pages() - model->page(), reading),
             pace_.estimate(0, reading) < 0};
 }
+void ReadingBook::sleepReading(const QJsonObject &preferences) {
+    if (!sleepingReading) {
+        sleepingReading = true;
+        sleepingAt = utc();
+        sleepingTimeout = sessionTimeout::milliseconds(preferences);
+        if (history)
+            history->pause(readingMilliseconds(), model->state().value("position").toString());
+    }
+    stopReading();
+}
 void ReadingBook::stopReading(bool background, bool nativeAllowed) {
+    if (history && !sleepingReading)
+        history->stop(readingMilliseconds(), model->state().value("position").toString());
     if (activeReading.isValid()) {
         const auto elapsed = activeReading.elapsed();
-        if (history)
-            history->stop(completedReadingMilliseconds + elapsed, model->state().value("position").toString());
         completedReadingMilliseconds += elapsed;
         activeReading.invalidate();
     }
@@ -424,6 +449,10 @@ bool ReadingBook::checkpoint(QJsonObject *snapshot, bool background) {
     return saved;
 }
 void ReadingBook::checkpointForClose(std::function<void(bool)> done) {
+    if (sleepingReading) {
+        sleepingReading = false;
+        stopReading(true);
+    }
     Q_ASSERT(!closeCheckpointPending);
     closeCheckpointPending = true;
     const auto state = checkpointState();

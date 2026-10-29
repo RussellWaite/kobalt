@@ -50,6 +50,7 @@ ReadingHistory::ReadingHistory(QString directory, QString identity, QByteArray f
       saved(std::make_shared<Saved>()) {}
 ReadingHistory::~ReadingHistory() = default;
 void ReadingHistory::start(qint64 activeMilliseconds, const QString &position) {
+    paused = false;
     if (!pending.isEmpty() && pending.last().status == "active")
         return;
     baseline = activeMilliseconds;
@@ -59,7 +60,7 @@ void ReadingHistory::start(qint64 activeMilliseconds, const QString &position) {
     ++generation;
 }
 void ReadingHistory::update(qint64 activeMilliseconds, const QString &position) {
-    if (pending.isEmpty() || pending.last().status != "active")
+    if (paused || pending.isEmpty() || pending.last().status != "active")
         return;
     auto &interval = pending.last();
     interval.milliseconds = qMax(interval.milliseconds, activeMilliseconds >= baseline ? activeMilliseconds - baseline : 0);
@@ -70,11 +71,18 @@ void ReadingHistory::update(qint64 activeMilliseconds, const QString &position) 
 }
 void ReadingHistory::stop(qint64 activeMilliseconds, const QString &position) {
     update(activeMilliseconds, position);
+    paused = false;
     if (!pending.isEmpty() && pending.last().status == "active") {
         pending.last().status = "completed";
         dirty = true;
         ++generation;
     }
+}
+void ReadingHistory::pause(qint64 activeMilliseconds, const QString &position) {
+    if (paused || pending.isEmpty() || pending.last().status != "active")
+        return;
+    update(activeMilliseconds, position);
+    paused = true;
 }
 bool ReadingHistory::saving() const {
     return writer && !writer->idle();

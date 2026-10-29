@@ -137,6 +137,7 @@ inline QString screenshotTitle(const QString &scene, const QJsonObject &book) {
         {"styling-widows", "Widows and orphans preview"},
         {"styling-word-spacing", "Word spacing preview"},
         {"settings-system", "System settings"},
+        {"session-timeout", "New session after sleep"},
         {"stats", "Reading statistics"},
         {"stats-dense-graph", "Dense chapter graph"},
         {"stats-dense-reading", "Moby Dick"},

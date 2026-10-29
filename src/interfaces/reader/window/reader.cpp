@@ -90,21 +90,26 @@ void Reader::checkpoint() {
     // Hosts can checkpoint before our application-state callback. Freeze the
     // clock before any save can block, so background I/O is not reading time.
     if (services.suspended())
-        book->stopReading();
+        book->sleepReading(preferences);
     save(true);
 }
 
 void Reader::observeReading() {
     if (closing || exitPending || lifecycleHidden || !isVisible() || services.suspended()) {
-        book->stopReading(exitPending || closing);
+        if (!closing && !exitPending && services.suspended())
+            book->sleepReading(preferences);
+        else
+            book->stopReading(exitPending || closing);
         return;
     }
     const bool wasReading = book->readingActive();
     book->observeReading(!topControls->isVisible() && !general->isVisible() && !choices->isVisible() &&
                          !dictionaryPanel->isVisible() && !searchPanel->isVisible() && !linksActive() &&
                          !appearanceEdit.panelOpen() && !syncDialog && !kosyncDialog && !finishDialog);
-    if (clockTimer && book->readingActive() != wasReading)
+    if (clockTimer && book->readingActive() != wasReading) {
         startClock();
+        updateMenuStatus();
+    }
 }
 
 void Reader::prepareShutdown(std::function<void()> finished) {
@@ -286,7 +291,7 @@ void Reader::sleepReader() {
     setEnabled(true);
     setProperty("reader_sleep_clean_pending", true);
     model->cancelPendingTurn();
-    book->stopReading();
+    book->sleepReading(preferences);
     auto snapshot = captureSleepScreen();
     sleepOrientation = snapshot.orientation;
     sleepProgress = snapshot.progress;
@@ -1311,7 +1316,7 @@ void Reader::lookupSelection() {
 void Reader::startClock() {
     const auto clock = 60000 - QTime::currentTime().msecsSinceStartOfDay() % 60000;
     // A stopped reading clock never reaches its next minute.
-    const auto reading = book->readingActive() ? 60000 - book->readingMilliseconds() % 60000 : 60000;
+    const auto reading = book->readingActive() ? 60000 - book->sessionReadingMilliseconds() % 60000 : 60000;
     clockTimer->start(int(qMin<qint64>(clock, reading)) + 50);
 }
 
@@ -2318,7 +2323,7 @@ void Reader::save(bool snapshot, bool background, bool persist) {
     state["ui_font_resolved"] = QFontInfo(font()).family();
     state["interface_weight"] = kobalt::ui::interfaceWeight();
     state["reading_chrome_font"] = QFontInfo(page->font()).family();
-    state["session_reading_ms"] = double(book->readingMilliseconds());
+    state["session_reading_ms"] = double(book->sessionReadingMilliseconds());
     state["menu_session_text"] = menuSession->text();
     state["menu_clock_font"] = QFontInfo(menuClock->font()).family();
     state["menu_battery_font"] = QFontInfo(menuBattery->font()).family();

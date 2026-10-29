@@ -23,7 +23,7 @@ class ReadingBook {
 public:
     ReadingBook(std::unique_ptr<ReaderSession> session, QString statePath, storage::Paths paths, QString identity,
                 QByteArray digest, std::unique_ptr<ReadingBridge> bridge, ReadingProgress baseline,
-                ReadingProgress diskBaseline, QString sourceKey = {});
+                ReadingProgress diskBaseline, QString sourceKey = {}, ReadingHistory::UtcClock utc = {});
     ~ReadingBook();
     ReaderSession *session() const {
         return model.get();
@@ -52,6 +52,7 @@ public:
     void releaseNative(bool save = true);
     void observeReading(bool learnPace = true);
     void stopReading(bool background = false, bool nativeAllowed = true);
+    void sleepReading(const QJsonObject &preferences);
     void finishReading(std::function<void(bool)> done);
     bool readingSavePending() const;
     bool checkpointReadingHistory(bool background = false);
@@ -66,6 +67,7 @@ public:
     }
     // Active time for this opening, excluding sleep and hidden reader time.
     qint64 readingMilliseconds() const;
+    qint64 sessionReadingMilliseconds() const { return readingMilliseconds() - sessionBaseline; }
     bool readingActive() const {
         return activeReading.isValid();
     }
@@ -140,6 +142,9 @@ private:
     ProgressReconciler reconciliation;
     QElapsedTimer progressPoll;
     ReadingTimer activeReading;
+    bool sleepingReading = false;
+    ReadingHistory::UtcClock utc;
+    qint64 sleepingAt = 0, sleepingTimeout = 0, sessionBaseline = 0;
     qint64 completedReadingMilliseconds = 0;
     ReadingPace pace_;
     std::unique_ptr<ReadingSpeed> speed;

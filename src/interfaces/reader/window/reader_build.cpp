@@ -1207,6 +1207,7 @@ void Reader::buildSettings() {
     denseGraphOption = settings->denseGraphOption;
     sleepScreenButton = settings->sleepScreenButton;
     sleepTileButton = settings->sleepTileButton;
+    sessionTimeoutButton = settings->sessionTimeoutButton;
     pageNavigationButton = settings->pageNavigationButton;
     tapZonesButton = settings->tapZonesButton;
     tappableLinksButton = settings->tappableLinksButton;
@@ -1319,6 +1320,7 @@ void Reader::buildSettings() {
     connect(sleepScreenButton, &QPushButton::clicked, this, [this] {
         openSleepScreen();
     });
+    connect(sessionTimeoutButton, &QPushButton::clicked, this, [this] { openSessionTimeout(); });
     connect(sleepTileButton, &QPushButton::clicked, this, [this] {
         openSleepTile();
     });

@@ -463,12 +463,14 @@ private:
     void showSleepScreen();
     void openSleepScreen();
     void openSleepTile();
+    void openSessionTimeout();
     struct SleepOption {
         QString value, label, explanation;
     };
-    // The sleep screen and sleep tile choices share one popup.
+    // Sleep and session choices share one popup.
     void openSleepChoice(const QString &name, const QString &optionPrefix, const QString &heading,
-                         const QVector<SleepOption> &options, int current, std::function<void(int)> chosen);
+                         const QVector<SleepOption> &options, int current, std::function<void(int)> chosen,
+                         const QString &description = {});
     bool saveSleepPreferences(const QJsonObject &next);
     void closeSleepScreen();
     void showTapZones();
@@ -529,7 +531,7 @@ private:
     ui::DescribedOption *bionicOption = nullptr;
     kobalt::ui::CaptionButton *refreshButton = nullptr;
     QPointer<kobalt::ui::ModalOverlay> refreshPopup;
-    kobalt::ui::CaptionButton *sleepScreenButton = nullptr, *sleepTileButton = nullptr;
+    kobalt::ui::CaptionButton *sleepScreenButton = nullptr, *sessionTimeoutButton = nullptr, *sleepTileButton = nullptr;
     QPointer<kobalt::ui::ModalOverlay> sleepPopup;
     kobalt::ui::CaptionButton *pageNavigationButton = nullptr, *tapZonesButton = nullptr,
                               *navigationBarButton = nullptr;

@@ -1,4 +1,5 @@
 #include "reading/appearance_settings.h"
+#include "reading/session_timeout.h"
 #include "support/qt_compat.h"
 #include "check.h"
 #include <QJsonArray>
@@ -8,6 +9,20 @@
 using namespace kobalt;
 
 int main() {
+    require(sessionTimeout::minutes({}) == 15, "Older preferences lost the default session timeout");
+    for (const auto minutes : sessionTimeout::choices) {
+        const auto preferences = appearance::cleanPreferences({{sessionTimeout::preferenceKey, minutes}, {"optional", "keep"}});
+        require(sessionTimeout::minutes(preferences) == minutes && preferences.value("optional").toString() == "keep",
+                "Session timeout cleanup lost a supported choice or an optional field");
+        require(sessionTimeout::milliseconds(preferences) == qint64(minutes) * 60000,
+                "Session timeout did not convert minutes safely");
+        require(appearance::same({}, preferences), "Session timeout invalidated the book layout");
+    }
+    for (const auto &invalid : {QJsonValue(-1), QJsonValue(16), QJsonValue(15.5), QJsonValue("60"), QJsonValue(true), QJsonValue()}) {
+        const auto preferences = appearance::cleanPreferences({{sessionTimeout::preferenceKey, invalid}});
+        require(!preferences.contains(sessionTimeout::preferenceKey) && sessionTimeout::minutes(preferences) == 15,
+                "Invalid session timeout did not fall back to fifteen minutes");
+    }
     for (bool hidden : {false, true}) {
         const auto cleaned = appearance::cleanPreferences({{"native_hide_status_bar", hidden}, {"private_optional", "keep"}});
         require(!cleaned.contains("native_hide_status_bar") && cleaned.value("private_optional").toString() == "keep",

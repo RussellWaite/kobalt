@@ -1059,6 +1059,13 @@ void tour(Fixture &fixture, const QString &name, bool screenshots) {
             QVERIFY(fixture.press(qPrintable(QString("rrSettings") + tab)));
             capturePages(fixture, name + "-settings-" + QString(tab).toLower(), "rrSettingsOptions");
         }
+        QVERIFY(fixture.press("rrSettingsSystem"));
+        QVERIFY(revealSettingsOption(fixture, "rrSessionTimeout"));
+        QVERIFY(fixture.press("rrSessionTimeout"));
+        QTRY_VERIFY(fixture.visible("rrSessionTimeoutPopup"));
+        QVERIFY(scene("session-timeout"));
+        QVERIFY(fixture.press("rrSessionTimeout_15"));
+        QTRY_VERIFY(!fixture.visible("rrSessionTimeoutPopup"));
         QVERIFY(fixture.press("rrSettingsStyling"));
         for (auto *previous = fixture.widget("rrSettingsOptionsPrevious");
              previous && previous->isVisible() && previous->isEnabled();)
@@ -4315,6 +4322,19 @@ exit 7
         QVERIFY(fixture.press("rrSettings"));
         QVERIFY(!fixture.widget("rrSettingsUI"));
         QVERIFY(!fixture.widget("rrHideStatusBar"));
+        QVERIFY(fixture.press("rrSettingsSystem"));
+        QVERIFY(revealSettingsOption(fixture, "rrSessionTimeout"));
+        auto *timeout = dynamic_cast<ui::CaptionButton *>(fixture.widget("rrSessionTimeout"));
+        QVERIFY(timeout);
+        QCOMPARE(timeout->caption(), strings::get("settings.session_timeout_15").toUpper());
+        for (const int minutes : {60, 240, 360, 720, 0, 15}) {
+            QVERIFY(fixture.press("rrSessionTimeout"));
+            QTRY_VERIFY(fixture.visible("rrSessionTimeoutPopup"));
+            QVERIFY(fixture.press(qPrintable(QString("rrSessionTimeout_%1").arg(minutes))));
+            QTRY_VERIFY(!fixture.visible("rrSessionTimeoutPopup"));
+            QCOMPARE(storage::readJson(fixture.paths.preferences()).value("session_timeout_minutes").toInt(-1), minutes);
+            QCOMPARE(timeout->caption(), strings::get(qPrintable(QString("settings.session_timeout_%1").arg(minutes))).toUpper());
+        }
         struct Option { const char *tab, *name, *key; };
         QJsonObject expected;
         for (const auto &option : {Option{"rrSettingsControls", "rrShowLinkIndicator", "show_link_indicator"},
@@ -6612,7 +6632,7 @@ int main(int argc, char **argv) {
         return app.exec();
     }
     QFile fixture(book);
-    const int expectedScreenshots = lightGallery ? 56 : 782;
+    const int expectedScreenshots = lightGallery ? 56 : 786;
     if (captures.size() != expectedScreenshots)
         qCritical() << "Expected" << expectedScreenshots << "screenshots, captured" << captures.size();
     if (!fixture.open(QIODevice::ReadOnly) || captures.size() != expectedScreenshots) {
