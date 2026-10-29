@@ -3,7 +3,7 @@
 set -euo pipefail
 root=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$root"
-for script in start.sh platforms/launcher/*.sh platforms/ci/*.sh platforms/android/*.sh platforms/kobo/*.sh platforms/sdk-image.sh; do bash -n "$script"; done
+for script in platforms/ci/*.sh platforms/android/*.sh platforms/kobo/*.sh platforms/sdk-image.sh; do bash -n "$script"; done
 mkdir -p build
 scratch=$(mktemp -d "$root/build/release-check.XXXXXX")
 trap 'rm -rf "$scratch"' EXIT

@@ -81,7 +81,7 @@ cmake --build --preset linux-light-screenshots
 
 Pass `-DCMAKE_PREFIX_PATH=/path/to/qt` when using a separate SDK. The executable is `build/desktop-linux/Kobalt`; verified runtime assets are under `build/desktop-linux/assets/runtime/`. Building does not open a window. Linked-worktree builds have an isolated profile named after the worktree folder. Override it with `KOBALT_LINUX_VARIANT`, or use an empty value for the regular profile. Qt selects the platform application-data directory.
 
-Linux provides the same light, fast, integration and full test lanes, performance and evaluation tools, and screenshot galleries as Mac. Substitute `linux` for `mac` in desktop preset commands. Full validation uses `cmake --build --preset linux-tests` then `ctest --preset linux`; full captures use `linux-screenshots`. Captures go to `build/screenshots/linux/` and `build/screenshots/linux-light/`. Tests use Fusion and the minimal platform plugin without X11, Wayland or a visible window. Each platform owns its output and temporary files. Compare screenshots with the same host and Qt SDK. GUI operation under X11/Wayland and distribution packaging require separate validation.
+Linux provides the same light, fast, integration and full test lanes, performance and evaluation tools, and screenshot galleries as Mac. Substitute `linux` for `mac` in desktop preset commands. Full validation uses `cmake --build --preset linux-tests` then `ctest --preset linux`; full captures use `linux-screenshots`. Captures go to `build/screenshots/linux/` and `build/screenshots/linux-light/`. Tests use Fusion and the minimal platform plugin without X11, Wayland or a visible window. Each platform owns its output and temporary files. Compare screenshots with the same host and Qt SDK. GUI operation under X11/Wayland requires separate validation.
 
 ## Assets
 
@@ -135,7 +135,7 @@ Stop and reap run-owned helper processes and remove temporary profiles, staging 
 
 ## GitHub builds and tagged releases
 
-`.github/workflows/ci.yml` builds Qt5, Qt6 and a signed Android release APK on branch pushes and tags. Helper checks validate version inputs, source pins and missing-key failures. Kobo jobs check the system archive member, numeric root ownership and executable permissions. The native desktop CI matrix builds the app and shared tests on Linux and Mac, runs each native suite, and retains primary-view galleries. CI selects Qt 6.11.3 for reproducibility; local desktop builds accept newer Qt 6 SDKs.
+`.github/workflows/ci.yml` builds Qt5, Qt6 and a signed Android release APK on branch pushes and tags. Helper checks validate version inputs, source pins and missing-key failures. Kobo jobs check the system archive member, numeric root ownership and executable permissions. Desktop application builds, native tests and screenshot galleries run locally through the Mac or Linux presets; they are not CI jobs.
 
 A tag such as `v1.0-beta.4` supplies the displayed version and Android version name. Package filenames stay fixed across releases so download links remain compatible: `Kobalt-qt5.zip`, `Kobalt-qt6.zip`, `Kobalt-android-arm64.apk` and `Kobalt-sources.tar.gz`. Branch builds use the version in `assets/manifest.json`. CI checks that a triggering tag identifies the checked-out commit. Local builds can set `KOBALT_RELEASE_VERSION` to test the same path without editing the tracked asset manifest.
 
