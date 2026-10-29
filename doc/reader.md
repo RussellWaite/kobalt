@@ -57,7 +57,9 @@ Kobalt uses two session markers:
 
 The startup marker records an unfinished Kobalt initialization attempt. One interrupted attempt permits a retry. After two consecutive interrupted attempts, NickelHook removes Kobalt before loading Nickel libraries or installing hooks. A completed or deferred initialization, or a recognized normal shutdown, breaks the streak. A crash in the stock reader after Kobalt initialized does not count. The streak does not expire while the user waits or forces a restart after a hang. This is a narrow startup safeguard, not detection of every possible reboot loop.
 
-Removal preserves books, settings and reading data. Install a corrected package to use Kobalt again. An invalid or unreadable startup marker disables Kobalt initialization without uninstalling it; the exact unversioned marker from older builds instead counts as one interrupted attempt and permits a retry. Inspect the marker first, then stop Nickel and remove it to retry. A leftover `active-session.json` does not block startup.
+Removal preserves books, settings and reading data. Before removal, Kobalt tries to save `startup-removed.txt` in its support folder. This file explains the removal and how to retry by installing Kobalt again. A failed notice write does not block removal. Successful or deferred initialization clears the notice.
+
+An empty or damaged regular startup marker counts as one interrupted attempt and permits one retry. The exact unversioned marker and valid timestamped v1 markers remain supported. An unreadable or oversized marker, a directory or a symlink blocks initialization without requesting removal. Inspect the marker first, then stop Nickel and remove it to retry. A leftover `active-session.json` does not block startup.
 
 NickelHook also parks the library outside `imageformats` for the first three seconds after Nickel starts. A crash in that interval leaves the library parked and inactive. If the restore thread cannot start, the library stays parked for the next startup. Failed initialization restores installed hooks in their original libraries. Install a fresh package to recover. Do not move a parked library back by hand.
 
@@ -83,7 +85,7 @@ Support files are in `.adds/kobalt/`. Annotation exports are in `Kobalt/Annotati
 | `events.jsonl`, `events.jsonl.previous` | Event log, two files of at most 128 KiB each |
 | `scenarios/scenarios.json`, `scenarios.jsonl` | Evaluation packages only: the performance scenarios that Kobalt runs after the first book opens, and their results. See [Release evaluation](release-evaluation.md#device-scenarios) |
 | `state.json`, `session.json` | Reader state from the last close, sleep or shutdown, and session status. Create `live-state` to write `state.json` on every save instead |
-| `startup-session`, `active-session.json` | Recovery markers, see above |
+| `startup-session`, `startup-removed.txt`, `active-session.json` | Recovery markers, see above |
 | `uninstall`, `uninstall-now` | Removal control, see above |
 | `doc` | Short user instructions |
 

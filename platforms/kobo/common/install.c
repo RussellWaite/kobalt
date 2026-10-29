@@ -5,7 +5,10 @@
 
 // NickelHook calls this before loading Nickel libraries or installing hooks.
 bool nh_startup_failed(void) {
-    return kobalt_startup_remove(KOBALT_CONFIG_DIR "/startup-session");
+    if (!kobalt_startup_remove(KOBALT_CONFIG_DIR "/startup-session")) return false;
+    // Failure to save the explanation must not prevent recovery.
+    kobalt_startup_removed(KOBALT_CONFIG_DIR "/startup-removed.txt");
+    return true;
 }
 
 const struct nh_resources nh_resources = {

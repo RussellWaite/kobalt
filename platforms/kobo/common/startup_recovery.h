@@ -8,6 +8,10 @@ extern "C" {
 bool kobalt_startup_remove(const char *path);
 bool kobalt_startup_begin(const char *path);
 bool kobalt_startup_complete(const char *path);
+// The removal notice survives uninstall and normal shutdown. A completed
+// initialization clears it along with the unfinished-attempt marker.
+bool kobalt_startup_removed(const char *notice);
+bool kobalt_startup_recovered(const char *path, const char *notice);
 #ifdef __cplusplus
 }
 #endif

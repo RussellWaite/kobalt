@@ -297,7 +297,7 @@ public:
         reentered = false;
         const auto finish = [this]([[maybe_unused]] bool deferred = true) {
 #ifdef KOBALT_READER_HARDWARE
-            if (deferred && !kobalt_startup_complete(startupPath)) {
+            if (deferred && !kobalt_startup_recovered(startupPath, KOBALT_CONFIG_DIR "/startup-removed.txt")) {
                 rejected = true;
                 retry.stop();
                 kobalt::diagnostic("startup-disarm-failed");
@@ -332,7 +332,7 @@ public:
             return;
         }
 #ifdef KOBALT_READER_HARDWARE
-        if (!kobalt_startup_complete(startupPath)) {
+        if (!kobalt_startup_recovered(startupPath, KOBALT_CONFIG_DIR "/startup-removed.txt")) {
             settingsReady = false;
             updatePrerendering();
             delete candidate;
