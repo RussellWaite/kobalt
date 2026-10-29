@@ -44,9 +44,6 @@
 #include "reading/kosync.h"
 #include "scenario/player.h"
 #include "scenario/sleep_persistence.h"
-#include <QTemporaryDir>
-#include <QCryptographicHash>
-#include <QMap>
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -62,9 +59,12 @@ using kobalt::storage::readJson;
 using kobalt::storage::writeJson;
 namespace {
 QPointer<ReaderCoordinator> activeCoordinator;
+#ifdef KOBALT_SCENARIO_PLAYER
 bool benchmarkTypographyEnabled = false;
+#endif
 }
 
+#ifdef KOBALT_SCENARIO_PLAYER
 extern "C" __attribute__((visibility("default"))) int kobalt_benchmark_typography_v1(const char *contentId,
                                                                                      int enable) {
     if (!qApp || QThread::currentThread() != qApp->thread() || !contentId || (enable != 0 && enable != 1) ||
@@ -74,6 +74,7 @@ extern "C" __attribute__((visibility("default"))) int kobalt_benchmark_typograph
     benchmarkTypographyEnabled = enable != 0;
     return 1;
 }
+#endif
 
 ReaderCoordinator::ReadingRun::ReadingRun() = default;
 ReaderCoordinator::ReadingRun::~ReadingRun() = default;
@@ -773,8 +774,11 @@ void ReaderCoordinator::load() {
         run.model = std::make_unique<kobalt::ReaderSession>(environment_.fonts(), environment_.placeholderFamily());
     run.sourceLease = std::make_shared<kobalt::SourceLease>();
     const auto originalAppearance = saved;
-    const auto temporaryAppearance =
-        benchmarkTypographyEnabled ? kobalt::appearance::benchmarkTypography(run.identity) : QJsonObject();
+    QJsonObject temporaryAppearance;
+#ifdef KOBALT_SCENARIO_PLAYER
+    if (benchmarkTypographyEnabled)
+        temporaryAppearance = kobalt::appearance::benchmarkTypography(run.identity);
+#endif
     const auto preferences = kobalt::appearance::readerPreferences(kobalt::storage::readPreferences(environment_.paths.preferences()).object, saved);
     run.orientation->configure(preferences);
     saved["dark_mode"] = preferences.value("dark_mode").toBool(false);
@@ -976,10 +980,7 @@ void ReaderCoordinator::runScenarios(const QString &path) {
     host.busy = [this] { return run.reader && (run.reader->busy() ||
                                              run.reader->property("eval_sleep_cover_pending").toBool()); };
     host.idle = [this] { return idleForBenchmark(); };
-    // All codec variants use the first captured page, including its metadata.
-    // The temporary directory stays on the same filesystem as the real cache.
-    QMap<int, sleep::Snapshot> measuredSnapshots;
-    host.sleepPersistence = [this, &measuredSnapshots](const QJsonObject &request) {
+    host.sleepPersistence = [this](const QJsonObject &request) {
         auto &options = scenario::sleepPersistenceOptions();
         const auto action = request.value("action").toString();
         if (request.isEmpty()) {
@@ -991,18 +992,15 @@ void ReaderCoordinator::runScenarios(const QString &path) {
         if (action == "configure") {
             homeSleep->takeSaveMeasurement();
             const auto mode = request.value("mode").toString();
-            const int compression = request.value("compression").toInt(-1);
-            if ((mode != "stock" && mode != "page" && mode != "cover") || compression < -1 || compression > 9)
+            if (mode != "stock" && mode != "page" && mode != "cover")
                 return error("invalid sleep persistence configuration");
             options.mode = int(mode == "stock" ? sleep::Mode::Stock :
                                mode == "cover" ? sleep::Mode::Cover : sleep::Mode::Page);
-            options.compression = compression;
             return QJsonObject();
         }
         if (action == "drain") {
             auto result = homeSleep->takeSaveMeasurement();
             result["mode"] = sleep::value(sleep::Mode(options.mode));
-            result["compression"] = options.compression;
             if (options.mode != int(sleep::Mode::Stock) && !result.value("saved").toBool() && !result.contains("error"))
                 result["error"] = QStringLiteral("the close did not persist a sleep snapshot");
             return result;
@@ -1012,41 +1010,7 @@ void ReaderCoordinator::runScenarios(const QString &path) {
             return error("the cover did not decode; refusing to measure a fallback page");
         if (action == "ready")
             return QJsonObject();
-        if (action != "measure" || !run.reader)
-            return error("sleep persistence needs an open reader");
-        homeSleep->finishSave();
-        auto &measuredSnapshot = measuredSnapshots[options.mode];
-        if (measuredSnapshot.image.isNull())
-            measuredSnapshot = run.reader->powerScreenSnapshot();
-        if (measuredSnapshot.image.isNull())
-            return error("the reader did not capture a sleep snapshot");
-        QTemporaryDir scratch(environment_.paths.directory + "/cache/sleep-eval-XXXXXX");
-        if (!scratch.isValid())
-            return error("could not create sleep persistence scratch directory");
-        const auto path = scratch.path() + "/snapshot.png";
-        const QString token = QStringLiteral("kobalt-sleep-persistence-evaluation");
-        QJsonObject result;
-        if (!storage::measureSleepSnapshot(path, measuredSnapshot, token, options.compression, result)) {
-            if (!result.contains("error"))
-                result["error"] = QStringLiteral("could not persist the evaluation snapshot");
-        } else {
-            const auto read = storage::readSleepSnapshot(path, token, measuredSnapshot.mode);
-            const bool valid = read.image == measuredSnapshot.image && read.orientation == measuredSnapshot.orientation &&
-                read.progress == measuredSnapshot.progress && read.remaining == measuredSnapshot.remaining &&
-                read.dark == measuredSnapshot.dark && read.dimPage == measuredSnapshot.dimPage &&
-                read.percent == measuredSnapshot.percent;
-            result["validated"] = valid;
-            if (!valid)
-                result["error"] = QStringLiteral("sleep snapshot pixels or metadata changed");
-        }
-        const auto &image = measuredSnapshot.image;
-        result["mode"] = sleep::value(measuredSnapshot.mode);
-        result["pixels_sha256"] = QString::fromLatin1(QCryptographicHash::hash(
-            QByteArray(reinterpret_cast<const char *>(image.constBits()), image.bytesPerLine() * image.height()),
-            QCryptographicHash::Sha256).toHex());
-        if (!scratch.remove())
-            result["error"] = QStringLiteral("could not remove sleep persistence scratch directory");
-        return result;
+        return error("unknown sleep benchmark action");
     };
     host.dictionary = [] {
         const auto services = readerHostServices();

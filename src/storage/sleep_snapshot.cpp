@@ -40,7 +40,7 @@ bool integerField(const QJsonValue &value, double minimum, double maximum, qint6
     return true;
 }
 bool writeSnapshot(const QString &path, const sleep::Snapshot &snapshot, const QString &token,
-                   int compression, QJsonObject *measurement) {
+                   QJsonObject *measurement) {
     QElapsedTimer total;
     if (measurement)
         total.start();
@@ -57,7 +57,7 @@ bool writeSnapshot(const QString &path, const sleep::Snapshot &snapshot, const Q
     QImageWriter writer(&file, "png");
     writer.setText("kobalt", QString::fromUtf8(bytes));
     QJsonObject codec;
-    if (!configureSleepSnapshotCodec(writer, compression,
+    if (!configureSleepSnapshotCodec(writer,
             writer.supportsOption(QImageIOHandler::CompressionRatio),
             writer.supportsOption(QImageIOHandler::Quality), measurement ? *measurement : codec))
         return false;
@@ -78,11 +78,11 @@ bool writeSnapshot(const QString &path, const sleep::Snapshot &snapshot, const Q
     return committed;
 }
 bool persistSnapshot(const QString &path, const sleep::Snapshot &snapshot, const QString &token,
-                     int compression, QJsonObject *measurement) {
+                     QJsonObject *measurement) {
     QElapsedTimer total;
     total.start();
     if (measurement)
-        *measurement = qt::object({{"compression", compression}, {"width", snapshot.image.width()},
+        *measurement = qt::object({{"width", snapshot.image.width()},
                                    {"height", snapshot.image.height()}});
     if (path.isEmpty() || token.isEmpty() || !validSize(snapshot.image.size()) ||
         !validOrientation(snapshot.orientation))
@@ -120,7 +120,7 @@ bool persistSnapshot(const QString &path, const sleep::Snapshot &snapshot, const
     }
     if (measurement)
         (*measurement)["persistence_kind"] = QStringLiteral("png");
-    bool saved = writeSnapshot(path, snapshot, token, compression, measurement);
+    bool saved = writeSnapshot(path, snapshot, token, measurement);
     if (saved && QFile::exists(referencePath(path)) && !QFile::remove(referencePath(path)))
         saved = false;
     if (measurement)
@@ -129,7 +129,7 @@ bool persistSnapshot(const QString &path, const sleep::Snapshot &snapshot, const
 }
 }
 bool writeSleepSnapshot(const QString &path, const sleep::Snapshot &snapshot, const QString &token) {
-    return persistSnapshot(path, snapshot, token, 1, nullptr);
+    return persistSnapshot(path, snapshot, token, nullptr);
 }
 void removeSleepSnapshot(const QString &path) {
     QFile::remove(path);
@@ -141,22 +141,20 @@ bool currentSleepCover(const sleep::Snapshot &snapshot) {
         source.isAbsolute() && source.isFile() && snapshot.coverBytes > 0 && snapshot.coverBytes <= maxBytes &&
         source.size() == snapshot.coverBytes && source.lastModified().toMSecsSinceEpoch() == snapshot.coverModified;
 }
-bool configureSleepSnapshotCodec(QImageWriter &writer, int compression, bool supportsCompression,
+bool configureSleepSnapshotCodec(QImageWriter &writer, bool supportsCompression,
                                  bool supportsQuality, QJsonObject &measurement) {
     measurement.remove("error");
     measurement["supports_compression"] = supportsCompression;
     measurement["supports_quality"] = supportsQuality;
     measurement["codec_api"] = QStringLiteral("default");
     measurement["codec_argument"] = -1;
-    if (compression == -1)
-        return true;
-    if (compression < 0 || compression > 9 || (!supportsCompression && !supportsQuality)) {
+    if (!supportsCompression && !supportsQuality) {
         measurement["codec_api"] = QStringLiteral("unsupported");
-        measurement["error"] = QStringLiteral("PNG compression control is unavailable or invalid");
+        measurement["error"] = QStringLiteral("PNG compression control is unavailable");
         return false;
     }
-    // PNG maps its 0..100 option to zlib with value * 9 / 91.
-    const int argument = (compression * 91 + 8) / 9;
+    // Level 1 is lossless. PNG maps its 0..100 option with value * 9 / 91.
+    constexpr int argument = 11;
     if (supportsCompression) {
         writer.setCompression(argument);
         measurement["codec_api"] = QStringLiteral("compression");
@@ -173,21 +171,8 @@ bool configureSleepSnapshotCodec(QImageWriter &writer, int compression, bool sup
 }
 #ifdef KOBALT_SCENARIO_PLAYER
 bool measureSleepPersistence(const QString &path, const sleep::Snapshot &snapshot, const QString &token,
-                             int compression, QJsonObject &measurement) {
-    return persistSnapshot(path, snapshot, token, compression, &measurement);
-}
-bool measureSleepSnapshot(const QString &path, const sleep::Snapshot &snapshot, const QString &token,
-                          int compression, QJsonObject &measurement) {
-    measurement = qt::object({{"compression", compression}, {"width", snapshot.image.width()},
-                              {"height", snapshot.image.height()}});
-    if (compression < -1 || compression > 9) {
-        measurement["saved"] = false;
-        return false;
-    }
-    const bool saved = writeSnapshot(path, snapshot, token, compression, &measurement);
-    measurement["persistence_kind"] = QStringLiteral("png");
-    measurement["saved"] = saved;
-    return saved;
+                             QJsonObject &measurement) {
+    return persistSnapshot(path, snapshot, token, &measurement);
 }
 #endif
 sleep::Snapshot readSleepSnapshot(const QString &path, const QString &token, sleep::Mode mode) {

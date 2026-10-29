@@ -133,28 +133,26 @@ The evaluation can also drive a device through an external runner, a program out
 
 The runner installs the package, opens the test book in Kobalt, waits for the `scenario-run-end` event and copies `scenarios.jsonl` into the output folder. It exits with zero when it wrote the file, even if a scenario failed. The comparator still reads `device.json` from runs recorded by an earlier runner.
 
-## Sleep-image persistence experiment
+## Sleep persistence benchmark
 
-The optional `sleep` scenarios compare book exit with the stock screen, the current page and the cover. Each scenario opens the benchmark book, selects Chapter 1 and turns forward once, so Page measures text instead of the opening cover. PNG comparisons use Qt's default (`-1`) and zlib levels `1` and `0`. The experiment checks the PNG handler's supported options. Modern Qt PNG maps `setCompression` with `value * 9 / 91`, so levels `1` and `0` use arguments `11` and `0`. Qt 5.2 supports only `setQuality` and maps it with `(100 - quality) * 9 / 91`, so those levels use quality `89` and `100`. Both paths remain lossless. A handler without either control rejects explicit levels. Production PNG writes and ordinary evaluation scenarios use level 1. Explicit `default` comparison scenarios still use Qt's default. The experiment uses in-memory overrides and does not change saved preferences. Covers must finish decoding before a sample; a missing cover fails the scenario instead of measuring a fallback page.
-
-Each image measurement records `supports_compression`, `supports_quality`, `codec_api` and `codec_argument`. `compression` records the requested zlib level, with `-1` meaning the unchanged default. Earlier results without these capability fields used `setCompression` unconditionally. Qt 5.2.1 ignored that setting, so those runs do not compare different compression levels. On modern Qt, the earlier arguments `1` and `0` both selected level `0`. Their stock-versus-custom exit measurements remain usable.
+The optional `sleep.close` scenarios compare book exit with the stock screen, the current page and the cover. They use production persistence: lossless level-1 PNGs for pages and native-cover references when available. Each mode has one warmup and three measured trials. The setup selects Chapter 1 and turns forward once, so Page measures text instead of the opening cover. In-memory mode overrides never change saved preferences. Covers must finish decoding before a sample; a missing cover fails the case instead of measuring a fallback page.
 
 Build and install the firmware 4 evaluation package with the filter:
 
 ```sh
 bash platforms/kobo/build.sh qt5-eval
-cmake -DPACKAGE=build/kobo-qt5-eval/Kobalt-qt5-eval.zip -DDEVICE=/Volumes/KOBOeReader -DSCENARIO_FILTER=sleep -P platforms/kobo/install-eval.cmake
+cmake -DPACKAGE=build/kobo-qt5-eval/Kobalt-qt5-eval.zip -DDEVICE=/Volumes/KOBOeReader -DSCENARIO_FILTER=sleep.close -P platforms/kobo/install-eval.cmake
 ```
 
-Use the actual device mount path. Eject, restart and open ★ Kobalt Benchmark as described above. Collect results with the normal `collect-eval.cmake` command. `sleep.close` selects only book-exit comparisons; `sleep.png` selects only the persistence microbenchmarks. These scenarios do not run without a filter. The desktop player reports them as unsupported because it has no Nickel sleep-screen persistence path.
+Use the actual device mount path. Eject, restart and open ★ Kobalt Benchmark as described above. Collect results with the normal `collect-eval.cmake` command. These scenarios do not run without a filter. The desktop player skips them because it has no Nickel sleep persistence path.
 
-`sleep.close.*` samples the real `book-close` event and uses the production persistence selection. `persistence_kind` records `reference` for native-cover metadata or `png` for a captured image. Cover reference trials do not encode a PNG, so their compression variants do not compare codec settings. Each sample waits for the pending save before reopening the book. Its `details` record contains `encode_write_ms` for PNG encoding plus streamed writes, `commit_ms` for the atomic commit, `prepare_ms` for synchronous invalidation and native filename resolution, `drain_ms` for the remaining worker wait after close, and file size in `bytes`. `invalidate_ms` measures the synchronous deletion. The worker's `token_ms` is split into `token_open_ms`, `token_query_ms` and `token_close_ms`. Worker times overlap the close; do not add them to `total_ms`. A missing or failed custom-screen save fails the sample. Stock has no image write. Home sleep still performs a fresh committed-token check; moving the close lookup does not remove that check.
+Each trial samples the real `book-close` event, then drains the pending save before reopening. `persistence_kind` distinguishes a cover `reference` from a `png`. Details retain PNG `encode_write_ms`, atomic `commit_ms`, file `bytes`, synchronous `prepare_ms` and `invalidate_ms`, and the remaining `drain_ms` after close. The worker's `token_ms` is split into `token_open_ms`, `token_query_ms` and `token_close_ms`. Worker timings overlap book exit; do not add them to the exit time. A missing or failed custom-screen save fails the trial. Stock has no image write. Home sleep still performs a fresh committed-token check, which this close benchmark does not time.
 
-`sleep.png.*` is a separate microbenchmark. All compression variants of a mode reuse the same captured image and metadata. The `pixels_sha256` field identifies that input. Each write goes through the production PNG serializer and `QSaveFile` into a temporary directory beside the real cache. After timing, the experiment reads the PNG and checks every pixel and persisted metadata field, then removes the directory. It does not measure book exit. `encode_write_ms` is not a pure codec timing, and `commit_ms` is not all storage activity.
+PNG details record the selected codec API and argument. Production uses zlib level 1: modern Qt takes compression argument 11, while Qt 5.2 takes quality 89. Both are lossless. The benchmark does not override compression or write separate test images.
 
-Results keep warmup and measured trials, including failures, in `details`. Warmup trials are excluded from the timing samples. Variants run in the order listed in `scenarios.json`, so repeat the run with reversed scenario order to check for warmup or storage drift before selecting a production policy. Compare results only on the same device and firmware. Test slower SD-backed devices separately before generalizing a result from eMMC.
+Results retain warmup and measured trials, including failures, in `details`. Warmups are excluded from timing samples. Compare the same device and firmware, and repeat with reversed scenario order to check drift. Test slower SD-backed devices separately before generalizing from eMMC.
 
-From `platforms/desktop/`, run the focused native serialization regression:
+From `platforms/desktop/`, run the focused native checks:
 
 ```sh
 cmake --build --preset mac --target kobalt-sleep-persistence-tests kobalt-scenario-sleep-tests

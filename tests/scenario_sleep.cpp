@@ -29,7 +29,7 @@ int main(int argc, char **argv) {
     auto scenario = QJsonObject{{"id", "sleep.test"}, {"opt_in", true}, {"repeat", 1},
         {"needs", QJsonArray{"sleep-persistence"}},
         {"setup", QJsonArray{QJsonObject{{"sleep_persistence", QJsonObject{{"action", "configure"}}}}}},
-        {"steps", QJsonArray{QJsonObject{{"sleep_persistence", QJsonObject{{"action", "measure"}}}}}},
+        {"steps", QJsonArray{QJsonObject{{"sleep_persistence", QJsonObject{{"action", "drain"}}}}}},
         {"sample", QJsonObject{{"event", "sleep-persistence"}, {"field", "total_ms"}, {"stages", true}}}};
     const auto file = [&] { return QJsonObject{{"scenarios", QJsonArray{scenario}}}; };
     kobalt::scenario::Host host;
@@ -46,10 +46,10 @@ int main(int argc, char **argv) {
             return QJsonObject();
         }
         return fail ? QJsonObject{{"error", "write failed"}} :
-            QJsonObject{{"total_ms", 5}, {"encode_write_ms", 4}, {"bytes", 1234}, {"compression", 1}};
+            QJsonObject{{"total_ms", 5}, {"encode_write_ms", 4}, {"bytes", 1234}};
     };
-    require(kobalt::scenario::run(file(), host).isEmpty(), "experiment is opt-in");
-    require(cleanups == 0, "excluded experiment has no side effects");
+    require(kobalt::scenario::run(file(), host).isEmpty(), "benchmark is opt-in");
+    require(cleanups == 0, "excluded benchmark has no side effects");
     kobalt::scenario::Options options;
     options.filter = "sleep";
     auto results = kobalt::scenario::run(file(), host, options);
@@ -67,5 +67,5 @@ int main(int argc, char **argv) {
     require(!results[0].value("stages").toObject().contains("bytes"), "byte count is not a timing stage");
     host.sleepPersistence = {};
     results = kobalt::scenario::run(file(), host, options);
-    require(results[0].value("status") == "skipped", "unsupported host skips experiment");
+    require(results[0].value("status") == "skipped", "unsupported host skips benchmark");
 }

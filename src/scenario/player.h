@@ -40,7 +40,7 @@ struct Host {
     // Presses or releases at `point` in `widget` instead, for a platform whose
     // input filters must not see synthesized window-system input. Optional.
     std::function<void(QWidget *widget, const QPoint &point, bool press)> press;
-    // Evaluation-only sleep-image experiment. Returns measurements, or an
+    // Evaluation-only sleep persistence benchmark. Returns measurements, or an
     // `error`. An empty request restores overrides and drains pending writes.
     std::function<QJsonObject(const QJsonObject &)> sleepPersistence;
 };

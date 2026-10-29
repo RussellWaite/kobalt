@@ -214,13 +214,6 @@ add_executable(kobalt-eval-compare EXCLUDE_FROM_ALL "${KOBALT_ROOT}/platforms/ev
 target_link_libraries(kobalt-eval-compare PRIVATE Qt6::Gui)
 
 if(BUILD_TESTING)
-    add_executable(kobalt-annotation-engine-benchmark EXCLUDE_FROM_ALL "${KOBALT_ROOT}/tests/annotation_engine_benchmark.cpp")
-    target_link_libraries(kobalt-annotation-engine-benchmark PRIVATE kobalt-desktop kobalt-core)
-    target_include_directories(kobalt-annotation-engine-benchmark PRIVATE "${KOBALT_ROOT}/tests/support")
-    target_compile_definitions(kobalt-annotation-engine-benchmark PRIVATE KOBALT_TEST_ASSET_ROOT="${KOBALT_ASSETS}")
-    add_executable(kobalt-annotation-gui-benchmark EXCLUDE_FROM_ALL "${KOBALT_ROOT}/tests/annotation_gui_benchmark.cpp")
-    target_link_libraries(kobalt-annotation-gui-benchmark PRIVATE kobalt-desktop kobalt-core)
-    target_compile_definitions(kobalt-annotation-gui-benchmark PRIVATE KOBALT_TEST_ASSET_ROOT="${KOBALT_ASSETS}")
     add_test(NAME build.cachePolicy COMMAND "${CMAKE_COMMAND}"
         "-DTEST_ROOT=${CMAKE_CURRENT_BINARY_DIR}/cache-policy-test"
         "-DPOLICY_FILE=${KOBALT_ROOT}/platforms/cache-policy.cmake"
@@ -390,7 +383,6 @@ if(BUILD_TESTING)
     add_executable(kobalt-sleep-persistence-tests "${KOBALT_ROOT}/tests/sleep_persistence.cpp"
         "${source}/storage/sleep_snapshot.cpp")
     target_include_directories(kobalt-sleep-persistence-tests PRIVATE "${source}")
-    target_compile_definitions(kobalt-sleep-persistence-tests PRIVATE KOBALT_SCENARIO_PLAYER)
     target_link_libraries(kobalt-sleep-persistence-tests PRIVATE Qt6::Core Qt6::Gui)
     target_compile_options(kobalt-sleep-persistence-tests PRIVATE -Wall -Wextra -Werror)
     add_dependencies(kobalt-tests kobalt-sleep-persistence-tests)

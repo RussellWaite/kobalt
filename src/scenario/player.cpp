@@ -138,7 +138,7 @@ public:
         if (step.contains("sleep_persistence")) {
             if (!host.sleepPersistence) {
                 unsupported = true;
-                return "the host has no sleep persistence experiment";
+                return "the host has no sleep persistence benchmark";
             }
             const auto result = host.sleepPersistence(step.value("sleep_persistence").toObject());
             matched["sleep-persistence"] = result;
@@ -405,7 +405,7 @@ QVector<QJsonObject> run(const QJsonObject &file, const Host &host, const Option
         QJsonObject stages;
         if (needs(scenario, "sleep-persistence") && !host.sleepPersistence) {
             result["status"] = QStringLiteral("skipped");
-            result["reason"] = QStringLiteral("the host has no sleep persistence experiment");
+            result["reason"] = QStringLiteral("the host has no sleep persistence benchmark");
             result["samples"] = samples;
             result["stages"] = stages;
             results.append(result);

@@ -13,9 +13,6 @@
 #include <future>
 #include <atomic>
 #include <QElapsedTimer>
-#ifdef KOBALT_SCENARIO_PLAYER
-#include "scenario/sleep_persistence.h"
-#endif
 
 namespace kobalt::nickel {
 namespace {
@@ -107,12 +104,11 @@ void HomeSleepScreen::save(const sleep::Snapshot &next, const QString &identity)
 #ifdef KOBALT_SCENARIO_PLAYER
     const double prepareMs = prepare.nsecsElapsed() / 1e6;
     saveMeasurement = std::make_shared<QJsonObject>();
-    const int compression = scenario::sleepPersistenceOptions().compression;
     pendingSave = std::async(std::launch::async, [path = paths.sleepScreen(), next, database, identity,
-                                               measurement = saveMeasurement, compression, prepareMs, invalidateMs] {
+                                               measurement = saveMeasurement, prepareMs, invalidateMs] {
         QJsonObject tokenTimes;
         const auto token = readToken(database, identity, &tokenTimes);
-        const bool saved = !token.isEmpty() && storage::measureSleepPersistence(path, next, token, compression, *measurement);
+        const bool saved = !token.isEmpty() && storage::measureSleepPersistence(path, next, token, *measurement);
         for (auto it = tokenTimes.begin(); it != tokenTimes.end(); ++it)
             (*measurement)[it.key()] = it.value();
         (*measurement)["prepare_ms"] = prepareMs;

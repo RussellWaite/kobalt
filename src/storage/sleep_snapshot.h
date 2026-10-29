@@ -11,12 +11,10 @@ sleep::Snapshot readSleepSnapshot(const QString &path, const QString &token, sle
 void removeSleepSnapshot(const QString &path);
 bool currentSleepCover(const sleep::Snapshot &);
 // Capability arguments let native checks exercise the older PNG quality API.
-bool configureSleepSnapshotCodec(QImageWriter &, int compression, bool supportsCompression,
+bool configureSleepSnapshotCodec(QImageWriter &, bool supportsCompression,
                                  bool supportsQuality, QJsonObject &measurement);
 #ifdef KOBALT_SCENARIO_PLAYER
 bool measureSleepPersistence(const QString &path, const sleep::Snapshot &, const QString &token,
-                             int compression, QJsonObject &measurement);
-bool measureSleepSnapshot(const QString &path, const sleep::Snapshot &, const QString &token,
-                          int compression, QJsonObject &measurement);
+                             QJsonObject &measurement);
 #endif
 }
