@@ -1070,20 +1070,16 @@ void Reader::updateLinkReturn() {
 bool Reader::openLink(QPoint point, bool direct) {
     if (model->busy() || closing || lifecycleHidden || services.suspended() || syncDialog || kosyncDialog || finishDialog)
         return false;
-    for (const auto &link : model->pageLinks()) {
-        if (direct && !link.tappable(preferences.value("tappable_links").toString("off")))
-            continue;
-        // Ordinary reading keeps nearby text available to the page tap zones.
-        const int pad = direct ? 0 : kobalt::ui::px(6);
-        QRect bounds;
-        for (const auto &rect : link.rectangles) {
-            if (rect.adjusted(-pad, -pad, pad, pad).contains(point)) {
-                bounds = rect;
-                break;
-            }
-        }
-        if (bounds.isEmpty())
-            continue;
+    if (point.x() < 0 || point.x() >= page->width() || point.y() < 0 ||
+        point.y() >= page->height() - page->topHeight() - page->bottomHeight())
+        return false;
+    const auto links = model->pageLinks();
+    const auto hit = linkAtPoint(links, point,
+                                direct ? preferences.value("tappable_links").toString("footnotes") : QString("all"),
+                                int(m::links::revealPadding), direct ? 0 : ui::px(6));
+    if (hit.index >= 0) {
+        const auto &link = links[hit.index];
+        const auto bounds = hit.bounds;
         dismissLookup();
         linkPending = true;
         // A link chosen in reveal mode opens like a held link, over the page
@@ -1366,11 +1362,16 @@ void Reader::syncLinkDiscovery() {
     linkDiscovery->setVisible(linksAvailable && revealingLinks);
     linkIndicator->setVisible(!blocked && !controls && count > 0 &&
                               preferences.value("show_link_indicator").toBool(false));
-    QVector<QRect> rectangles;
+    QVector<QRect> rectangles, footnotes;
     if (revealingLinks)
-        for (const auto &link : model->pageLinks())
+        for (const auto &link : model->pageLinks()) {
             rectangles += link.rectangles;
-    page->revealLinks(rectangles);
+            if (link.kind == LinkKind::Footnote)
+                for (const auto &rect : link.rectangles)
+                    if (narrowFootnote(rect))
+                        footnotes += rect;
+        }
+    page->revealLinks(rectangles, footnotes);
     if (blocked || !count)
         return;
 

@@ -1051,10 +1051,10 @@
 
 "settings.tappable_links" = "Tappable links";
 "settings.tappable_links_description" = "Choose how to open footnotes and links while reading.";
-"settings.tappable_links_off" = "Off";
+"settings.tappable_links_off" = "Always require long press";
 "settings.tappable_links_footnotes" = "Footnotes only";
 "settings.tappable_links_all" = "Footnotes and links";
-"settings.tappable_links_off_description" = "Long press and choose Follow link. Off by default to avoid accidental opening.";
+"settings.tappable_links_off_description" = "Long press and choose Follow link to avoid accidental opening.";
 "settings.tappable_links_footnotes_description" = "Tap footnotes to open them. Long press other links, then choose Follow link.";
 "settings.tappable_links_all_description" = "Tap footnotes and links to open them.";
 "settings.vertical_spacing" = "Vertical page spacing";

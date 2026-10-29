@@ -3730,6 +3730,114 @@ exit 7
         QTRY_VERIFY(!fixture.visible("rrBrowserConfirmation"));
         QCOMPARE(fixture.state().value("position"), origin);
     }
+    void footnoteHighlightShapes() {
+        ReadingPage page(nullptr, [] {});
+        page.resize(300, 400);
+        auto palette = page.palette();
+        palette.setColor(QPalette::Window, Qt::white);
+        palette.setColor(QPalette::WindowText, Qt::black);
+        page.setPalette(palette);
+        const QVector<QRect> notes{QRect(100, 100, 8, 32), QRect(120, 100, 8, 32)};
+        page.revealLinks(notes, notes);
+        const auto image = page.snapshot();
+        const int top = page.topHeight();
+        const auto gray = [&](int x, int y) { return qGray(image.pixel(x, y + top)); };
+        QVERIFY(gray(94, 94) > 240); // Old rectangle corner is outside the circle.
+        QVERIFY(gray(90, 116) < 255); // Lateral extension is highlighted.
+        QVERIFY(gray(110, 116) > 0 && gray(110, 116) < 255);
+        QCOMPARE(gray(110, 116), gray(118, 116)); // No double tint in the overlap.
+        QCOMPARE(gray(102, 116), gray(110, 116)); // No leftover arc from the neighboring circle.
+        QVERIFY(qMin(gray(114, 116), gray(115, 116)) < gray(110, 116)); // Shared clipped edge.
+        for (int y = 90; y < 145; ++y)
+            for (int x = 80; x < 150; ++x) {
+                const auto pixel = image.pixel(x, y + top);
+                QCOMPARE(qRed(pixel), qGreen(pixel));
+                QCOMPARE(qGreen(pixel), qBlue(pixel));
+            }
+        page.revealLinks({});
+        QCOMPARE(qGray(page.snapshot().pixel(90, 116 + top)), 255);
+    }
+    void revealedLinkPress_data() { bookmarks_data(); }
+    void revealedLinkPress() {
+        QFETCH(bool, dark);
+        ReadingPage page(nullptr, [] {});
+        page.resize(500, 600);
+        page.setPalette(ui::readerPalette(page.palette(), dark));
+        page.setProperty("reader_dark", dark);
+        const QRect note(100, 100, 8, 32), ordinary(100, 200, 150, 32);
+        page.revealLinks({note, ordinary}, {note});
+        int holds = 0, taps = 0, swipes = 0, annotations = 0;
+        page.held = [&](QPoint) { ++holds; };
+        page.tapped = [&](QPoint) { ++taps; };
+        page.swiped = [&](int) { ++swipes; };
+        page.annotationRequested = [&] { ++annotations; };
+        const int top = page.topHeight();
+        for (const auto &rect : {note, ordinary}) {
+            const QPoint at = rect.center() + QPoint(0, top);
+            const auto before = page.snapshot();
+            QTest::mousePress(&page, Qt::LeftButton, Qt::NoModifier, at);
+            const auto pressed = page.snapshot();
+            const int idleGray = qGray(before.pixel(at)), pressedGray = qGray(pressed.pixel(at));
+            QVERIFY(dark ? pressedGray > idleGray : pressedGray < idleGray);
+            const QPoint other = (rect == note ? ordinary : note).center() + QPoint(0, top);
+            QCOMPARE(pressed.pixel(other), before.pixel(other));
+            QTest::qWait(ui::metrics::lookup::holdMilliseconds + 50);
+            QCOMPARE(holds, 0);
+            QTest::mouseRelease(&page, Qt::LeftButton, Qt::NoModifier, at);
+            QCOMPARE(page.snapshot(), before);
+        }
+        QCOMPARE(taps, 2);
+        const QPoint at = note.center() + QPoint(0, top);
+        const auto idle = page.snapshot();
+        QTest::mousePress(&page, Qt::LeftButton, Qt::NoModifier, at);
+        QTest::mouseMove(&page, at + QPoint(150, 0));
+        QCOMPARE(page.snapshot(), idle);
+        QTest::mouseRelease(&page, Qt::LeftButton, Qt::NoModifier, at + QPoint(150, 0));
+        QCOMPARE(taps, 2);
+        QCOMPARE(swipes, 0);
+        QTest::mouseClick(&page, Qt::RightButton, Qt::NoModifier, at);
+        QCOMPARE(annotations, 0);
+        QTest::mousePress(&page, Qt::LeftButton, Qt::NoModifier, at);
+        page.cancelHold();
+        QCOMPARE(page.snapshot(), idle);
+        QTest::mouseRelease(&page, Qt::LeftButton, Qt::NoModifier, at);
+        QCOMPARE(taps, 2);
+        page.revealLinks({});
+        QTest::mousePress(&page, Qt::LeftButton, Qt::NoModifier, at);
+        QTRY_COMPARE(holds, 1);
+        QTest::mouseRelease(&page, Qt::LeftButton, Qt::NoModifier, at);
+    }
+    void footnoteHitTargets() {
+        const QVector<PageLink> links{
+            {"first", {QRect(100, 100, 8, 32)}, LinkKind::Footnote},
+            {"second", {QRect(120, 100, 8, 32)}, LinkKind::Footnote},
+            {"passage", {QRect(99, 91, 10, 8)}, LinkKind::Passage}};
+        const auto hit = [&](QPoint point, const QString &mode = "footnotes") {
+            return linkAtPoint(links, point, mode, 6).index;
+        };
+        QCOMPARE(footnoteTarget(links[0].rectangles[0], 6), QRectF(82, 94, 44, 44));
+        QCOMPARE(hit(QPoint(82, 116)), 0);
+        QCOMPARE(hit(QPoint(81, 116)), -1);
+        QCOMPARE(hit(QPoint(83, 95)), -1); // Outside the circle, inside its bounding square.
+        QCOMPARE(hit(QPoint(104, 116)), 0); // Direct taps win inside both circles.
+        QCOMPARE(hit(QPoint(124, 116)), 1);
+        QCOMPARE(hit(QPoint(113, 116)), 0);
+        QCOMPARE(hit(QPoint(115, 116)), 1);
+        QCOMPARE(hit(QPoint(143, 116)), 1);
+        QCOMPARE(hit(QPoint(104, 96)), -1); // Disabled passage text blocks a nearby note.
+        QCOMPARE(hit(QPoint(104, 96), "all"), 2);
+        QCOMPARE(hit(QPoint(82, 116), "off"), -1);
+        QCOMPARE(hit(QPoint(104, 116), "off"), -1);
+        // The wider second reference is closer by its edge, despite its farther center.
+        const QVector<PageLink> unequal{
+            {"narrow", {QRect(100, 100, 8, 60)}, LinkKind::Footnote},
+            {"wide", {QRect(120, 100, 30, 60)}, LinkKind::Footnote}};
+        QCOMPARE(linkAtPoint(unequal, QPoint(116, 130), "footnotes", 6).index, 1);
+        const QVector<PageLink> wide{{"wide note", {QRect(100, 100, 120, 32)}, LinkKind::Footnote}};
+        QVERIFY(!narrowFootnote(wide[0].rectangles[0]));
+        QCOMPARE(linkAtPoint(wide, QPoint(160, 98), "footnotes", 6).index, -1);
+        QCOMPARE(linkAtPoint(wide, QPoint(160, 110), "footnotes", 6).index, 0);
+    }
     void tappableLinks_data() { bookmarks_data(); }
     void tappableLinks() {
         QFETCH(bool, dark);
@@ -3744,6 +3852,15 @@ exit 7
         auto *page = fixture.widget("rrPage");
         const auto origin = fixture.state().value("position");
         QVERIFY(!storage::readJson(fixture.paths.preferences()).contains("tappable_links"));
+        if (fixture.visible("rrControlsTop"))
+            QVERIFY(fixture.press("rrPage"));
+        const auto defaultNote = fixture.linkPoint(path, "short note");
+        QVERIFY(defaultNote.x() >= 0);
+        QVERIFY(fixture.click(page, defaultNote));
+        QTRY_VERIFY(fixture.visible("rrLinkPanel"));
+        QCOMPARE(fixture.state().value("position"), origin);
+        QVERIFY(fixture.press("rrLinkClose"));
+        QTRY_VERIFY(!fixture.visible("rrLinkPanel"));
         for (const auto *mode : {"off", "footnotes", "all"}) {
             if (!fixture.visible("rrControlsTop"))
                 QVERIFY(fixture.press("rrPage"));
@@ -3761,8 +3878,10 @@ exit 7
             }
             QVERIFY(fixture.press("rrTappableLinks"));
             QTRY_VERIFY(fixture.visible("rrTappableLinks_off"));
+            QVERIFY(fixture.widget("rrTappableLinks_footnotes")->y() < fixture.widget("rrTappableLinks_all")->y());
+            QVERIFY(fixture.widget("rrTappableLinks_all")->y() < fixture.widget("rrTappableLinks_off")->y());
             if (QString(mode) == "off") {
-                QVERIFY(qobject_cast<QCheckBox *>(fixture.widget("rrTappableLinks_off"))->isChecked());
+                QVERIFY(qobject_cast<QCheckBox *>(fixture.widget("rrTappableLinks_footnotes"))->isChecked());
             }
             QVERIFY(fixture.press(qPrintable(QString("rrTappableLinks_") + mode)));
             QTRY_VERIFY(!fixture.visible("rrTappableLinksPopup"));
@@ -3797,7 +3916,7 @@ exit 7
                 for (const auto &link : coordinates.pageLinks())
                     if (coordinates.linkDetails(link.source).label == "short note") {
                         const auto r = link.rectangles.first();
-                        return QPoint(r.left() - 2, r.center().y() + top);
+                        return QPoint(r.center().x(), r.top() - 2 + top);
                     }
                 return QPoint(-1, -1);
             });
@@ -6019,12 +6138,36 @@ private slots:
         const auto name = QStringList{"fill", "six-inch", "seven-inch"}.at(preset) + (dark ? "-dark" : "-light");
         captureBook = {{"title", "Links and footnotes"}, {"fixture", "offline EPUB with internal, external and footnote links"}};
         const auto resetBook = qScopeGuard([] { captureBook = {}; });
-        QVERIFY(writeBook(fixture.directory.path(), "links.epub", test::linkBook()));
+        auto linkFiles = test::linkBook();
+        linkFiles["OEBPS/first.xhtml"].replace("<body>",
+            "<body><p>Adjacent notes: <sup><a epub:type='noteref' href='Notes/foot%20notes.xhtml#short'>1</a>"
+            " <a epub:type='noteref' href='Notes/foot%20notes.xhtml#long'>2</a></sup>.</p>");
+        QVERIFY(writeBook(fixture.directory.path(), "links.epub", linkFiles));
+
         QSignalSpy opened(&fixture.window, &desktop::Window::bookOpened);
         fixture.window.openBook(fixture.directory.path() + "/links.epub");
         QTRY_COMPARE_WITH_TIMEOUT(opened.count(), 1, 10000);
         QTRY_VERIFY(!fixture.state().value("busy").toBool());
-        QVERIFY(capture(fixture, name + "-tappable-links-off"));
+        QVERIFY(fixture.press("rrPage"));
+        QVERIFY(fixture.press("rrScrubberLinks"));
+        QVERIFY(capture(fixture, name + "-footnotes-tap-targets"));
+        auto *canvas = fixture.window.findChild<QGraphicsView *>();
+        auto *paper = fixture.widget("rrPage");
+        QVERIFY(canvas && paper);
+        for (const auto *label : {"1", "short note"}) {
+            const auto local = fixture.linkPoint(fixture.directory.path() + "/links.epub", label);
+            QVERIFY(local.x() >= 0);
+            const auto at = canvas->mapFromScene(paper->mapTo(fixture.window.readerWindow(), local));
+            QTest::mousePress(canvas->viewport(), Qt::LeftButton, Qt::NoModifier, at);
+            QVERIFY(capture(fixture, name + (QString(label) == "1" ? "-footnotes-circle-pressed" : "-links-rectangle-pressed")));
+            QTest::mouseRelease(canvas->viewport(), Qt::LeftButton, Qt::NoModifier, at);
+            QTRY_VERIFY(fixture.visible("rrLinkPanel"));
+            QVERIFY(fixture.press("rrLinkClose"));
+            QTRY_VERIFY(!fixture.visible("rrLinkPanel"));
+            QVERIFY(fixture.press("rrPage"));
+            QVERIFY(fixture.press("rrScrubberLinks"));
+        }
+        QVERIFY(fixture.click(fixture.widget("rrPage"), QPoint(2, 2)));
         for (const auto *mode : {"footnotes", "all"}) {
             QVERIFY(fixture.press("rrPage"));
             QTRY_VERIFY(fixture.visible("rrSettings"));
@@ -6421,7 +6564,7 @@ int main(int argc, char **argv) {
         return app.exec();
     }
     QFile fixture(book);
-    const int expectedScreenshots = lightGallery ? 56 : 762;
+    const int expectedScreenshots = lightGallery ? 56 : 770;
     if (captures.size() != expectedScreenshots)
         qCritical() << "Expected" << expectedScreenshots << "screenshots, captured" << captures.size();
     if (!fixture.open(QIODevice::ReadOnly) || captures.size() != expectedScreenshots) {

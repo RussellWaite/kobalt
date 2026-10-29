@@ -1202,7 +1202,7 @@ QString tappableLinksDescription(const QString &mode) {
 }
 
 void Reader::showTappableLinks() {
-    const auto mode = preferences.value("tappable_links").toString("off");
+    const auto mode = preferences.value("tappable_links").toString("footnotes");
     tappableLinksButton->setCaption(tappableLinksLabel(mode).toUpper());
 }
 
@@ -1244,8 +1244,8 @@ void Reader::openTappableLinks() {
     choices->setObjectName("rrTappableLinksChoices");
     choices->setMinimumRowHeight(c::listActionHeight);
     choices->setTopDivider(true);
-    const QStringList modes{"off", "footnotes", "all"};
-    const auto current = preferences.value("tappable_links").toString("off");
+    const QStringList modes{"footnotes", "all", "off"};
+    const auto current = preferences.value("tappable_links").toString("footnotes");
     for (const auto &mode : modes) {
         choices->add("rrTappableLinks_" + mode, tappableLinksLabel(mode), tappableLinksDescription(mode));
         if (mode == current)

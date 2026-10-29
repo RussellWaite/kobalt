@@ -13,13 +13,13 @@ int main() {
         require(!cleaned.contains("native_hide_status_bar") && cleaned.value("private_optional").toString() == "keep",
                 "Retired desktop status preference survived cleanup or removed an unrelated setting");
     }
-    require(!appearance::cleanPreferences({}).contains("tappable_links"), "Older settings enabled direct taps");
+    require(!appearance::cleanPreferences({}).contains("tappable_links"), "Older settings gained an explicit direct-tap choice");
     for (const auto *mode : {"off", "footnotes", "all"})
         require(appearance::cleanPreferences({{"tappable_links", mode}}).value("tappable_links").toString() == mode,
                 "Cleaning settings lost a supported direct-tap choice");
     for (const auto &invalid : {QJsonValue("unknown"), QJsonValue(true), QJsonValue(1)})
         require(!appearance::cleanPreferences({{"tappable_links", invalid}}).contains("tappable_links"),
-                "Invalid direct-tap preference did not fall back to Off");
+                "Invalid direct-tap preference did not fall back to the default");
 
 
     const auto dictionary = appearance::cleanPreferences(qt::object({{"dictionary_font_face", "Libron"},
