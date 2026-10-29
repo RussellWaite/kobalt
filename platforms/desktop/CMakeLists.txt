@@ -507,6 +507,7 @@ if(BUILD_TESTING)
                 set_target_properties(kobalt-${name}-tests PROPERTIES AUTOMOC ON ENABLE_EXPORTS ON)
             elseif(check STREQUAL "native_lifecycle")
                 target_sources(kobalt-${name}-tests PRIVATE "${KOBALT_ROOT}/platforms/kobo/common/native_lifecycle.cpp"
+                    "${KOBALT_ROOT}/platforms/kobo/common/startup_recovery.c"
                     "${KOBALT_ROOT}/platforms/kobo/common/screensaver_compatibility.cpp"
                     "${KOBALT_ROOT}/platforms/kobo/common/native_lifecycle.h")
                 target_link_libraries(kobalt-${name}-tests PRIVATE kobalt-regression-runtime Qt6::Widgets Qt6::Sql)
