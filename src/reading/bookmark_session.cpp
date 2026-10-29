@@ -256,8 +256,12 @@ void BookmarkSession::finishSave(quint64 id, bool ok, const QString &error, quin
         if (errors == before)
             error_.clear();
         restore.clear();
+        retryPending = false;
+        retryBookmarks.clear();
         return;
     }
+    retryBookmarks = bookmarks;
+    retryPending = true;
     // Return to the saved list. Its pages are known when every saved
     // bookmark was on screen in this layout; otherwise look them up again.
     QVector<int> pages;
@@ -293,6 +297,13 @@ void BookmarkSession::finishSave(quint64 id, bool ok, const QString &error, quin
 void BookmarkSession::flush() {
     if (writer)
         writer->flush();
+}
+bool BookmarkSession::retryFailedSave() {
+    if (!retryPending)
+        return true;
+    // Resolve the retried list against the current layout after persistence.
+    layout_.clear();
+    return save(retryBookmarks, {}, "retry");
 }
 bool BookmarkSession::remove(const QString &position) {
     if (!store)

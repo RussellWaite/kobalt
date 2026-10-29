@@ -8,6 +8,7 @@
 #include <QTimer>
 #include <dlfcn.h>
 #include <memory>
+#include <atomic>
 #include <QFile>
 #include "support/strings.h"
 #include <cerrno>
@@ -26,6 +27,7 @@
 namespace kobalt {
 namespace {
 QPointer<NativeLifecycle> active;
+std::atomic_bool sessionStorageAvailable{true};
 template <class T> T symbol(const char *name) {
     return reinterpret_cast<T>(dlsym(RTLD_DEFAULT, name));
 }
@@ -62,6 +64,18 @@ bool NativeLifecycle::usbSaveAllowed() {
     // The USB prompt can cover the reader before storage is exported. Only
     // the held workflow permits its final write; sleep and PIN still block it.
     return active && active->pendingWorkflow && !active->exported && !active->poweringOff && !nativeSleeping();
+}
+bool NativeLifecycle::nativeSessionSaveAllowed() {
+    return sessionStorageAvailable.load();
+}
+bool NativeLifecycle::nativeProgressSaveAllowed() {
+    if (!nativeSessionSaveAllowed())
+        return false;
+    // The shutdown hook owns storage until its save continuation returns.
+    // A visible sleep screen or PIN must not prevent that final write.
+    if (active && active->shuttingDown())
+        return !active->storageBlocked();
+    return !suspended() || usbSaveAllowed() || sleepSaveAllowed();
 }
 bool NativeLifecycle::sleepSaveAllowed() {
     return active && active->savingBeforeSleep && !active->storageBlocked() && !active->shuttingDown();
@@ -156,6 +170,7 @@ NativeLifecycle::NativeLifecycle(QObject *parent) : QObject(parent) {
     connected_ = a && resuming && b && c && d;
     if (connected_) {
         active = this;
+        sessionStorageAvailable.store(true);
         asleep = nativeSleeping();
         engineActivity().pause(asleep);
     }
@@ -252,24 +267,25 @@ bool NativeLifecycle::interceptShutdown(QObject *manager, Shutdown mode) {
     // whose shutdown path can reenter this hook while the manager still lives.
     const auto completed = std::make_shared<bool>(false);
     const auto lifecycle = active;
-    const auto finish = [guard, lifecycle, mode, completed](bool timedOut) {
+    const auto finish = [guard, lifecycle, mode, completed] {
         if (!guard || !lifecycle || lifecycle != active || *completed)
             return;
         *completed = true;
         // Nickel stops EventEngine and closes its databases in powerOff().
-        // Prefer a drained worker, but never let stuck engine work prevent
-        // battery-low power-off. Reader save replies have their own deadline.
-        diagnostic(timedOut ? "shutdown-release-timeout" : "shutdown-release-complete");
-        // A stalled engine drain must not leave the shared profile open when
-        // Nickel freezes its threads. Late saves must keep failing afterward.
+        // Every software shutdown, including battery-low shutdown, waits for
+        // required saves and the worker drain. A deadline cannot make an
+        // unsaved interval safe to discard. Physical power loss is separate.
+        diagnostic("shutdown-release-complete");
+        // Close and block the profile before Nickel freezes its threads.
+        // Late saves must keep failing afterward.
+        sessionStorageAvailable.store(false);
         storage::closeProfile(true);
         if (mode == Shutdown::Reboot)
             nativeReboot(guard.data());
         else
             nativePowerOff(guard.data(), mode == Shutdown::BatteryLow);
     };
-    qt::later(3000, active.data(), [finish] { finish(true); });
-    active->prepareShutdown([finish] { finish(false); });
+    active->prepareShutdown(finish);
     return true;
 }
 bool NativeLifecycle::interceptUsbWorkflow(QObject *manager) {
@@ -295,6 +311,7 @@ bool NativeLifecycle::interceptUsbWorkflow(QObject *manager) {
         }
         // Only a current USB request may block storage. The reader drain can
         // finish after disconnect has cancelled it and reopened the profile.
+        sessionStorageAvailable.store(false);
         storage::closeProfile(true);
         auto *manager = guard->pendingWorkflow.data();
         guard->pendingWorkflow.clear();
@@ -321,6 +338,7 @@ void NativeLifecycle::beginUsb() {
     active->prepareUsb([guard, request] {
         if (!guard || request != guard->generation || !guard->usbPending)
             return;
+        sessionStorageAvailable.store(false);
         storage::closeProfile(true);
         diagnostic("usb-release-complete");
         guard->storageReady = true;
@@ -365,6 +383,7 @@ void NativeLifecycle::disconnected() {
         return; // Wait for remount, or leave storage closed for shutdown.
     // USB ended before the export; the partition was never released.
     storage::reopenProfile();
+    sessionStorageAvailable.store(true);
     ++active->generation;
     active->usbPending = false;
     active->pendingGadget.clear();
@@ -381,6 +400,7 @@ void NativeLifecycle::processingDone() {
     usbPending = exported = storageReady = false;
     pendingGadget.clear();
     storage::reopenProfile();
+    sessionStorageAvailable.store(true);
     pauseDiagnostics(false);
     diagnostic("usb-storage-ready");
     if (restartAfterRemoval())

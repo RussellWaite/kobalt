@@ -7,6 +7,9 @@
 #include "storage/reader_storage.h"
 #include "storage/annotation_database.h"
 #include "storage/record_writer.h"
+#include "storage/profile_database.h"
+#include "support/diagnostics.h"
+#include <atomic>
 #include <QSqlQuery>
 #include "publication/native_resources.h"
 #include "support/qt_compat.h"
@@ -591,6 +594,8 @@ int main(int argc, char **argv) {
         require(book.deviceTransition() && !book.canWriteNative() && calls.observed == 1 && calls.stopped == 1,
                 "Device transition did not stop platform activity");
         require(book.writeNative("position", {}), "Deferred platform write blocked local checkpoint");
+        require(book.nativeSaveResult() == ReadingBook::NativeSave::Failed,
+                "Unavailable native storage was reported as intentional local-only progress");
         require(calls.writes == 0, "Platform write ran during transition");
         calls.transition = false;
         ++calls.current.modified;
@@ -598,6 +603,7 @@ int main(int argc, char **argv) {
         book.pollProgress();
         require(book.pendingProgress(), "External progress change did not create a conflict");
         require(!book.writeNative("position", {}) && calls.writes == 0, "Conflict was overwritten without a choice");
+        require(book.nativeSaveResult() == ReadingBook::NativeSave::Conflict, "Native conflict lost its result");
         book.acknowledge(book.candidate(), false);
         require(book.session()->turn(1), "Cannot turn before saving native progress");
         waitUntil([&] {
@@ -617,13 +623,18 @@ int main(int argc, char **argv) {
         calls.failWrite = true;
         require(book.writeNative("position-two", {}), "Ordinary platform failure blocked local persistence");
         require(book.checkpoint(&snapshot), "Failed-write local checkpoint failed");
-        require(snapshot.value("nickel_progress").toObject() == committed.json() &&
-                    snapshot.value("native_writeback") == QStringLiteral("local-only") &&
-                    snapshot.value("native_writeback_error") == QStringLiteral("synthetic write failure"),
+        require(snapshot.value("nickel_progress").toObject() == committed.json(),
                 "Failed native write changed the confirmed baseline");
+        require(snapshot.value("native_writeback") == QStringLiteral("failed"),
+                "Failed native write lost its result");
+        require(snapshot.value("native_writeback_error") == QStringLiteral("synthetic write failure"),
+                "Failed native write lost its error");
+        require(book.nativeSaveResult() == ReadingBook::NativeSave::Failed, "Failed native save allowed clean close");
         const int writes = calls.writes;
         require(book.writeNative({}, "unmappable store position") && calls.writes == writes,
                 "Store book accepted a time-only write");
+        require(book.nativeSaveResult() == ReadingBook::NativeSave::LocalOnly,
+                "Unsupported store position was reported as a storage failure");
         const auto changeSql = [&](const QString &sql) {
             return AnnotationDatabase::transaction(paths.directory, [&](QSqlDatabase &db) {
                 QSqlQuery query(db); return query.exec(sql);
@@ -635,6 +646,56 @@ int main(int argc, char **argv) {
         require(changeSql("DROP TRIGGER fail_checkpoint") && book.checkpoint(&snapshot),
                 "Failed checkpoint was cached instead of retried");
         require(storage::readBookState(paths, "store-id").object == persistedBook(snapshot), "Retried checkpoint lost the current state");
+        {
+            QTemporaryDir logs;
+            require(logs.isValid(), "Cannot create close checkpoint diagnostics");
+            initializeDiagnostics(logs.path());
+            setDiagnosticsSync(false);
+            std::atomic<int> checkpoints{0};
+            setDiagnosticObserver([&](const QJsonObject &event) {
+                if (event.value("event") == QStringLiteral("profile-checkpoint"))
+                    ++checkpoints;
+            });
+            const auto closeCheckpoint = [&] {
+                bool done = false, saved = false;
+                book.checkpointForClose([&](bool result) { saved = result; done = true; });
+                waitUntil([&] { return done; });
+                return saved;
+            };
+            require(closeCheckpoint() && checkpoints == 0,
+                    "Already durable close checkpoint folded WAL again");
+            const auto routineRecord = [&](int value) {
+                bool saved = false;
+                storage::runOnWriterThread([&] {
+                    storage::RoutineWrites routine;
+                    saved = storage::writeRecord(paths.directory, "close-sync-check", {}, {{"value", value}});
+                });
+                require(saved && storage::profileHasUnsyncedWrites(), "Routine close fixture was already synced");
+            };
+            routineRecord(1);
+            require(closeCheckpoint() && checkpoints == 1 && !storage::profileHasUnsyncedWrites(),
+                    "Unchanged close record did not sync earlier routine writes");
+            routineRecord(2);
+            calls.failWrite = false;
+            require(book.writeNative("position-after-routine", {}), "Cannot update close baseline");
+            require(closeCheckpoint() && checkpoints == 1 && !storage::profileHasUnsyncedWrites(),
+                    "Synced close record redundantly checkpointed earlier routine writes");
+            const auto finalState = storage::readBookState(paths, "store-id").object;
+            require(finalState.value("nickel_progress").toObject() == calls.current.json(),
+                    "Close checkpoint lost the verified native baseline");
+            require(book.writeNative("position-before-failed-close", {}), "Cannot update failed close baseline");
+            require(changeSql("CREATE TRIGGER fail_close_checkpoint BEFORE UPDATE ON book_state BEGIN SELECT RAISE(ABORT,'test'); END"),
+                    "Cannot obstruct asynchronous close checkpoint");
+            require(!closeCheckpoint(), "Failed close record was accepted because the profile was synced");
+            require(changeSql("DROP TRIGGER fail_close_checkpoint") && closeCheckpoint(),
+                    "Failed asynchronous close checkpoint did not recover");
+            setDiagnosticObserver({});
+            setDiagnosticsSync(true);
+            storage::closeProfile();
+            require(storage::readRecord(paths.directory, "close-sync-check", {}).object.value("value") == 2 &&
+                        storage::readBookState(paths, "store-id").object.value("nickel_progress").toObject() == calls.current.json(),
+                    "Reopened profile lost routine writes or the final close baseline");
+        }
         book.releaseNative();
         require(book.usesNativeCloudSync(), "Releasing native services preserves the sync provider");
         require(calls.destroyed == 1 && !book.canWriteNative(), "Release retained platform services");

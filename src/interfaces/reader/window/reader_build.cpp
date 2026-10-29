@@ -206,6 +206,10 @@ Reader::Reader(std::unique_ptr<kobalt::ReadingBook> openedBook, kobalt::ReaderOr
     // A highlight save on the writer thread failed and the saved list is back.
     highlights->saveFailed = [this] {
         kobalt::qt::later(0, this, [this] {
+            if (exitPending) {
+                failExit(closeRequest, strings::get("annotations.change_not_saved"));
+                return;
+            }
             showHighlightError();
         });
     };
@@ -232,6 +236,10 @@ Reader::Reader(std::unique_ptr<kobalt::ReadingBook> openedBook, kobalt::ReaderOr
     };
     bookmarks->failed = [this] {
         kobalt::qt::later(0, this, [this] {
+            if (exitPending) {
+                failExit(closeRequest, bookmarks->error());
+                return;
+            }
             showBookmarkError();
         });
     };

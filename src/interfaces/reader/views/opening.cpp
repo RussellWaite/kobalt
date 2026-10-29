@@ -27,13 +27,11 @@ namespace {
 class OpeningDialog final : public QDialog {
 public:
     OpeningDialog(QWidget *background, bool dark, PresentationFactory makePresentation, bool embedded = false)
-        : QDialog(background, embedded ? Qt::Widget : Qt::Dialog | Qt::FramelessWindowHint),
+        : QDialog(background, embedded ? Qt::SubWindow : Qt::Dialog | Qt::FramelessWindowHint),
           presentation(makePresentation(this)), embedded(embedded) {
         Q_ASSERT(presentation);
-        // QDialog promotes Qt::Widget to a dialog during construction. Embed
-        // it afterward so hiding the Android host also hides this view.
-        if (embedded)
-            setWindowFlags(Qt::Widget);
+        // Start as a child. Creating a dialog under an embedded reader first
+        // leaves a separate graphics proxy even after clearing its window flag.
         setObjectName("rrOpening");
         setWindowModality(embedded ? Qt::NonModal : Qt::ApplicationModal);
         setProperty("reader_dark", dark);
@@ -348,5 +346,21 @@ std::unique_ptr<ReaderOpeningView> createEmbeddedOpening(QWidget *parent, Presen
     QJsonObject preferences;
     preferences["dark_mode"] = ui::darkTheme(parent);
     return std::make_unique<OpeningView>(parent, preferences, std::move(presentation), true);
+}
+SavingView::SavingView(QWidget *parent) : ui::ModalOverlay(parent) {
+    setObjectName("rrSaving");
+    setProperty("reader_standard_modal", true);
+    card()->title(strings::get("closing.saving"), "rrSavingTitle");
+    card()->message(strings::get("closing.may_take_a_while"), "rrSavingHint");
+    progress = new ui::ProgressBar(card());
+    progress->setObjectName("rrSavingProgress");
+    card()->rows()->addWidget(progress);
+    fitCard();
+    for (auto *widget : findChildren<QWidget *>())
+        platform::textRefresh(widget);
+    platform::textRefresh(this);
+}
+void SavingView::setProgress(int percent) {
+    progress->setValue(qBound(0, percent, 100));
 }
 }

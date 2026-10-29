@@ -2,6 +2,7 @@
 #include "reading/reading_bridge.h"
 #include "support/strings.h"
 #include "platforms/kobo/common/native_database_wait.h"
+#include "platforms/kobo/common/native_lifecycle.h"
 #include "platforms/kobo/common/native_progress.h"
 #include "platforms/kobo/common/native_location.h"
 #include "platforms/kobo/common/tolino_progress.h"
@@ -189,6 +190,8 @@ bool NativeProgress::write(const ReadingProgress &expected, const QString &posit
             *error = message;
         return false;
     };
+    if (!NativeLifecycle::nativeProgressSaveAllowed() || deviceTransition())
+        return fail(strings::get("error.nickel_save_deferred_while_progress_or_device_state_is_unresolved"));
     const auto &native = api();
     if (!available())
         return fail(strings::get("error.native_progress_api_is_unavailable"));

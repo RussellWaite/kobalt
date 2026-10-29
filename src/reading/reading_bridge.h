@@ -36,6 +36,14 @@ public:
         return false;
     }
     virtual void stopReading() = 0;
+    // Keep the bridge alive until completion before returning native storage.
+    virtual void finishReading(std::function<void(bool)> done) {
+        stopReading();
+        done(true);
+    }
+    virtual bool readingSavePending() const {
+        return false;
+    }
     // Called on the GUI thread when a background pace refresh changes estimates.
     std::function<void()> estimatesChanged;
 };

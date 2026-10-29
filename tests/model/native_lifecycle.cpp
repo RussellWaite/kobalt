@@ -56,6 +56,7 @@ bool available() {
 void unused(void *) {}
 void handoff(void *) {
     require(!available(), "USB handoff left the profile writable");
+    require(!kobalt::NativeLifecycle::nativeSessionSaveAllowed(), "USB handoff allowed a late native session write");
     ++handoffs;
 }
 void workflow(void *manager) {
@@ -91,6 +92,7 @@ int main(int argc, char **argv) {
         emit usb->aboutToUnplug();
         emit usb->doneProcessing();
         require(available() && !lifecycle.blocked(), "Remount did not reopen the profile");
+        require(kobalt::NativeLifecycle::nativeSessionSaveAllowed(), "Remount left native session saves blocked");
     };
     // Both native USB entry points must release the connection before handoff.
     for (bool fullWorkflow : {false, true}) {
@@ -99,6 +101,7 @@ int main(int argc, char **argv) {
         else
             kobalt::NativeLifecycle::interceptUsb(usb);
         require(available(), "Pending USB preparation blocked storage before its final save");
+        require(kobalt::NativeLifecycle::nativeSessionSaveAllowed(), "Pending USB blocked its native final save");
         const auto finish = drains.takeLast();
         finish();
         require(!available(), "USB preparation did not keep the profile closed");
@@ -121,6 +124,7 @@ int main(int argc, char **argv) {
         cancelled();
         require(available() && !lifecycle.blocked() && handoffs == before,
                 "Cancelled USB cleanup blocked the profile or exported storage");
+        require(kobalt::NativeLifecycle::nativeSessionSaveAllowed(), "Cancelled USB blocked native session retry");
         kobalt::NativeLifecycle::interceptUsbWorkflow(usb);
         const auto current = drains.takeLast();
         cancelled();
@@ -159,6 +163,7 @@ int main(int argc, char **argv) {
     kobalt::NativeLifecycle::disconnected();
     abandoned();
     require(shutdowns == 1 && !available(), "USB cancellation reopened storage during shutdown");
+    require(!kobalt::NativeLifecycle::nativeSessionSaveAllowed(), "USB cancellation reopened native saves during shutdown");
     kobalt::storage::reopenProfile();
     kobalt::storage::closeProfile();
 }

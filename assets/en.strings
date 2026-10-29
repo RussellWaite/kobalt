@@ -447,6 +447,12 @@
 /* opening */
 "opening.loading" = "Opening your book";
 "opening.may_take_a_while" = "This may take a while";
+"closing.saving" = "Saving your progress…";
+"closing.may_take_a_while" = "This may take a few moments.";
+"closing.failed" = "Couldn't save your progress";
+"closing.failed_detail" = "Your book is still open. Try saving again before you leave.";
+"closing.retry" = "Retry";
+"closing.return" = "Return to book";
 
 /* reader */
 "reader.align_left" = "Align left";

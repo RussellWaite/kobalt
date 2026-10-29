@@ -78,24 +78,27 @@ ReaderCoordinator::ReaderCoordinator(ReaderEnvironment &environment, Coordinator
     activeCoordinator = this;
     homeSleep = std::make_unique<HomeSleepScreen>(environment_.paths, this);
     authorization->revoked = [this](kobalt::NativeAuthorization::Reason) {
+        const QPointer<ReaderWindow> reader = run.reader;
+        if (reader)
+            reader->revokeNativeReading();
         homeAfterClose = false;
         homeSleep->forget();
         if (run.sourceLease)
             run.sourceLease->revoke();
         timer.stop();
-        if (run.reader)
-            run.reader->hide();
+        if (reader)
+            reader->hide();
         // Save the local checkpoint and release all content without native
         // progress writeback or retrying the retained opening request.
         disposeForTransition([this] {
             status("authorization-lost");
-        });
+        }, false);
     };
     lifecycle->beforeStandby = [this] {
         return busy || !run.reader || run.reader->flushBeforeStandby();
     };
     lifecycle->sleepWorkPending = [this] {
-        return run.reader && run.reader->pendingNetworkSync();
+        return run.reader && (run.reader->pendingNetworkSync() || run.reader->pendingStorageSave());
     };
     lifecycle->sleep = [this] {
         if (lifecycle->shuttingDown())
@@ -510,7 +513,7 @@ void ReaderCoordinator::drainReadingJobs(std::function<void()> finished) {
     kobalt::ReaderSession::drain(std::move(finished));
 }
 
-void ReaderCoordinator::disposeForTransition(std::function<void()> finished) {
+void ReaderCoordinator::disposeForTransition(std::function<void()> finished, bool nativeAllowed) {
     authorization->end();
     if (run.fallbackAlert)
         run.fallbackAlert->reject();
@@ -524,10 +527,27 @@ void ReaderCoordinator::disposeForTransition(std::function<void()> finished) {
         run.sourceLease->cancel();
     kobalt::engineActivity().pause(false);
     hideLoading();
+    finishDisposal(finalStatus, nativeAllowed);
+}
+
+void ReaderCoordinator::finishDisposal(const QString &finalStatus, bool nativeAllowed) {
     if (run.reader) {
-        run.reader->checkpoint();
-        delete run.reader.data();
-        run.reader.clear();
+        const QPointer<ReaderCoordinator> guard(this);
+        run.reader->finishStorageSave([guard, finalStatus, nativeAllowed](bool saved) {
+            if (!guard || !NativeLifecycle::nativeSessionSaveAllowed())
+                return;
+            if (!saved) {
+                QTimer::singleShot(100, guard, [guard, finalStatus, nativeAllowed] {
+                    if (guard)
+                        guard->finishDisposal(finalStatus, nativeAllowed);
+                });
+                return;
+            }
+            delete guard->run.reader.data();
+            guard->run.reader.clear();
+            guard->finishDisposal(finalStatus, nativeAllowed);
+        }, nativeAllowed);
+        return;
     }
     run.model.reset();
     run.nativeProgress.reset();

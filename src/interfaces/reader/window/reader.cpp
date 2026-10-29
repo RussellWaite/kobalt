@@ -10,6 +10,7 @@
 #include "ui/input.h"
 #include "interfaces/reader/ui/style/fonts.h"
 #include "interfaces/reader/views/sleep_screen.h"
+#include "interfaces/reader/views/opening.h"
 #include "interfaces/reader/views/kosync_notice.h"
 #include "interfaces/reader/ui/style/styles.h"
 #include "platform/api/kobo_refresh.h"
@@ -82,6 +83,10 @@ Reader::~Reader() {
 }
 
 void Reader::checkpoint() {
+    if (exitPending || exportRunning || closing) {
+        book->stopReading(true);
+        return;
+    }
     // Hosts can checkpoint before our application-state callback. Freeze the
     // clock before any save can block, so background I/O is not reading time.
     if (services.suspended())
@@ -90,8 +95,8 @@ void Reader::checkpoint() {
 }
 
 void Reader::observeReading() {
-    if (closing || lifecycleHidden || !isVisible() || services.suspended()) {
-        book->stopReading();
+    if (closing || exitPending || lifecycleHidden || !isVisible() || services.suspended()) {
+        book->stopReading(exitPending || closing);
         return;
     }
     const bool wasReading = book->readingActive();
@@ -109,54 +114,102 @@ void Reader::prepareUsb(std::function<void()> finished) {
     prepareTransition(std::move(finished), true);
 }
 void Reader::prepareTransition(std::function<void()> finished, bool usb) {
-    constexpr int timeoutMs = 2000;
-    const auto timeoutEvent = usb ? "usb-save-timeout" : "shutdown-save-timeout";
+    const auto request = ++closeRequest;
+    hideSaving();
+    if (closeSaveError) {
+        closeSaveError->hide();
+        closeSaveError->deleteLater();
+        closeSaveError.clear();
+    }
     if (pageScrubber)
         pageScrubber->cancel();
     auto backdrop = usb ? powerScreenSnapshot() : sleep::Snapshot{};
     sleepImage = {};
     presentation->clearSleepScreen();
-    auto elapsed = std::make_shared<QElapsedTimer>();
-    elapsed->start();
     model->cancelPendingTurn();
-    book->stopReading();
+    book->stopReading(true);
     lifecycleHidden = true;
-    exitPending = false;
+    exitPending = exportRunning = false;
     closing = true;
     cancelKosync();
     kosyncPage->dismissEditor();
     clockTimer->stop();
     setEnabled(false);
-    // USB export and power-off need running annotation saves on storage.
-    bookmarks->flush();
-    highlights->flush();
-    save(true);
     auto completed = std::make_shared<bool>(false);
-    kobalt::qt::later(qMax(0, timeoutMs - int(elapsed->elapsed())), this, [completed, finished, timeoutEvent] {
-        if (std::exchange(*completed, true)) {
+    auto complete = [this, request, usb, finished, backdrop](const QString &location, const QString &error, bool mapped) {
+        if (request != closeRequest)
             return;
-        }
-        kobalt::diagnostic(timeoutEvent);
-        finished();
-    });
-    model->nativePosition(
-        [this, completed, elapsed, usb, timeoutEvent, finished, backdrop = std::move(backdrop)](const QString &location, const QString &error) {
-            if (std::exchange(*completed, true)) {
-                return;
-            }
-            if (elapsed->elapsed() >= timeoutMs) {
-                kobalt::diagnostic(timeoutEvent);
-            } else {
-                // Keep a newer Nickel bookmark if reconciliation or the locked
-                // comparison rejects this save. Device transitions cannot ask
-                // the reader to resolve a conflict before they continue.
-                book->writeNative(location, error);
-                save(true);
-                if (usb)
-                    presentation->saveSleepScreen(backdrop);
-            }
+        saveTransition(request, usb, location, error, mapped, [this, usb, finished, backdrop] {
+            if (usb)
+                presentation->saveSleepScreen(backdrop);
             finished();
         });
+    };
+    // Bound the engine mapping wait, not required storage acknowledgements.
+    // USB must not release a session that still owns unsaved reading time.
+    kobalt::qt::later(2000, this, [completed, complete, usb] {
+        if (std::exchange(*completed, true))
+            return;
+        kobalt::diagnostic(usb ? "usb-save-timeout" : "shutdown-save-timeout");
+        complete({}, {}, false);
+    });
+    model->nativePosition([completed, complete](const QString &location, const QString &error) {
+        if (!std::exchange(*completed, true))
+            complete(location, error, true);
+    });
+}
+void Reader::saveTransition(quint64 request, bool usb, const QString &location, const QString &error,
+                            bool mapped, std::function<void()> finished) {
+    if (request != closeRequest)
+        return;
+    const QPointer<Reader> guard(this);
+    const auto retry = [this, request, usb, location, error, mapped, finished] {
+        kobalt::qt::later(100, this, [this, request, usb, location, error, mapped, finished] {
+            saveTransition(request, usb, location, error, mapped, finished);
+        });
+    };
+    if (annotationSaving || bookmarks->saving() || highlights->saving() || book->savesPending()) {
+        retry();
+        return;
+    }
+    if (bookmarks->hasFailedSave() || highlights->hasFailedSave()) {
+        bookmarks->retryFailedSave();
+        highlights->retryFailedSave();
+        retry();
+        return;
+    }
+    book->checkpointForClose([this, guard, request, usb, location, error, mapped, finished, retry](bool saved) {
+        if (!guard || request != closeRequest)
+            return;
+        if (!saved) {
+            retry();
+            return;
+        }
+        book->finishReading([this, guard, request, location, error, mapped, finished, retry](bool saved) {
+            if (!guard || request != closeRequest)
+                return;
+            if (!saved) {
+                retry();
+                return;
+            }
+            if (mapped) {
+                book->writeNative(location, error);
+                if (book->nativeSaveResult() == ReadingBook::NativeSave::Failed) {
+                    retry();
+                    return;
+                }
+            }
+            book->checkpointForClose([this, guard, request, finished, retry](bool saved) {
+                if (!guard || request != closeRequest)
+                    return;
+                if (!saved) {
+                    retry();
+                    return;
+                }
+                finished();
+            });
+        });
+    });
 }
 
 void Reader::prepareSleepCover() {
@@ -215,6 +268,10 @@ void Reader::sleepReader() {
         pageScrubber->cancel();
     if (lifecycleHidden)
         return;
+    ++closeRequest;
+    exportRunning = false;
+    hideSaving();
+    setEnabled(true);
     setProperty("reader_sleep_clean_pending", true);
     model->cancelPendingTurn();
     book->stopReading();
@@ -472,7 +529,7 @@ bool Reader::event(QEvent *event) {
                         !searchPanel->isVisible() && !linksActive() && !lookupPending &&
                         !acknowledgments->isVisible() && !bookmarkList->isVisible() && !lightPopup->isVisible() &&
                         !busyNotice->isVisible() && !syncDialog && !kosyncDialog && !finishDialog && !annotationErrorDialog &&
-                        !formattingWarningDialog && !settingsWriteErrorDialog && !services.suspended() &&
+                        !formattingWarningDialog && !settingsWriteErrorDialog && !savingView && !closeSaveError && !services.suspended() &&
                         page->image.text("kobalt.animation_text_only") == "true");
         // These panels hold text and line controls. Changes inside them can
         // use a partial refresh; showing the whole panel keeps its policy.
@@ -826,7 +883,7 @@ void Reader::hideEvent(QHideEvent *event) {
     renderNoticeTimer.stop();
     busyNotice->setDelayedProgress(false, 0, 0);
     model->cancelPendingTurn();
-    book->stopReading();
+    book->stopReading(closing || exitPending || lifecycleHidden);
     appearanceEdit.clearContinuation();
     closeSearch();
     services.cancelAnimation();
@@ -895,6 +952,10 @@ void Reader::resizeEvent(QResizeEvent *) {
         kosyncDialog->setGeometry(rect());
     if (finishDialog)
         finishDialog->setGeometry(rect());
+    if (savingView)
+        savingView->setGeometry(rect());
+    if (closeSaveError)
+        closeSaveError->setGeometry(rect());
     resizeText();
     syncNavigation();
 }
@@ -907,15 +968,18 @@ void Reader::closeEvent(QCloseEvent *event) {
     if (light)
         lightPopup->hide();
     if (!closing) {
+        event->ignore();
+        if (exitPending || closeSaveError)
+            return;
         kobalt::diagnostic("exit-requested");
         if (!closingTimes.started.isValid())
             closingTimes.started.start();
         event->ignore();
         exitPending = true;
-        QElapsedTimer saving;
-        saving.start();
-        save(true);
-        closingTimes.add("checkpoint", saving);
+        QElapsedTimer stopping;
+        stopping.start();
+        book->stopReading(true);
+        closingTimes.add("session", stopping);
         if (appearanceEdit.panelOpen() || general->isVisible())
             dismissControls();
         finishExit();
@@ -936,9 +1000,7 @@ void Reader::closeEvent(QCloseEvent *event) {
     step.start();
     book->releaseNative();
     closingTimes.add("session", step);
-    step.restart();
-    save(true);
-    closingTimes.add("checkpoint", step);
+    hideSaving();
     model->updated = {};
     model->renderProgressChanged = {};
     model->turnBoundary = {};
@@ -1844,12 +1906,12 @@ void Reader::recordOpening() {
 }
 
 void Reader::finishExit() {
-    if (!exitPending || closing || exportRunning || model->busy() || appearanceEdit.panelOpen() ||
-        appearanceEdit.applying() || appearanceEdit.finishPending() || lifecycleHidden)
+    if (!exitPending || closing || exportRunning || closeSaveError || model->busy() || appearanceEdit.panelOpen() ||
+        appearanceEdit.applying() || appearanceEdit.finishPending() || lifecycleHidden || services.suspended())
         return;
-    if (finishDialog)
+    if (finishDialog || annotationErrorDialog || settingsWriteErrorDialog)
         return;
-    if (!services.suspended() && !book->deviceTransition()) {
+    if (!book->deviceTransition()) {
         book->observeProgress();
         if (book->pendingProgress()) {
             showProgressChoice();
@@ -1862,33 +1924,220 @@ void Reader::finishExit() {
     }
     exportRunning = true;
     dismissProgressChoice();
-    // Capture before freezing paints for the final native writeback.
     exitSleepSnapshot = captureSleepScreen();
-    // Keep the last reader frame while asynchronous writeback completes.
-    setUpdatesEnabled(false);
+    book->stopReading(true);
     setEnabled(false);
-    model->nativePosition([this](const QString &location, const QString &mappingError) {
-        QElapsedTimer step;
-        step.start();
-        save();
-        closingTimes.add("checkpoint", step);
-        step.restart();
-        const bool written = book->writeNative(location, mappingError);
-        closingTimes.add("native", step);
-        if (!written) {
+    closeSaveProgress = 0;
+    closeStage.start();
+    const auto request = ++closeRequest;
+    kobalt::qt::later(1000, this, [this, request] {
+        if (request == closeRequest && exportRunning && !lifecycleHidden)
+            showSaving(closeSaveProgress);
+    });
+    saveExit(request);
+}
+
+void Reader::showSaving(int progress) {
+    closeSaveProgress = progress;
+    if (!savingView)
+        savingView = std::make_unique<SavingView>(this);
+    auto *view = savingView.get();
+    view->setGeometry(rect());
+    savingView->setProgress(progress);
+    view->show();
+    view->raise();
+}
+void Reader::hideSaving() {
+    if (savingView)
+        savingView->hide();
+    savingView.reset();
+}
+void Reader::saveExit(quint64 request) {
+    if (request != closeRequest || !exportRunning || lifecycleHidden)
+        return;
+    // Writer completion and GUI acknowledgement are different barriers. Wait
+    // for both before allowing destruction or reporting a failed annotation.
+    if (annotationSaving || bookmarks->saving() || highlights->saving() || book->savesPending()) {
+        kobalt::qt::later(10, this, [this, request] { saveExit(request); });
+        return;
+    }
+    if (bookmarks->hasFailedSave() || highlights->hasFailedSave()) {
+        failExit(request, strings::get("annotations.change_not_saved"));
+        return;
+    }
+    book->checkpointForClose([this, request](bool saved) {
+        if (request != closeRequest || !exportRunning || lifecycleHidden)
+            return;
+        closingTimes.add("checkpoint", closeStage);
+        closeStage.restart();
+        if (!saved) {
+            failExit(request);
+            return;
+        }
+        closeSaveProgress = 25;
+        if (savingView) showSaving(closeSaveProgress);
+        model->nativePosition([this, request](const QString &location, const QString &error) {
+            finishExitNative(request, location, error);
+        });
+    });
+}
+void Reader::finishExitNative(quint64 request, const QString &location, const QString &error) {
+    if (request != closeRequest || !exportRunning || lifecycleHidden)
+        return;
+    closingTimes.add("native", closeStage);
+    closeStage.restart();
+    const QPointer<Reader> guard(this);
+    // stopReading already started the time save while local saving and mapping
+    // ran. Let it release Nickel's database before writing the position.
+    book->finishReading([this, guard, request, location, error](bool saved) {
+        if (!guard || request != closeRequest || !exportRunning || lifecycleHidden)
+            return;
+        closingTimes.add("session", closeStage);
+        closeStage.restart();
+        if (!saved) {
+            failExit(request);
+            return;
+        }
+        closeSaveProgress = 50;
+        if (savingView) showSaving(closeSaveProgress);
+        book->writeNative(location, error);
+        closingTimes.add("native", closeStage);
+        closeStage.restart();
+        const auto result = book->nativeSaveResult();
+        if (result == ReadingBook::NativeSave::Conflict) {
             exportRunning = false;
+            ++closeRequest;
+            hideSaving();
             setEnabled(true);
-            setUpdatesEnabled(true);
             showProgressChoice();
             return;
         }
-        step.restart();
-        save(true);
-        closingTimes.add("checkpoint", step);
-        flushKosync([this] {
-            closing = true;
-            close();
+        if (result == ReadingBook::NativeSave::Failed) {
+            failExit(request, book->nativeSaveError());
+            return;
+        }
+        closeSaveProgress = 75;
+        if (savingView) showSaving(closeSaveProgress);
+        // Keep the verified native baseline with the final local checkpoint.
+        book->checkpointForClose([this, guard, request](bool saved) {
+            if (!guard || request != closeRequest || !exportRunning || lifecycleHidden)
+                return;
+            closingTimes.add("checkpoint", closeStage);
+            if (!saved) {
+                failExit(request);
+                return;
+            }
+            save(true, true, false);
+            flushKosync([this, request] { finishExitSaved(request); });
         });
+    });
+}
+void Reader::finishExitSaved(quint64 request) {
+    if (request != closeRequest || !exportRunning || lifecycleHidden)
+        return;
+    if (pendingStorageSave()) {
+        kobalt::qt::later(10, this, [this, request] { finishExitSaved(request); });
+        return;
+    }
+    if (savingView) showSaving(100);
+    closing = true;
+    close();
+}
+void Reader::failExit(quint64 request, const QString &error) {
+    if (request != closeRequest || lifecycleHidden)
+        return;
+    ++closeRequest;
+    exportRunning = false;
+    hideSaving();
+    setEnabled(true);
+    if (closeSaveError)
+        return;
+    auto *notice = new ui::ChoiceModal(this,
+        {error.isEmpty() ? strings::get("closing.failed_detail") : error,
+         strings::get("closing.failed"), {}},
+        {strings::get("closing.return"), "rrCloseSaveReturn"},
+        {strings::get("closing.retry"), "rrCloseSaveRetry"});
+    closeSaveError = notice;
+    notice->setObjectName("rrCloseSaveError");
+    notice->setGeometry(rect());
+    const auto dismiss = [this, notice] {
+        notice->hide();
+        notice->deleteLater();
+        closeSaveError.clear();
+    };
+    connect(notice->primaryButton(), &QPushButton::clicked, this, [this, dismiss] {
+        dismiss();
+        bookmarks->retryFailedSave();
+        highlights->retryFailedSave();
+        finishExit();
+    });
+    connect(notice->secondaryButton(), &QPushButton::clicked, this, [this, dismiss] {
+        dismiss();
+        cancelExit();
+    });
+    notice->dismissed = [this, dismiss] { dismiss(); cancelExit(); };
+    notice->fitCard();
+    notice->show();
+    notice->raise();
+    notice->primaryButton()->setFocus();
+    for (auto *widget : notice->findChildren<QWidget *>())
+        textRefresh(widget);
+}
+void Reader::cancelExit() {
+    ++closeRequest;
+    exitPending = exportRunning = false;
+    finishChoiceResolved = false;
+    hideSaving();
+    setEnabled(true);
+    closingTimes = {};
+    observeReading();
+    refresh();
+}
+bool Reader::pendingStorageSave() const {
+    return book->savesPending() || book->readingSavePending() || bookmarks->saving() || highlights->saving() || annotationSaving ||
+           (reportWriter && !reportWriter->idle());
+}
+void Reader::finishStorageSave(std::function<void(bool)> finished, bool nativeAllowed) {
+    ++closeRequest;
+    exitPending = exportRunning = false;
+    closing = lifecycleHidden = true;
+    hideSaving();
+    if (nativeAllowed)
+        book->stopReading(true);
+    else {
+        const QPointer<Reader> guard(this);
+        book->releaseNative(false);
+        if (!guard)
+            return;
+    }
+    finishStorageData(std::move(finished), nativeAllowed);
+}
+void Reader::revokeNativeReading() {
+    ++closeRequest;
+    exitPending = exportRunning = false;
+    closing = lifecycleHidden = true;
+    hideSaving();
+    book->releaseNative(false);
+}
+void Reader::finishStorageData(std::function<void(bool)> finished, bool nativeAllowed) {
+    if (book->savesPending() || bookmarks->saving() || highlights->saving() || annotationSaving) {
+        kobalt::qt::later(10, this, [this, finished, nativeAllowed] { finishStorageData(finished, nativeAllowed); });
+        return;
+    }
+    const bool annotationsSaved = !bookmarks->hasFailedSave() && !highlights->hasFailedSave();
+    if (!annotationsSaved) {
+        bookmarks->retryFailedSave();
+        highlights->retryFailedSave();
+    }
+    const QPointer<Reader> guard(this);
+    book->checkpointForClose([this, guard, finished, nativeAllowed, annotationsSaved](bool saved) {
+        if (!guard)
+            return;
+        if (!nativeAllowed || !saved || !annotationsSaved) {
+            finished(saved && annotationsSaved);
+            return;
+        }
+        book->finishReading(finished);
     });
 }
 
@@ -1960,7 +2209,7 @@ bool Reader::flushBeforeStandby() {
     if (!lifecycleHidden && notice && notice->completing())
         return false;
     // Let background saves finish their storage syncs before standby.
-    if (book->savesPending() || bookmarks->saving() || highlights->saving() ||
+    if (book->savesPending() || book->readingSavePending() || bookmarks->saving() || highlights->saving() ||
         kobalt::storage::profileCheckpointPending())
         return false;
     if (localSaveDue && !closing && !exportRunning && !lifecycleHidden) {
@@ -1984,13 +2233,13 @@ bool Reader::flushBeforeStandby() {
 
 // `snapshot` marks a close, sleep or shutdown. `background` queues the
 // checkpoint on the book's writer thread; a failure shows the same notice.
-void Reader::save(bool snapshot, bool background) {
+void Reader::save(bool snapshot, bool background, bool persist) {
     localSaveDue = false;
     unsavedSince.invalidate();
     if (idleSaveTimer)
         idleSaveTimer->stop();
-    QJsonObject state;
-    if (!book->checkpoint(&state, background)) {
+    QJsonObject state = book->checkpointState();
+    if (persist && !book->checkpoint(&state, background)) {
         page->notice = strings::get("reader.could_not_save_reading_position");
         page->refreshContent();
     }
@@ -2094,7 +2343,13 @@ void Reader::save(bool snapshot, bool background) {
             pages.append(p);
         return pages;
     }();
-    writeJson(book->paths().stateReport, state);
+    if (!persist) {
+        if (!reportWriter)
+            reportWriter = std::make_unique<storage::RecordWriter>();
+        reportWriter->post([path = book->paths().stateReport, state] { return writeJson(path, state); }, {});
+    } else {
+        writeJson(book->paths().stateReport, state);
+    }
 }
 
 }

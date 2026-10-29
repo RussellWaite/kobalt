@@ -3,6 +3,7 @@
 #include <memory>
 #include "reading_estimates.h"
 #include "reading_pace_cache.h"
+#include "native_reading_save.h"
 
 namespace kobalt {
 // Construct only after firmwareSupported() accepts Nickel, on the GUI thread.
@@ -18,6 +19,10 @@ public:
         return estimates(activity_.current(), result);
     }
     void stop();
+    void finish(std::function<void(bool)> done);
+    bool savePending() const {
+        return ending || saves.pending();
+    }
     std::function<void()> estimatesChanged;
 #ifndef KOBALT_READER_HARDWARE
     static void testCommand();
@@ -27,12 +32,13 @@ private:
     void report(bool signedIn, int words);
     QString book, account;
     double percent = 0;
-    bool running = false;
+    bool running = false, ending = false;
     // Page reports check the account on Nickel's worker. A late result for
     // an earlier session or a destroyed one is ignored.
     int epoch = 0;
     std::shared_ptr<NativeReadingSession *> alive = std::make_shared<NativeReadingSession *>(this);
     nickel::PageReadingActivity activity_;
     nickel::ReadingPaceCache pace_;
+    nickel::NativeReadingSave saves;
 };
 }

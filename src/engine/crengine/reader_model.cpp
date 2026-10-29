@@ -370,7 +370,11 @@ bool ReaderModel::saveDocumentCache() {
         return false;
     auto *document = engine_->getDocument();
     DocumentCacheScope cache(cacheDirectory_);
-    if (!cache.enabled() || engine_->updateCache() != CR_DONE)
+    if (!cache.enabled())
+        return false;
+    // The no-argument update serializes even a clean cache. Keep that path for
+    // creation and dirty documents; an existing clean cache needs no update.
+    if ((!document->hasCacheFile() || document->isCacheFileStale()) && engine_->updateCache() != CR_DONE)
         return false;
     if (document->hasCacheFile()) {
         if (!document->updateCacheFileName())

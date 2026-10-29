@@ -23,6 +23,8 @@ public:
     // wait for the latest snapshot; replacing a queued one preserves intervals.
     bool save(bool background = false);
     bool saving() const;
+    // Acknowledge completed background work without waiting or starting a write.
+    bool savesSucceeded();
     class Profile;
     // Keep this handle for the app's profile lifetime. Controllers in the same
     // process share it; another process cannot recover or start a reader here.

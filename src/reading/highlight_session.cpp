@@ -245,8 +245,12 @@ void HighlightSession::finishSave(quint64 id, bool ok, const QString &error, qui
         // The list on screen is the saved one. Edited passages are cached in
         // `known_`; their full payload returns to storage, as after loading.
         store_->dropDetails();
+        retryPending_ = false;
+        retryHighlights_.clear();
         return;
     }
+    retryHighlights_ = highlights;
+    retryPending_ = true;
     error_ = error;
     ++errors_;
     known_.clear();
@@ -267,6 +271,9 @@ void HighlightSession::adoptSaved() {
 void HighlightSession::flush() {
     if (writer_)
         writer_->flush();
+}
+bool HighlightSession::retryFailedSave() {
+    return !retryPending_ || persist(retryHighlights_);
 }
 void HighlightSession::remember(const QVector<Highlight> &highlights) {
     QHash<QString, HighlightExcerpt> kept;

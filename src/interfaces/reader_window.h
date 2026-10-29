@@ -29,6 +29,14 @@ public:
     virtual bool flushBeforeStandby() {
         return true;
     }
+    virtual bool pendingStorageSave() const { return false; }
+    // Cancel revoked native work before hiding can stop the reading interval.
+    virtual void revokeNativeReading() {}
+    // Revocation drains local data without writing through a revoked native account.
+    virtual void finishStorageSave(std::function<void(bool)> finished, bool nativeAllowed = true) {
+        (void)nativeAllowed;
+        finished(true);
+    }
     // Limit the native-position wait to two seconds before file release.
     virtual void prepareUsb(std::function<void()> finished) = 0;
     virtual void prepareShutdown(std::function<void()> finished) = 0;

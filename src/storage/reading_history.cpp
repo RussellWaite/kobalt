@@ -79,6 +79,10 @@ void ReadingHistory::stop(qint64 activeMilliseconds, const QString &position) {
 bool ReadingHistory::saving() const {
     return writer && !writer->idle();
 }
+bool ReadingHistory::savesSucceeded() {
+    acknowledge();
+    return !dirty;
+}
 void ReadingHistory::acknowledge() {
     std::lock_guard<std::mutex> lock(saved->mutex);
     if (saved->successful > acknowledged) {

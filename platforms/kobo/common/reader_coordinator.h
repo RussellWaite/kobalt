@@ -107,7 +107,8 @@ private:
     void status(const QString &value, const QString &reason = {});
     void hideLoading();
     void drainReadingJobs(std::function<void()> finished);
-    void disposeForTransition(std::function<void()> finished);
+    void disposeForTransition(std::function<void()> finished, bool nativeAllowed = true);
+    void finishDisposal(const QString &finalStatus, bool nativeAllowed);
     void release(bool endAuthorization = true);
     void cancelOpening();
     void fail(const QString &reason, kobalt::OpeningFallback state = kobalt::OpeningFallback::Failure,

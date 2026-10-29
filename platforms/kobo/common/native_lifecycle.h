@@ -26,6 +26,12 @@ public:
     static bool suspended();
     static bool sleepSaveAllowed();
     static bool usbSaveAllowed();
+    // Thread-safe gate for queued session writes. Closed before storage is
+    // handed to USB or Nickel begins its final shutdown.
+    static bool nativeSessionSaveAllowed();
+    // GUI-thread permission for progress writes, including a held shutdown
+    // while Nickel's sleep or PIN screen is still visible.
+    static bool nativeProgressSaveAllowed();
     bool connected() const {
         return connected_;
     }

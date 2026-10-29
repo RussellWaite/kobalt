@@ -10,6 +10,7 @@
 #include "interfaces/reader/ui/style/theme.h"
 #include "interfaces/reader_window.h"
 #include "interfaces/reader_interface.h"
+#include "interfaces/reader/views/opening.h"
 #include "reading/reading_book.h"
 #include "reading/appearance_settings.h"
 #include "reading/reader_session.h"
@@ -72,6 +73,9 @@ public:
     void preparePresentation(std::function<void(bool)> finished) override;
     void checkpoint() override;
     bool flushBeforeStandby() override;
+    bool pendingStorageSave() const override;
+    void revokeNativeReading() override;
+    void finishStorageSave(std::function<void(bool)> finished, bool nativeAllowed = true) override;
     void prepareUsb(std::function<void()> finished) override;
     void prepareShutdown(std::function<void()> finished) override;
     sleep::Snapshot powerScreenSnapshot() override;
@@ -612,7 +616,23 @@ private:
     void locateOnPage(const kobalt::SearchHit &hit, std::function<void(QPoint)> found, int attempt);
     void recordOpening();
     void finishExit();
+    void saveExit(quint64 request);
+    void finishExitNative(quint64 request, const QString &location, const QString &error);
+    void finishExitSaved(quint64 request);
+    void saveTransition(quint64 request, bool usb, const QString &location, const QString &error,
+                        bool mapped, std::function<void()> finished);
+    void finishStorageData(std::function<void(bool)> finished, bool nativeAllowed);
+    void failExit(quint64 request, const QString &error = {});
+    void cancelExit();
+    void showSaving(int progress);
+    void hideSaving();
+    quint64 closeRequest = 0;
+    QElapsedTimer closeStage;
+    int closeSaveProgress = 0;
+    std::unique_ptr<SavingView> savingView;
+    QPointer<kobalt::ui::ChoiceModal> closeSaveError;
+    std::unique_ptr<storage::RecordWriter> reportWriter;
     void saveSoon();
-    void save(bool snapshot = false, bool background = false);
+    void save(bool snapshot = false, bool background = false, bool persist = true);
 };
 }

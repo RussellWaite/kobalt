@@ -9,6 +9,7 @@
 #include "interfaces/reader/views/kosync_notice.h"
 #include "platforms/desktop/window.h"
 #include "platforms/desktop/services.h"
+#include "interfaces/reader/views/opening.h"
 #include "support/diagnostics.h"
 #include "platforms/android/start_screen.h"
 #include "platforms/android/canvas.h"
@@ -4550,13 +4551,8 @@ exit 7
         QVERIFY(fixture.visible("rrReturn"));
         QVERIFY(fixture.visible("rrSettings"));
         QVERIFY(!fixture.visible("rrSettingsClose"));
-        // Closing Settings and exiting the reader share the leftmost cell.
-        // Ignore the second half of a double tap after the header changes.
-        // The guard reads press times; QTest puts a double-click interval
-        // between clicks, so take it back to press within the double tap.
-        QTest::lastMouseTimestamp -= QTest::mouseDoubleClickInterval;
-        QVERIFY(fixture.press("rrReturn"));
-        QVERIFY(!fixture.window.idle());
+        // Exit-guard timing has its own lifecycle check. Here the settings
+        // reflow can outlast that guard; close only after layout has settled.
         QTest::qWait(ui::metrics::contents::exitGuardMilliseconds + 10);
         QCOMPARE(storage::readJson(fixture.paths.preferences()).value("word_spacing").toInt(), 120);
         QCOMPARE(storage::readJson(fixture.paths.preferences()).value("justification_tracking").toInt(), 15);
@@ -5821,6 +5817,46 @@ private slots:
         QTRY_VERIFY(fixture.visible("rrDictionaryFontSizePopup"));
         QVERIFY(capture(fixture, name + "-dictionary-font-sizes"));
     }
+    void saving_data() { screenshotVariants(); }
+    void saving() {
+        QFETCH(int, preset);
+        QFETCH(bool, dark);
+        Fixture fixture(dark);
+        QVERIFY(fixture.prepared);
+        fixture.window.findChild<QComboBox *>("desktopScreenPicker")->setCurrentIndex(preset);
+        const auto name = QString(preset == 1 ? "six-inch-" : "seven-inch-") + (dark ? "dark" : "light");
+        QSignalSpy opened(&fixture.window, &desktop::Window::bookOpened);
+        fixture.window.openBook(book);
+        QTRY_COMPARE_WITH_TIMEOUT(opened.count(), 1, 30000);
+        QTRY_VERIFY(!fixture.state().value("busy").toBool());
+        openPrologueBody(fixture);
+        auto *reader = fixture.window.readerWindow();
+        QTRY_VERIFY(reader->readyForPresentation());
+        const auto page = reader->grab().toImage();
+        auto saving = std::make_unique<SavingView>(reader);
+        saving->setGeometry(reader->rect());
+        saving->setProgress(50);
+        saving->show();
+        saving->raise();
+        QVERIFY(saving->isVisible());
+        QVERIFY2(!saving->isWindow(), "Saving must be embedded in the reader");
+        QVERIFY(!saving->graphicsProxyWidget());
+        QVERIFY(saving->inputBarrier());
+        QVERIFY(saving->card()->width() < reader->width());
+        QVERIFY(saving->card()->height() < reader->height() / 2);
+        QVERIFY(saving->findChild<QLabel *>("rrSavingHint")->isVisible());
+        QTest::mouseClick(saving.get(), Qt::LeftButton, Qt::NoModifier, QPoint(1, 1));
+        QTest::keyClick(saving.get(), Qt::Key_Escape);
+        QVERIFY(saving->isVisible());
+        const auto composed = reader->grab().toImage();
+        const auto card = saving->card()->geometry();
+        QVERIFY(composed.copy(card) != page.copy(card));
+        const QRect exposed(0, 0, reader->width(), card.top());
+        QVERIFY(!exposed.isEmpty());
+        QCOMPARE(composed.copy(exposed), page.copy(exposed));
+        QVERIFY(capture(fixture, name + "-saving"));
+    }
+
     void finish_data() { screenshotVariants(); }
     void finish() {
         QFETCH(int, preset);
@@ -6564,7 +6600,7 @@ int main(int argc, char **argv) {
         return app.exec();
     }
     QFile fixture(book);
-    const int expectedScreenshots = lightGallery ? 56 : 770;
+    const int expectedScreenshots = lightGallery ? 56 : 774;
     if (captures.size() != expectedScreenshots)
         qCritical() << "Expected" << expectedScreenshots << "screenshots, captured" << captures.size();
     if (!fixture.open(QIODevice::ReadOnly) || captures.size() != expectedScreenshots) {

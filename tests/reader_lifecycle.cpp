@@ -304,6 +304,12 @@ public:
         if (!active || closing)
             return;
         closing = true;
+        // Release injected save failures before fixture cleanup. The real USB
+        // barrier deliberately refuses to dispose a reader with failed saves.
+        if (progress) {
+            progress->failWrite = progress->writeBlocked = progress->holdFinish = progress->failFinish = false;
+            progress->completeFinish(true);
+        }
         if (window_)
             window_->prepareShutdown([this] { retire(); });
         else
@@ -2551,6 +2557,9 @@ private slots:
         ReaderFixture host(paths, testFonts, testPlaceholder);
         // Exercise Kobo's missing native pace, independently of standalone history.
         host.progress = std::make_shared<test::HostProgress>();
+        host.progress->current = {
+            QUrl::fromLocalFile(QFileInfo(hasCover ? coverBook : textBook).absoluteFilePath()).toString(),
+            "OEBPS/c1.xhtml", 100, 1, true};
         host.configureServices = [sleep, supported, chargeState, coverPath](ReaderHostServices &services) {
             services.coverImagePath = coverPath;
             services.battery = [chargeState] {
@@ -3702,6 +3711,193 @@ private slots:
         QCOMPARE(storage::readBookState(paths, identity).object.value("position").toString(), position);
     }
 
+    void revokedNativeDrainRetainsLocalSave() {
+        const auto paths = testPaths();
+        ReaderFixture host(paths, testFonts, testPlaceholder);
+        CloseHost cleanup{host};
+        const auto identity = QUrl::fromLocalFile(QFileInfo(textBook).absoluteFilePath()).toString();
+        host.progress = std::make_shared<test::HostProgress>();
+        host.progress->current = {identity, "OEBPS/c1.xhtml", 100, 1, true};
+        host.positions = nickel::positionCodec();
+        QSignalSpy opened(&host, &ReaderFixture::opened);
+        host.open(textBook, nativeSize);
+        QTRY_COMPARE_WITH_TIMEOUT(opened.count(), 1, 30000);
+        Canvas canvas(host.window(), nativeSize);
+        canvas.resize(900, 900);
+        canvas.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&canvas));
+        QTRY_VERIFY(!host.session()->busy());
+        QTRY_VERIFY(host.progress->writes > 0);
+        const auto changeSql = [&](const QString &statement) {
+            return AnnotationDatabase::transaction(paths.directory, [&](QSqlDatabase &db) {
+                QSqlQuery query(db);
+                return query.exec(statement);
+            });
+        };
+        QVERIFY(changeSql("CREATE TRIGGER refuse_revoked_checkpoint BEFORE UPDATE ON book_state "
+                          "BEGIN SELECT RAISE(ABORT,'test'); END"));
+        struct RemoveFailure {
+            std::function<void()> remove;
+            ~RemoveFailure() { remove(); }
+        } restore{[&] { changeSql("DROP TRIGGER IF EXISTS refuse_revoked_checkpoint"); }};
+        QVERIFY(host.session()->go(1));
+        QTRY_VERIFY(!host.session()->busy());
+        const auto position = host.session()->state().value("position").toString();
+        host.progress->holdFinish = true;
+        int nativeReplies = 0;
+        bool nativeSaved = true;
+        host.book()->finishReading([&](bool saved) { ++nativeReplies; nativeSaved = saved; });
+        QVERIFY(host.progress->finishDone);
+        const auto lateNativeReply = host.progress->finishDone;
+        const int stops = host.progress->stopAttempts;
+        host.window()->revokeNativeReading();
+        host.window()->hide();
+        QCOMPARE(host.progress->destroyed, 1);
+        QCOMPARE(host.progress->stopAttempts, stops);
+        QCOMPARE(nativeReplies, 1);
+        QVERIFY(!nativeSaved);
+        QVERIFY(!host.book()->hasNativeProgress());
+        lateNativeReply(true);
+        QCOMPARE(nativeReplies, 1);
+        int localReplies = 0;
+        bool localSaved = true;
+        host.window()->finishStorageSave([&](bool saved) { ++localReplies; localSaved = saved; }, false);
+        QTRY_COMPARE(localReplies, 1);
+        QVERIFY(!localSaved);
+        QVERIFY(host.window());
+        QCOMPARE(host.progress->finishAttempts, 1);
+        // A shutdown joining this revoked drain still waits for the local
+        // record. Releasing native access does not waive that save failure.
+        bool shutdownReady = false;
+        host.window()->prepareShutdown([&] { shutdownReady = true; });
+        QTest::qWait(250);
+        QVERIFY(!shutdownReady);
+        QVERIFY(changeSql("DROP TRIGGER refuse_revoked_checkpoint"));
+        QTRY_VERIFY_WITH_TIMEOUT(shutdownReady, 5000);
+        QCOMPARE(storage::readBookState(paths, identity).object.value("position").toString(), position);
+        QCOMPARE(host.progress->finishAttempts, 1);
+        QCOMPARE(host.progress->stopAttempts, stops);
+    }
+
+    void closeWaitsForLocalSave() {
+        ReaderFixture host(testPaths(), testFonts, testPlaceholder);
+        CloseHost cleanup{host};
+        QSignalSpy opened(&host, &ReaderFixture::opened), closed(&host, &ReaderFixture::closed);
+        host.open(textBook, nativeSize);
+        QTRY_COMPARE_WITH_TIMEOUT(opened.count(), 1, 30000);
+        Canvas canvas(host.window(), nativeSize);
+        canvas.resize(900, 900);
+        canvas.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&canvas));
+        QTRY_VERIFY(!host.session()->busy());
+        QTRY_VERIFY(host.book()->readingActive());
+        std::atomic_bool released{false}, entered{false};
+        storage::RecordWriter blocker;
+        struct Release {
+            std::atomic_bool &released;
+            ~Release() { released = true; }
+        } release{released};
+        blocker.post([&] {
+            entered = true;
+            while (!released) QThread::msleep(1);
+            return true;
+        }, {});
+        QTRY_VERIFY(entered.load());
+        host.window()->close();
+        const auto stopped = host.book()->readingMilliseconds();
+        host.window()->close();
+        QTest::qWait(250);
+        QVERIFY(!host.window()->findChild<QWidget *>("rrSaving"));
+        QCOMPARE(closed.count(), 0);
+        QTRY_VERIFY_WITH_TIMEOUT(host.window()->findChild<QWidget *>("rrSaving"), 2000);
+        auto *saving = host.window()->findChild<QWidget *>("rrSaving");
+        QVERIFY(saving->isVisible());
+        QCOMPARE(saving->findChild<QLabel *>("rrSavingTitle")->text(), strings::get("closing.saving"));
+        QVERIFY(saving->findChild<QLabel *>("rrSavingHint")->isVisible());
+        auto *modal = dynamic_cast<ui::ModalOverlay *>(saving);
+        QVERIFY(modal && modal->inputBarrier());
+        QVERIFY(modal->card()->height() < host.window()->height() / 2);
+        QCOMPARE(host.book()->readingMilliseconds(), stopped);
+        QVERIFY(!host.window()->flushBeforeStandby());
+        released = true;
+        QTRY_COMPARE_WITH_TIMEOUT(closed.count(), 1, 10000);
+    }
+
+    void closeRetriesRequiredNativeSaves_data() {
+        QTest::addColumn<bool>("timeSave");
+        QTest::newRow("position") << false;
+        QTest::newRow("reading-time") << true;
+    }
+    void closeRetriesRequiredNativeSaves() {
+        QFETCH(bool, timeSave);
+        ReaderFixture host(testPaths(), testFonts, testPlaceholder);
+        CloseHost cleanup{host};
+        const auto identity = QUrl::fromLocalFile(QFileInfo(textBook).absoluteFilePath()).toString();
+        host.progress = std::make_shared<test::HostProgress>();
+        host.progress->current = {identity, "OEBPS/c1.xhtml", 100, 1, true};
+        host.positions = nickel::positionCodec();
+        QSignalSpy opened(&host, &ReaderFixture::opened), closed(&host, &ReaderFixture::closed);
+        host.open(textBook, nativeSize);
+        QTRY_COMPARE_WITH_TIMEOUT(opened.count(), 1, 30000);
+        Canvas canvas(host.window(), nativeSize);
+        canvas.resize(900, 900);
+        canvas.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&canvas));
+        QTRY_VERIFY(!host.session()->busy());
+        QTRY_VERIFY(host.progress->writes > 0);
+        host.progress->failWrite = !timeSave;
+        host.progress->holdFinish = timeSave;
+        host.window()->close();
+        const auto stopped = host.book()->readingMilliseconds();
+        if (timeSave) {
+            QTRY_VERIFY(host.progress->finishDone);
+            QTRY_VERIFY_WITH_TIMEOUT(host.window()->findChild<QWidget *>("rrSaving"), 2000);
+            QCOMPARE(closed.count(), 0);
+            host.progress->completeFinish(false);
+        }
+        QTRY_VERIFY(host.window()->findChild<QPushButton *>("rrCloseSaveRetry"));
+        QCOMPARE(closed.count(), 0);
+        QCOMPARE(host.book()->readingMilliseconds(), stopped);
+        auto *saving = host.window()->findChild<QWidget *>("rrSaving");
+        QVERIFY(!saving || !saving->isVisible());
+        host.progress->failWrite = host.progress->holdFinish = false;
+        auto *retry = host.window()->findChild<QPushButton *>("rrCloseSaveRetry");
+        QVERIFY(click(canvas, retry));
+        QTRY_COMPARE_WITH_TIMEOUT(closed.count(), 1, 10000);
+        QCOMPARE(host.progress->finishAttempts, 2);
+    }
+
+    void closeWaitsForNativeTimeBeforePosition() {
+        ReaderFixture host(testPaths(), testFonts, testPlaceholder);
+        CloseHost cleanup{host};
+        const auto identity = QUrl::fromLocalFile(QFileInfo(textBook).absoluteFilePath()).toString();
+        host.progress = std::make_shared<test::HostProgress>();
+        host.progress->current = {identity, "OEBPS/c1.xhtml", 100, 1, true};
+        host.positions = nickel::positionCodec();
+        QSignalSpy opened(&host, &ReaderFixture::opened), closed(&host, &ReaderFixture::closed);
+        host.open(textBook, nativeSize);
+        QTRY_COMPARE_WITH_TIMEOUT(opened.count(), 1, 30000);
+        Canvas canvas(host.window(), nativeSize);
+        canvas.resize(900, 900);
+        canvas.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&canvas));
+        QTRY_VERIFY(!host.session()->busy());
+        QTRY_VERIFY(host.progress->writes > 0);
+        host.progress->holdFinish = host.progress->rejectWriteWhileFinishing = true;
+        const auto attempts = host.progress->writeAttempts;
+        host.window()->close();
+        QTRY_VERIFY(host.progress->finishDone);
+        QCOMPARE(host.progress->writeAttempts, attempts);
+        QCOMPARE(closed.count(), 0);
+        QTRY_VERIFY_WITH_TIMEOUT(host.window()->findChild<QWidget *>("rrSaving"), 2000);
+        QVERIFY(!host.window()->findChild<QPushButton *>("rrCloseSaveRetry"));
+        host.progress->holdFinish = false;
+        host.progress->completeFinish(true);
+        QTRY_COMPARE_WITH_TIMEOUT(closed.count(), 1, 10000);
+        QCOMPARE(host.progress->writeAttempts, attempts + 1);
+        QCOMPARE(host.progress->finishAttempts, 1);
+    }
+
     void nativeOpeningSaveRetries_data() {
         QTest::addColumn<bool>("blocked");
         QTest::addColumn<QString>("pause");
@@ -3963,12 +4159,18 @@ private slots:
         const auto before = host.progress->current;
         usbEncodingReturned = false;
         delayUsbEncoding = outcome == "timeout";
+        const int attempts = host.progress->writeAttempts;
         int completed = 0;
         QElapsedTimer elapsed;
         elapsed.start();
         host.window()->prepareUsb([&] {
             ++completed;
         });
+        if (outcome == "failed") {
+            QTRY_VERIFY(host.progress->writeAttempts > attempts);
+            QCOMPARE(completed, 0);
+            host.progress->failWrite = false;
+        }
         QTRY_COMPARE_WITH_TIMEOUT(completed, 1, 3000);
         QVERIFY(elapsed.elapsed() < 2400);
         if (outcome == "timeout") {
@@ -3978,8 +4180,8 @@ private slots:
         }
         delayUsbEncoding = false;
         QCOMPARE(completed, 1);
-        QCOMPARE(host.progress->writes, writes + (outcome == "saved" ? 1 : 0));
-        if (outcome != "saved") {
+        QCOMPARE(host.progress->writes, writes + (outcome == "saved" || outcome == "failed" ? 1 : 0));
+        if (outcome != "saved" && outcome != "failed") {
             QVERIFY(host.progress->current == before);
         }
         const auto local = storage::readBookState(paths, identity).object;
