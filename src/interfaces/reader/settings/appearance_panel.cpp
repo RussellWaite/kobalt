@@ -57,6 +57,76 @@ private:
 };
 }
 
+StripSizeControl::StripSizeControl(QWidget *parent, bool footer) : QWidget(parent) {
+    const QString name = footer ? "rrFooterTextSize" : "rrHeaderTextSize";
+    const auto title = strings::get(footer ? "reader.footer" : "reader.header");
+    auto *line = ui::horizontalRow();
+    setLayout(line);
+    auto *caption = new QWidget(this);
+    caption->setFixedWidth(m::control::captionWidth);
+    auto *captionRows = new QVBoxLayout(caption);
+    captionRows->setContentsMargins(0, 0, m::control::captionRight, 0);
+    captionRows->setSpacing(0);
+    captionRows->addSpacing(m::control::sliderLabelHeight);
+    auto *labels = new QVBoxLayout;
+    labels->setSpacing(ui::px(2));
+    auto *titleLabel = new ui::InterfaceLabel(title, caption);
+    readerStyle(titleLabel, styles::font(m::text::secondary));
+    labels->addWidget(titleLabel);
+    valueLabel = new ui::InterfaceLabel(caption);
+    valueLabel->setObjectName(name + "Value");
+    readerStyle(valueLabel, styles::font(m::control::captionValueText) + "color:palette(placeholder-text);");
+    labels->addWidget(valueLabel);
+    captionRows->addLayout(labels);
+    captionRows->setAlignment(labels, Qt::AlignVCenter);
+    auto *less = new ui::StepButton(ControlIcon::Minus, this);
+    auto *more = new ui::StepButton(ControlIcon::Plus, this);
+    less->setObjectName(name + "Less");
+    more->setObjectName(name + "More");
+    less->setAccessibleName(strings::get("controls.decrease").arg(title.toLower()));
+    more->setAccessibleName(strings::get("controls.increase").arg(title.toLower()));
+    slider = new ui::SettingSlider(this, headerfooter::offSize, headerfooter::maximumSize);
+    slider->setObjectName(name);
+    slider->setAccessibleName(title);
+    slider->setMarkers({headerfooter::offSize, headerfooter::smallSize, headerfooter::mediumSize,
+                        headerfooter::largeSize, headerfooter::maximumSize}, ui::SettingSlider::MarkerMode::Checkpoints);
+    slider->setMarkerLabels({strings::get("common.off"), strings::get("common.size_small_short"),
+                             strings::get("common.size_medium_short"), strings::get("common.size_large_short"),
+                             strings::get("common.size_extra_large_short")});
+    line->addWidget(caption);
+    const auto step = [line](QWidget *button) {
+        auto *column = new QVBoxLayout;
+        column->setContentsMargins(0, 0, 0, 0);
+        column->setSpacing(0);
+        column->addSpacing(m::control::sliderLabelHeight);
+        column->addWidget(button, 0, Qt::AlignVCenter);
+        line->addLayout(column);
+    };
+    step(less);
+    line->addWidget(slider, 1);
+    step(more);
+    connect(less, &QPushButton::clicked, slider, [this] { slider->nudge(-1); });
+    connect(more, &QPushButton::clicked, slider, [this] { slider->nudge(1); });
+    connect(slider, &QSlider::valueChanged, this, [this](int value) { showValue(value); });
+    setSize(headerfooter::smallSize, true);
+}
+
+void StripSizeControl::showValue(int value) {
+    QString text = strings::get("common.off");
+    if (value != headerfooter::offSize) {
+        text = strings::get("reader.text_size_value").arg(QString::number(value * 72.0 / 300.0, 'f', 1));
+    }
+    valueLabel->setText(text);
+    slider->setAccessibleDescription(text);
+}
+
+void StripSizeControl::setSize(int pixels, bool shown) {
+    if (slider->interacting())
+        return;
+    slider->setValue(shown ? pixels : headerfooter::offSize);
+    showValue(slider->value());
+}
+
 AppearanceSheet::AppearanceSheet(QWidget *parent) : ui::Panel(parent, Qt::BottomEdge) {
     setObjectName("rrMenu");
     setFrameStyle(QFrame::Box);
@@ -295,7 +365,7 @@ AppearancePanel::AppearancePanel(const AppearanceLayout &layout, const Appearanc
     chromeRow->addWidget(headerFooterRow, 1);
 
     // The rest lives in the Header and footer sheet, which supplies these
-    // rows: the presets, the slots, then sizes and the bar at the bottom.
+    // rows: the presets, the slots, the progress bar, then independent text sizes.
     if (!layout.headerFooter)
         return;
     auto *custom = layout.headerFooter;
@@ -318,40 +388,12 @@ AppearancePanel::AppearancePanel(const AppearanceLayout &layout, const Appearanc
     slotHint->setObjectName("rrHeaderFooterHint");
     slotHint->setWordWrap(true);
     // The same secondary text as the sliders' current values, so it follows the theme.
-    readerStyle(slotHint, styles::font(m::control::captionValueText) + "color:palette(placeholder-text);");
+    readerStyle(slotHint, styles::font(m::control::captionValueText) +
+                              "font-style:italic;color:palette(placeholder-text);");
     customRows->addWidget(slotHint);
-    // The size and bar rows are settings of their own; keep them apart from the page.
-    customRows->addSpacing(m::spacing::section);
-    auto sizeRow = [this, custom, customRows](bool footer) {
-        const QString name = footer ? "rrFooterTextSize" : "rrHeaderTextSize";
-        ui::SegmentedRow row(custom, customRows, name.toLatin1().constData(),
-                             strings::get(footer ? "reader.footer" : "reader.header"));
-        auto &buttons = footer ? footerSizeButtons : headerSizeButtons;
-        struct SizeChoice {
-            const char *value, *label, *compactLabel;
-        };
-        for (const auto &choice : {
-                 SizeChoice{"off", strings::key("common.off"), strings::key("common.off")},
-                 SizeChoice{"small", strings::key("common.size_small"), strings::key("common.size_small_short")},
-                 SizeChoice{"medium", strings::key("common.size_medium"), strings::key("common.size_medium_short")},
-                 SizeChoice{"large", strings::key("common.size_large"), strings::key("common.size_large_short")},
-             }) {
-            const QString value = QString::fromLatin1(choice.value);
-            const QString label = strings::get(choice.label);
-            auto *button = row.add(name + "_" + value, label);
-            button->setProperty("text_size", value);
-            button->setProperty("full_label", label);
-            button->setProperty("compact_label", strings::get(choice.compactLabel));
-            button->setAccessibleName(label);
-            button->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
-            buttons.append(button);
-        }
-        new ChoiceLabels(buttons.first()->parentWidget(), buttons);
-    };
-    sizeRow(false);
-    sizeRow(true);
+    customRows->addSpacing(m::spacing::row);
     auto switchRow = [custom, customRows](const char *name, const QString &label, QVector<QPushButton *> &buttons) {
-        ui::SegmentedRow row(custom, customRows, name, label);
+        ui::SegmentedRow row(custom, customRows, name, label, strings::get("header_footer.progress_bar_detail"));
         for (const bool enabled : {false, true}) {
             auto *button =
                 row.add(QString(name) + (enabled ? "_on" : "_off"), strings::get(enabled ? "common.on" : "common.off"));
@@ -360,5 +402,15 @@ AppearancePanel::AppearancePanel(const AppearanceLayout &layout, const Appearanc
         }
     };
     switchRow("rrHeaderFooterProgressBar", strings::get("header_footer.progress_bar"), progressBarButtons);
+    customRows->addSpacing(m::spacing::row);
+    auto *divider = new ui::Panel(custom);
+    divider->setObjectName("rrHeaderFooterSizeDivider");
+    divider->setFixedHeight(m::control::border);
+    divider->setDividers(Qt::TopEdge);
+    customRows->addWidget(divider);
+    headerSizeControl = new StripSizeControl(custom, false);
+    footerSizeControl = new StripSizeControl(custom, true);
+    customRows->addWidget(headerSizeControl);
+    customRows->addWidget(footerSizeControl);
 }
 }

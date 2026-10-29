@@ -30,6 +30,7 @@ inline constexpr Px captionValueText{24}, captionWidth{280}, valueWidth{84}, cap
 inline constexpr Px rowGap{16}, sectionGap{8}, itemGap{16}, fontPickerGap{16};
 inline constexpr Px segmentHeight{48}, segmentVerticalPadding{12}, segmentHorizontalPadding{16};
 inline constexpr Px stepSize{72}, stepIconInset{10};
+inline constexpr Px sliderLabelHeight{36};
 inline constexpr Px sliderHeight{72}, sliderInset{25}, sliderRadius{23}, sliderInnerRadius{16};
 inline constexpr Px sliderFillHeight{4};
 inline constexpr Px sliderMarkerTop{3}, sliderMarkerHeight{8}, sliderMarkerWidth{2};
@@ -176,17 +177,17 @@ inline constexpr Px pageGap{24}, indent{40};
 inline constexpr int exitGuardMilliseconds = 400;
 }
 namespace reading {
-// Reading chrome keeps its original default, independently of control text.
-inline constexpr Px defaultHeaderText{24}, defaultFooterText{26};
-inline int textPixels(const QString &size, bool footer) {
-    const int base = (footer ? defaultFooterText : defaultHeaderText).design();
-    return px(base + (size == "large" ? 4 : size == "medium" ? 2 : 0));
+// Reading chrome uses the same default for both strips, independently of control text.
+inline constexpr Px defaultHeaderText{24}, defaultFooterText{24};
+inline int textPixels(int size, bool footer) {
+    return px(size + (footer ? defaultFooterText.design() - defaultHeaderText.design() : 0));
 }
-inline QString textSize(const QString &size) {
-    return size == "medium" || size == "large" ? size : QString("small");
+inline int stripHeight(int size) {
+    return px(48 + 2 * (size - defaultHeaderText.design()));
 }
-inline int stripHeight(const QString &size) {
-    return px(size == "large" ? 56 : size == "medium" ? 52 : 48);
+// Preserve the old edge alignment through Large; give larger text a taller band.
+inline int textBandHeight(int size) {
+    return px(48 + qMax(0, size - 28) * 2);
 }
 inline constexpr Px progressHeight{24};
 inline constexpr Px headerSide{28}, headerTextGap{24}, batteryGap{8};

@@ -22,7 +22,7 @@ inline QString screenshotGroup(const QString &scene) {
     if (scene.startsWith("kosync-")) return "Settings and About";
     if (scene.startsWith("settings") || scene == "about" || scene == "acknowledgments" || scene.startsWith("license")) return "Settings and About";
     if (scene.startsWith("annotation") || scene == "annotating" || scene.startsWith("bookmark")) return "Bookmarks and annotations";
-    if (scene.startsWith("vertical-") || scene == "layout" || scene == "header-footer") return "Layout";
+    if (scene.startsWith("vertical-") || scene == "layout" || scene.startsWith("header-footer")) return "Layout";
     if (scene.startsWith("fonts") || scene.startsWith("text") || scene.startsWith("bionic") || scene.startsWith("embedded-")) return "Typography";
     if (scene.startsWith("maths")) return "Mathematics";
     if (scene.startsWith("stats")) return "Statistics";
@@ -80,6 +80,8 @@ inline QString screenshotTitle(const QString &scene, const QJsonObject &book) {
         {"footnotes-page-2", "Footnote · Page 2"},
         {"footnotes-preview", "Footnote preview"},
         {"header-footer", "Headers and footers"},
+        {"header-footer-large", "Headers and footers: enlarged text"},
+        {"header-footer-off", "Headers and footers: disabled"},
         {"layout", "Page layout"},
         {"library-book-menu", "Book actions"},
         {"library-empty", "Welcome to the library"},

@@ -63,8 +63,10 @@ kobalt::headerfooter::Layout Reader::customChrome() const {
 bool Reader::customModified() const {
     using namespace kobalt::headerfooter;
     const auto saved = preferences.value(customKey);
-    return saved.isObject() &&
-           fromJson(saved.toObject(), presetLayout(Preset::Default)) != presetLayout(Preset::Default);
+    const auto standard = presetLayout(Preset::Default);
+    const auto custom = fromJson(saved.toObject(), standard);
+    return saved.isObject() && (custom.slotFields != standard.slotFields || custom.uppercase != standard.uppercase ||
+                                custom.progressBar != standard.progressBar);
 }
 
 bool Reader::chromeTicks() const {
@@ -96,8 +98,11 @@ void Reader::loadChrome() {
     header->setVisible(page->topHeight() > 0);
 }
 
-bool Reader::saveChrome(kobalt::headerfooter::Preset preset, const kobalt::headerfooter::Layout *custom) {
+bool Reader::saveChrome(kobalt::headerfooter::Preset preset, const kobalt::headerfooter::Layout *custom,
+                        const kobalt::headerfooter::Layout *text) {
     auto next = preferences;
+    if (text || !next.value(kobalt::headerfooter::textKey).isObject())
+        next[kobalt::headerfooter::textKey] = kobalt::headerfooter::textSettings(text ? *text : page->chrome);
     next[kobalt::headerfooter::presetKey] = kobalt::headerfooter::presetValue(preset);
     if (custom)
         next[kobalt::headerfooter::customKey] = kobalt::headerfooter::toJson(*custom);
@@ -129,14 +134,15 @@ void Reader::syncChromeControls() {
     const auto custom = customChrome();
     const bool modified = customModified();
     for (auto *card : presetCards) {
-        card->setLayout(card->preset() == Preset::Custom ? custom : presetLayout(card->preset()));
+        auto configuration = card->preset() == Preset::Custom ? custom : presetLayout(card->preset());
+        configuration.headerSize = configuration.footerSize = smallSize;
+        configuration.headerEnabled = configuration.footerEnabled = true;
+        card->setLayout(configuration);
         card->setModified(card->preset() == Preset::Custom && modified);
         card->setChecked(card->preset() == chromePreset);
     }
-    for (auto *button : headerSizeButtons)
-        button->setChecked(button->property("text_size").toString() == current.headerSize);
-    for (auto *button : footerSizeButtons)
-        button->setChecked(button->property("text_size").toString() == current.footerSize);
+    headerSizeControl->setSize(current.headerSize, current.headerEnabled);
+    footerSizeControl->setSize(current.footerSize, current.footerEnabled);
     for (auto *button : progressBarButtons)
         button->setChecked(button->property("switch_on").toBool() == current.progressBar);
     // A modified Custom layout carries a star, as on its card.
@@ -492,9 +498,12 @@ void Reader::applySettings() {
     next.remove(pageNavigation::barVisibleKey);
     next["minimal_annotation_mode"] = minimalAnnotationOption->isChecked();
     next["screen_refresh"] = kobalt::screenRefreshValue(screenRefreshMode);
-    if (restoringDefaults)
+    if (restoringDefaults) {
         next[kobalt::headerfooter::presetKey] =
             kobalt::headerfooter::presetValue(kobalt::headerfooter::Preset::Default);
+        next[kobalt::headerfooter::textKey] = kobalt::headerfooter::textSettings(
+            kobalt::headerfooter::presetLayout(kobalt::headerfooter::Preset::Default));
+    }
     const auto rotation = orientation->settings();
     for (auto it = rotation.begin(); it != rotation.end(); ++it)
         next[it.key()] = it.value();

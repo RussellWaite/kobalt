@@ -16,8 +16,8 @@ int main() {
                 standard.slotFields[2] == Field::Nothing && standard.slotFields[4] == Field::Nothing &&
                 standard.slotFields[3] == Field::ChapterPagesLeft && standard.slotFields[5] == Field::BookPercent,
             "Default does not show the clock, chapter, chapter pages left and book percentage");
-    require(standard.uppercase[1] && !standard.progressBar && standard.headerSize == "small" &&
-                standard.footerSize == "small",
+    require(standard.uppercase[1] && !standard.progressBar && standard.headerSize == smallSize &&
+                standard.footerSize == smallSize,
             "Default lost its uppercase chapter, hidden bar or small sizes");
     const auto a = presetLayout(Preset::AlternativeA);
     require(a.slotFields[0] == Field::Time && a.slotFields[1] == Field::ChapterAndPage &&
@@ -37,21 +37,44 @@ int main() {
             "Unknown values did not fall back");
     auto edited = a;
     edited.slotFields[5] = Field::Battery;
-    edited.headerSize = QStringLiteral("off");
+    edited.headerEnabled = false;
+    edited.headerSize = maximumSize;
     edited.uppercase[2] = false;
     require(fromJson(toJson(edited), standard) == edited, "A layout did not round-trip");
     auto lower = fromJson(qt::object({{"uppercase", false}}), standard);
     require(!lower.uppercase[0] && !lower.uppercase[5], "A single uppercase value did not apply to every slot");
     const auto partial = fromJson(qt::object({{"top_left", "author"}, {"footer_size", "huge"}}), standard);
     require(partial.slotFields[0] == Field::Author && partial.slotFields[1] == Field::Chapter &&
-                partial.footerSize == "small",
+                partial.footerSize == smallSize,
             "Missing or invalid layout values did not keep the fallback");
+
+    // Old presets map exactly; optional numeric sizes retain a disabled strip's last size.
+    for (const auto name : {"small", "medium", "large", "off"}) {
+        const auto loaded = fromJson(qt::object({{"header_size", name}, {"footer_size", name}}), standard);
+        require(loaded.headerSize == legacySize(name) && loaded.footerSize == legacySize(name) &&
+                    loaded.headerEnabled == (QString(name) != "off") && loaded.footerEnabled == loaded.headerEnabled,
+                "A legacy strip size changed on load");
+    }
+    for (int size = smallSize; size <= maximumSize; ++size) {
+        auto numeric = standard;
+        numeric.headerSize = size;
+        numeric.footerSize = maximumSize - size + smallSize;
+        numeric.headerEnabled = size % 2;
+        require(fromJson(toJson(numeric), standard) == numeric, "Numeric or disabled sizes did not round-trip");
+    }
+    for (const QJsonValue &invalid : {QJsonValue(23), QJsonValue(49), QJsonValue(27.5), QJsonValue(true),
+                                     QJsonValue("40"), QJsonValue(QJsonValue::Null)}) {
+        const auto loaded = fromJson(qt::object({{"header_size", "medium"}, {"header_font_size", invalid}}), standard);
+        require(loaded.headerSize == mediumSize, "Invalid numeric size replaced the valid legacy size");
+    }
+    const auto disabled = fromJson(qt::object({{"footer_size", "off"}, {"footer_font_size", 39}}), standard);
+    require(!disabled.footerEnabled && disabled.footerSize == 39, "Off discarded the remembered numeric size");
 
     // A strip with nothing in it takes no space, even when its size is set.
     auto empty = standard;
     empty.slotFields[3] = empty.slotFields[4] = empty.slotFields[5] = Field::Nothing;
     require(empty.header() && !empty.footer(), "An empty footer kept its strip");
-    empty.headerSize = QStringLiteral("off");
+    empty.headerEnabled = false;
     require(!empty.header(), "Off kept the header");
 
     // The preset is chosen per book; Custom is one layout for every book.
@@ -75,11 +98,11 @@ int main() {
             "Old default flags prevented the new Default from applying");
     selection = select(qt::object({{"show_clock", false}, {"footer_text_size", "large"}}));
     require(selection.preset == Preset::Custom && selection.layout.slotFields[0] == Field::Nothing &&
-                selection.layout.slotFields[1] == Field::Chapter && selection.layout.footerSize == "large",
+                selection.layout.slotFields[1] == Field::Chapter && selection.layout.footerSize == largeSize,
             "Old custom settings were not kept as Custom");
     selection = select(qt::object({{"show_header", false}, {"show_footer", false}, {"show_progress_bar", false}}));
     require(selection.layout.slotFields[0] == Field::Time && selection.layout.slotFields[1] == Field::Nothing &&
-                selection.layout.headerSize == "small" && selection.layout.footerSize == "off" &&
+                selection.layout.headerSize == smallSize && !selection.layout.footerEnabled &&
                 !selection.layout.progressBar,
             "The old clock without a header was lost");
     selection = select(qt::object({{"show_header", false}, {"show_clock", false}}));
@@ -87,6 +110,26 @@ int main() {
     selection = select(qt::object({{"show_clock", false}, {customKey, custom}}));
     require(selection.preset == Preset::Custom && selection.layout == edited,
             "An old custom book replaced the saved custom layout");
+
+    // Text preferences apply to every preset without changing its slots or progress bar.
+    auto enlarged = standard;
+    enlarged.headerSize = maximumSize;
+    enlarged.footerSize = 37;
+    enlarged.headerEnabled = false;
+    for (const auto chosen : presets) {
+        const auto preferences = qt::object({{presetKey, presetValue(chosen)}, {customKey, custom},
+                                              {textKey, textSettings(enlarged)}});
+        const auto resolved = select(preferences);
+        const auto expected = chosen == Preset::Custom ? edited : presetLayout(chosen);
+        require(resolved.preset == chosen && resolved.layout.slotFields == expected.slotFields &&
+                    resolved.layout.progressBar == expected.progressBar &&
+                    resolved.layout.headerSize == maximumSize && resolved.layout.footerSize == 37 &&
+                    !resolved.layout.headerEnabled && resolved.layout.footerEnabled,
+                "Independent sizes changed the preset or were reset by it");
+    }
+    const auto invalidText = select(qt::object({{presetKey, "custom"}, {customKey, custom},
+        {textKey, qt::object({{"header_font_size", 999}, {"footer_font_size", "40"}})}}));
+    require(invalidText.layout == edited, "Invalid text overrides did not retain legacy sizes");
 
     Values values;
     values.title = QStringLiteral("Alice");

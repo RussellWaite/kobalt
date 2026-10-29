@@ -6,8 +6,22 @@
 
 namespace kobalt::headerfooter {
 namespace {
-QString stripSize(const QString &value, const QString &fallback) {
-    return value == "off" || value == "small" || value == "medium" || value == "large" ? value : fallback;
+QString savedSize(int size, bool enabled) {
+    if (!enabled)
+        return QStringLiteral("off");
+    return size >= largeSize ? QStringLiteral("large")
+           : size >= mediumSize ? QStringLiteral("medium") : QStringLiteral("small");
+}
+void readSize(const QJsonObject &object, const char *legacyKey, const char *pixelsKey, int &size, bool &enabled) {
+    const auto legacy = object.value(legacyKey).toString();
+    if (legacy == "off" || legacy == "small" || legacy == "medium" || legacy == "large") {
+        size = legacySize(legacy);
+        enabled = legacy != "off";
+    }
+    const auto pixels = object.value(pixelsKey);
+    const double value = pixels.toDouble(-1);
+    if (pixels.isDouble() && value >= smallSize && value <= maximumSize && value == int(value))
+        size = int(value);
 }
 bool anything(const Layout &layout, int first) {
     for (int slot = first; slot < first + 3; ++slot)
@@ -43,14 +57,19 @@ QString joined(const QString &name, const QString &position) {
 }
 }
 
+int legacySize(const QString &value) {
+    return value == "large" ? largeSize : value == "medium" ? mediumSize : smallSize;
+}
+
 bool Layout::header() const {
-    return headerSize != "off" && anything(*this, 0);
+    return headerEnabled && anything(*this, 0);
 }
 bool Layout::footer() const {
-    return footerSize != "off" && anything(*this, 3);
+    return footerEnabled && anything(*this, 3);
 }
 bool Layout::operator==(const Layout &other) const {
     return slotFields == other.slotFields && headerSize == other.headerSize && footerSize == other.footerSize &&
+           headerEnabled == other.headerEnabled && footerEnabled == other.footerEnabled &&
            uppercase == other.uppercase && progressBar == other.progressBar;
 }
 
@@ -153,8 +172,10 @@ QJsonObject toJson(const Layout &layout) {
                                                  "bottom_left", "bottom_center", "bottom_right"};
     for (int slot = 0; slot < slotCount; ++slot)
         object[names[slot]] = fieldValue(layout.slotFields[slot]);
-    object["header_size"] = layout.headerSize;
-    object["footer_size"] = layout.footerSize;
+    object["header_size"] = savedSize(layout.headerSize, layout.headerEnabled);
+    object["footer_size"] = savedSize(layout.footerSize, layout.footerEnabled);
+    object["header_font_size"] = layout.headerSize;
+    object["footer_font_size"] = layout.footerSize;
     QJsonArray uppercase;
     for (const bool value : layout.uppercase)
         uppercase.append(value);
@@ -170,8 +191,8 @@ Layout fromJson(const QJsonObject &object, const Layout &fallback) {
     for (int slot = 0; slot < slotCount; ++slot)
         if (object.value(names[slot]).isString())
             layout.slotFields[slot] = field(object.value(names[slot]).toString());
-    layout.headerSize = stripSize(object.value("header_size").toString(), fallback.headerSize);
-    layout.footerSize = stripSize(object.value("footer_size").toString(), fallback.footerSize);
+    readSize(object, "header_size", "header_font_size", layout.headerSize, layout.headerEnabled);
+    readSize(object, "footer_size", "footer_font_size", layout.footerSize, layout.footerEnabled);
     // One value per slot. A single value applies to every slot.
     const auto uppercase = object.value("uppercase");
     if (uppercase.isBool())
@@ -200,9 +221,10 @@ Layout legacyLayout(const QJsonObject &preferences) {
         const auto value = preferences.value(key).toString();
         return value == "medium" || value == "large" ? value : QStringLiteral("small");
     };
-    layout.headerSize = header || clock ? shownSize("header_text_size") : QStringLiteral("off");
-    layout.footerSize =
-        preferences.value("show_footer").toBool(true) ? shownSize("footer_text_size") : QStringLiteral("off");
+    layout.headerEnabled = header || clock;
+    layout.footerEnabled = preferences.value("show_footer").toBool(true);
+    layout.headerSize = legacySize(shownSize("header_text_size"));
+    layout.footerSize = legacySize(shownSize("footer_text_size"));
     layout.progressBar = preferences.value("show_progress_bar").toBool(true);
     return layout;
 }
@@ -212,7 +234,7 @@ Layout customLayout(const QJsonObject &preferences, const Layout &fallback) {
                                                    : fallback;
 }
 
-Selection select(const QJsonObject &preferences) {
+static Selection selectLayout(const QJsonObject &preferences) {
     Selection selection;
     if (preferences.value(presetKey).isString()) {
         selection.preset = preset(preferences.value(presetKey).toString());
@@ -227,6 +249,23 @@ Selection select(const QJsonObject &preferences) {
     }
     selection.preset = Preset::Custom;
     selection.layout = customLayout(preferences, legacy);
+    return selection;
+}
+
+QJsonObject textSettings(const Layout &layout) {
+    QJsonObject result;
+    result["header_size"] = savedSize(layout.headerSize, layout.headerEnabled);
+    result["footer_size"] = savedSize(layout.footerSize, layout.footerEnabled);
+    result["header_font_size"] = layout.headerSize;
+    result["footer_font_size"] = layout.footerSize;
+    return result;
+}
+
+Selection select(const QJsonObject &preferences) {
+    auto selection = selectLayout(preferences);
+    const auto text = preferences.value(textKey).toObject();
+    readSize(text, "header_size", "header_font_size", selection.layout.headerSize, selection.layout.headerEnabled);
+    readSize(text, "footer_size", "footer_font_size", selection.layout.footerSize, selection.layout.footerEnabled);
     return selection;
 }
 

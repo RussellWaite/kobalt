@@ -3,6 +3,7 @@
 #include "interfaces/reader/ui/controls/panels.h"
 #include "interfaces/reader/ui/controls/sliders.h"
 #include "header_footer_panel.h"
+#include "interfaces/reader/ui/controls/options.h"
 #include <QScrollArea>
 #include <QStackedWidget>
 #include <QVBoxLayout>
@@ -32,6 +33,17 @@ public:
 private:
     QScrollArea *scroll;
 };
+class StripSizeControl final : public QWidget {
+public:
+    StripSizeControl(QWidget *parent, bool footer);
+    void setSize(int pixels, bool shown);
+    ui::SettingSlider *slider;
+
+private:
+    void showValue(int value);
+    QLabel *valueLabel;
+};
+
 // The existing pages own the controls. Reader keeps preview and apply policy.
 class AppearancePanel {
 public:
@@ -43,13 +55,12 @@ public:
     QVector<QPushButton *> alignmentButtons, hyphenButtons, rotationButtons;
     QPushButton *autoRotateOption = nullptr;
     // Header and footer: the Layout row that opens its view, and the view's
-    // presets and controls, built only when the layout has its rows. Size
-    // buttons hold "off" to "large" in `text_size`; the Off/On pairs hold a
-    // boolean in `switch_on`.
+    // presets and controls, built only when the layout has its rows.
     ui::DropdownButton *headerFooterRow = nullptr;
     SlotMap *slotMap = nullptr;
     QVector<PresetCard *> presetCards;
-    QVector<QPushButton *> headerSizeButtons, footerSizeButtons, progressBarButtons;
+    StripSizeControl *headerSizeControl = nullptr, *footerSizeControl = nullptr;
+    QVector<QPushButton *> progressBarButtons;
     QLabel *slotHint = nullptr;
 };
 }

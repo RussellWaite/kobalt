@@ -1015,8 +1015,8 @@ void Reader::buildAppearance(const kobalt::reader::AppearanceLayout &layout) {
     headerFooterRow = appearance.headerFooterRow;
     slotMap = appearance.slotMap;
     presetCards = appearance.presetCards;
-    headerSizeButtons = appearance.headerSizeButtons;
-    footerSizeButtons = appearance.footerSizeButtons;
+    headerSizeControl = appearance.headerSizeControl;
+    footerSizeControl = appearance.footerSizeControl;
     progressBarButtons = appearance.progressBarButtons;
     connect(headerFooterRow, &QPushButton::clicked, this, [this] {
         openHeaderFooterView();
@@ -1067,15 +1067,18 @@ void Reader::buildAppearance(const kobalt::reader::AppearanceLayout &layout) {
                 syncChromeControls();
             });
     };
-    for (auto *button : headerSizeButtons + footerSizeButtons) {
-        const bool footer = footerSizeButtons.contains(button);
-        const auto value = button->property("text_size").toString();
-        connect(button, &QPushButton::clicked, this, [editCustom, footer, value] {
-            editCustom([footer, value](kobalt::headerfooter::Layout &custom) {
-                (footer ? custom.footerSize : custom.headerSize) = value;
-            });
-        });
+    for (auto *control : {headerSizeControl, footerSizeControl}) {
+        const bool footer = control == footerSizeControl;
+        control->slider->committed = [this, footer](int value) {
+            auto text = page->chrome;
+            (footer ? text.footerEnabled : text.headerEnabled) = value != kobalt::headerfooter::offSize;
+            if (value != kobalt::headerfooter::offSize)
+                (footer ? text.footerSize : text.headerSize) = value;
+            if (model->temporaryTypography() || !saveChrome(chromePreset, nullptr, &text))
+                syncChromeControls();
+        };
     }
+
     for (auto *button : progressBarButtons) {
         const bool on = button->property("switch_on").toBool();
         connect(button, &QPushButton::clicked, this, [editCustom, on] {

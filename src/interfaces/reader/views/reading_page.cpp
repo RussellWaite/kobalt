@@ -158,13 +158,12 @@ int ReadingPage::bottomHeight() const {
     return (showFooter() ? m::reading::stripHeight(chrome.footerSize) : 0) +
            (showProgress() ? ui::metrics::reading::progressHeight : 0);
 }
-// Strip text keeps the Small strip's distance from the page edge at every
-// size: it is centred in a band as tall as that strip, at the edge. A larger
-// strip only adds space between its text and the book.
+// Keep the old edge alignment through Large. Larger sizes grow the text
+// band as well as the reserved strip so glyphs are not clipped.
 QRect ReadingPage::headerTextRect() const {
     if (!showHeader())
         return {};
-    return {0, 0, width(), m::reading::stripHeight(QStringLiteral("small"))};
+    return {0, 0, width(), m::reading::textBandHeight(chrome.headerSize)};
 }
 QRect ReadingPage::footerTextRect() const {
     if (!showFooter())
@@ -174,7 +173,7 @@ QRect ReadingPage::footerTextRect() const {
     const int offset = showProgress() ? int(m::reading::progressHeight) - int(m::reading::progressBottom) -
                                             int(m::reading::progressFillHeight)
                                       : 0;
-    const int band = m::reading::stripHeight(QStringLiteral("small"));
+    const int band = m::reading::textBandHeight(chrome.footerSize);
     const int bottom = height() - bottomHeight() + offset + m::reading::stripHeight(chrome.footerSize);
     return {0, bottom - band, width(), band};
 }

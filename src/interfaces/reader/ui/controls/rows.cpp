@@ -401,8 +401,23 @@ QHBoxLayout *labeledRow(QWidget *parent, QVBoxLayout *rows, const QString &label
     line->addWidget(caption);
     return line;
 }
-SegmentedRow::SegmentedRow(QWidget *parent, QVBoxLayout *rows, const char *name, const QString &label) {
+SegmentedRow::SegmentedRow(QWidget *parent, QVBoxLayout *rows, const char *name, const QString &label,
+                           const QString &detail) {
     auto *line = labeledRow(parent, rows, label);
+    if (!detail.isEmpty()) {
+        auto *caption = line->takeAt(0);
+        auto *labels = new QVBoxLayout;
+        labels->setSpacing(px(2));
+        labels->addWidget(caption->widget());
+        delete caption;
+        auto *value = new InterfaceLabel(detail, parent);
+        value->setObjectName(QString(name) + "Detail");
+        value->setFixedWidth(m::control::captionWidth);
+        readerStyle(value, styles::font(m::control::captionValueText) + "color:palette(placeholder-text);");
+        labels->addWidget(value);
+        line->addLayout(labels);
+        line->setAlignment(labels, Qt::AlignVCenter);
+    }
     frame = new QFrame(parent);
     frame->setObjectName(name);
     line->addWidget(frame, 1);

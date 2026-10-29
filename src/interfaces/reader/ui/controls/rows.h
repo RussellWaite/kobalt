@@ -137,7 +137,8 @@ QHBoxLayout *horizontalRow();
 QHBoxLayout *labeledRow(QWidget *parent, QVBoxLayout *rows, const QString &label);
 class SegmentedRow {
 public:
-    SegmentedRow(QWidget *parent, QVBoxLayout *rows, const char *name, const QString &label);
+    SegmentedRow(QWidget *parent, QVBoxLayout *rows, const char *name, const QString &label,
+                 const QString &detail = {});
     QPushButton *add(const QString &name, const QString &text = {});
 
 private:

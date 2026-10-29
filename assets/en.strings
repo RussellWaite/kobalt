@@ -180,6 +180,7 @@
 "common.percent" = "%1%";
 "common.previous_page" = "Previous page";
 "common.size_large" = "Large";
+"common.size_extra_large_short" = "XL";
 "common.size_large_short" = "L";
 "common.size_medium" = "Medium";
 "common.size_medium_short" = "M";
@@ -366,6 +367,7 @@
 "header_footer.unavailable" = "—";
 "header_footer.uppercase" = "Uppercase";
 "header_footer.progress_bar" = "Progress bar";
+"header_footer.progress_bar_detail" = "% of book";
 /* Arguments: %1 */
 "header_footer.time_left" = "%1 left";
 "header_footer.learning_pace" = "Learning reading speed";

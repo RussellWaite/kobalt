@@ -2301,7 +2301,7 @@ private slots:
         for (const auto size : {QSize(400, 600), QSize(600, 400)}) {
             page.resize(size);
             for (const auto &stripSize : {QStringLiteral("small"), QStringLiteral("large")}) {
-                page.chrome.headerSize = page.chrome.footerSize = stripSize;
+                page.chrome.headerSize = page.chrome.footerSize = headerfooter::legacySize(stripSize);
                 for (const bool bookmarked : {false, true}) {
                     page.bookmarked = bookmarked;
                     page.refreshContent();
@@ -2373,7 +2373,7 @@ private slots:
         values.chapterPage = 123;
         values.chapterPages = 456;
         for (const auto &size : {QStringLiteral("small"), QStringLiteral("large")}) {
-            page.chrome.headerSize = page.chrome.footerSize = size;
+            page.chrome.headerSize = page.chrome.footerSize = headerfooter::legacySize(size);
             for (int slot = 0; slot < headerfooter::slotCount; ++slot) {
                 page.chrome.slotFields.fill(headerfooter::Field::Nothing);
                 page.slotContents = {};
@@ -2504,13 +2504,13 @@ private slots:
             font.setFamily(family);
             page.setFont(font);
             int previousIconHeight = 0, smallIconHeight = 0;
-            for (const auto &size : {QStringLiteral("small"), QStringLiteral("medium"), QStringLiteral("large")}) {
+            for (const int size : {24, 26, 28, 48}) {
                 page.chrome.headerSize = page.chrome.footerSize = size;
-                const int step = size == "large" ? 2 : size == "medium" ? 1 : 0;
+                const int step = (size - 24) / 2;
                 QCOMPARE(page.topHeight(), ui::px(48 + step * 4));
                 QCOMPARE(page.bottomHeight(), ui::px(48 + step * 4));
                 QCOMPARE(page.headerTextPixels(), ui::px(24 + step * 2));
-                QCOMPARE(page.footerTextPixels(), ui::px(26 + step * 2));
+                QCOMPARE(page.footerTextPixels(), ui::px(24 + step * 2));
                 int iconHeight = 0;
                 int textHeights[2] = {};
                 for (int percent : {9, 50, 100}) {
@@ -2531,7 +2531,7 @@ private slots:
                         const auto icon = inkBounds(image, QRect(iconLeft, band.top(), page.width() - iconLeft, band.height()));
                         QVERIFY(!text.isEmpty() && !icon.isEmpty());
                         const auto context = QString("%1 %2 %3 footer=%4 text=%5,%6 icon=%7,%8")
-                            .arg(family, size).arg(percent).arg(footer).arg(text.top()).arg(text.height()).arg(icon.top()).arg(icon.height()).toUtf8();
+                            .arg(family).arg(size).arg(percent).arg(footer).arg(text.top()).arg(text.height()).arg(icon.top()).arg(icon.height()).toUtf8();
                         QVERIFY2(qAbs(text.top() + text.bottom() - icon.top() - icon.bottom()) <= 2, context.constData());
                         QVERIFY2(qAbs(text.height() - icon.height()) <= 3, context.constData());
                         if (textHeights[footer])
@@ -2545,9 +2545,9 @@ private slots:
                     }
                 }
                 QVERIFY(iconHeight >= previousIconHeight);
-                if (size == "small")
+                if (size == 24)
                     smallIconHeight = iconHeight;
-                if (size == "large")
+                if (size >= 28)
                     QVERIFY(iconHeight > smallIconHeight);
                 previousIconHeight = iconHeight;
             }

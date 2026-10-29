@@ -1907,23 +1907,19 @@ int main(int argc, char **argv) {
         }
     }
 
-    require(kobalt::ui::metrics::reading::textPixels({}, false) == 24 &&
-                kobalt::ui::metrics::reading::textPixels({}, true) == 26,
-            "Default chrome sizes changed");
-    require(kobalt::ui::metrics::reading::textPixels("small", false) == 24 &&
-                kobalt::ui::metrics::reading::textPixels("medium", false) == 26 &&
-                kobalt::ui::metrics::reading::textPixels("large", false) == 28 &&
-                kobalt::ui::metrics::reading::textPixels("small", true) == 26 &&
-                kobalt::ui::metrics::reading::textPixels("medium", true) == 28 &&
-                kobalt::ui::metrics::reading::textPixels("large", true) == 30,
-            "Chrome text sizes have the wrong increments");
-    require(kobalt::ui::metrics::reading::stripHeight("small") == 48 &&
-                kobalt::ui::metrics::reading::stripHeight("medium") == 52 &&
-                kobalt::ui::metrics::reading::stripHeight("large") == 56,
-            "Chrome strips have the wrong heights");
-    require(kobalt::ui::metrics::reading::textSize("invalid") == "small" &&
-                kobalt::ui::metrics::reading::textPixels("invalid", false) == 24,
-            "Unknown chrome size did not use the default");
+    require(kobalt::ui::metrics::reading::textPixels(24, false) == 24 &&
+                kobalt::ui::metrics::reading::textPixels(24, true) == 24 &&
+                kobalt::ui::metrics::reading::textPixels(26, false) == 26 &&
+                kobalt::ui::metrics::reading::textPixels(26, true) == 26 &&
+                kobalt::ui::metrics::reading::textPixels(28, false) == 28 &&
+                kobalt::ui::metrics::reading::textPixels(28, true) == 28,
+            "Header and footer checkpoint sizes must match");
+    require(kobalt::ui::metrics::reading::stripHeight(24) == 48 &&
+                kobalt::ui::metrics::reading::stripHeight(26) == 52 &&
+                kobalt::ui::metrics::reading::stripHeight(28) == 56 &&
+                kobalt::ui::metrics::reading::stripHeight(48) == 96 &&
+                kobalt::ui::metrics::reading::textBandHeight(48) == 88,
+            "Chrome strips do not reserve enough room for large text");
     // Exercise the final styled layout, not only the constructor's size hints.
     {
         using namespace kobalt::ui;
@@ -4089,6 +4085,22 @@ int main(int argc, char **argv) {
     slide(QEvent::MouseButtonPress, 25);
     slide(QEvent::MouseButtonRelease, 275);
     require(commits == 1 && slider.value() == 0, "Single-page slider emitted a jump");
+    slider.setRange(23, 48);
+    slider.setMarkers({23, 24, 26, 28, 48}, kobalt::ui::SettingSlider::MarkerMode::Checkpoints);
+    slider.resize(450, 72);
+    for (const auto point : {QPoint(25, 23), QPoint(125, 24), QPoint(225, 26), QPoint(325, 28),
+                             QPoint(375, 38), QPoint(425, 48)}) {
+        slide(QEvent::MouseButtonPress, point.x());
+        slide(QEvent::MouseButtonRelease, point.x());
+        require(slider.value() == point.y(), "Checkpoint drag did not interpolate sizes beyond Large");
+    }
+    slider.nudge(-1);
+    require(slider.value() == 47, "Checkpoint minus skipped a fine size");
+    slider.setValue(24);
+    slider.nudge(-1);
+    require(slider.value() == 23, "Minus from Small did not reach Off");
+    slider.nudge(1);
+    require(slider.value() == 24, "Plus from Off did not enable Small");
     slider.setRange(100, 300);
     const QVector<int> spacingStops{100, 110, 120, 130, 140, 150, 175, 200, 250, 300};
     slider.setMarkers(spacingStops, kobalt::ui::SettingSlider::MarkerMode::Stops);

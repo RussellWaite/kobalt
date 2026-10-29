@@ -1193,6 +1193,125 @@ void tour(Fixture &fixture, const QString &name, bool screenshots) {
 }
 }
 
+namespace {
+void checkHeaderFooterSizes(int preset, bool dark) {
+    using namespace headerfooter;
+    Fixture fixture(dark);
+    QVERIFY(fixture.prepared);
+    fixture.window.findChild<QComboBox *>("desktopScreenPicker")->setCurrentIndex(preset);
+    QSignalSpy opened(&fixture.window, &desktop::Window::bookOpened);
+    fixture.window.openBook(book);
+    QTRY_COMPARE_WITH_TIMEOUT(opened.count(), 1, 10000);
+    QTRY_VERIFY(!fixture.state().value("busy").toBool() && !fixture.state().value("preview_busy").toBool());
+    openPrologueBody(fixture);
+    QVERIFY(fixture.press("rrPage"));
+    QVERIFY(fixture.press("rrNavLayout"));
+    QVERIFY(fixture.press("rrHeaderFooter"));
+    QTRY_VERIFY(fixture.visible("rrHeaderFooterView"));
+    auto *page = static_cast<ReadingPage *>(fixture.widget("rrPage"));
+    auto *header = static_cast<ui::SettingSlider *>(fixture.widget("rrHeaderTextSize"));
+    auto *footer = static_cast<ui::SettingSlider *>(fixture.widget("rrFooterTextSize"));
+    QVERIFY(header && footer && page);
+    const auto captureState = [&](const char *suffix) {
+        if (captureDirectory.isEmpty()) return true;
+        return capture(fixture, QString(preset == 1 ? "six-inch-" : "seven-inch-") +
+                                   (dark ? "dark-" : "light-") + suffix);
+    };
+    auto *view = fixture.widget("rrHeaderFooterView");
+    auto *progress = fixture.widget("rrHeaderFooterProgressBar_on");
+    QVERIFY(view->rect().contains(QRect(progress->mapTo(view, QPoint()), progress->size())));
+    QCOMPARE(header->mapTo(view, QPoint()).x(), footer->mapTo(view, QPoint()).x());
+    QCOMPARE(header->width(), footer->width());
+    auto *divider = fixture.widget("rrHeaderFooterSizeDivider");
+    QVERIFY(divider);
+    QVERIFY(progress->mapTo(view, progress->rect().bottomLeft()).y() < divider->mapTo(view, QPoint()).y());
+    QVERIFY(divider->mapTo(view, QPoint()).y() < header->mapTo(view, QPoint()).y());
+    const int initialHeight = view->height();
+    for (const auto name : {QString("rrHeaderTextSize"), QString("rrFooterTextSize")}) {
+        auto *slider = static_cast<ui::SettingSlider *>(fixture.widget(qPrintable(name)));
+        QCOMPARE(slider->value(), smallSize);
+        auto *value = qobject_cast<QLabel *>(fixture.widget(qPrintable(name + "Value")));
+        QVERIFY(value);
+        QCOMPARE(value->text(), strings::get("reader.text_size_value").arg("5.8"));
+        QVERIFY(fixture.press(qPrintable(name + "More")));
+        QTRY_COMPARE(slider->value(), smallSize + 1);
+        QVERIFY(fixture.press(qPrintable(name + "Less")));
+        QTRY_COMPARE(slider->value(), smallSize);
+        QVERIFY(fixture.press(qPrintable(name + "Less")));
+        QTRY_COMPARE(slider->value(), offSize);
+        QVERIFY(fixture.press(qPrintable(name + "More")));
+        QTRY_COMPARE(slider->value(), smallSize);
+        // Tap the actual canvas slider at every named checkpoint, then beyond L.
+        const int inset = ui::metrics::control::sliderInset;
+        const int span = slider->width() - 2 * inset;
+        for (const auto point : {QPoint(1, smallSize), QPoint(2, mediumSize), QPoint(3, largeSize),
+                                 QPoint(4, maximumSize)}) {
+            QVERIFY(fixture.click(slider, QPoint(inset + qRound(span * point.x() / 4.0), slider->height() / 2)));
+            QTRY_COMPARE(slider->value(), point.y());
+        }
+        QTRY_VERIFY(!fixture.state().value("busy").toBool() && !fixture.state().value("preview_busy").toBool());
+    }
+    QCOMPARE(page->chrome.headerSize, maximumSize);
+    QCOMPARE(page->chrome.footerSize, maximumSize);
+    QCOMPARE(page->headerTextPixels(), page->footerTextPixels());
+    QCOMPARE(view->height(), initialHeight);
+    QVERIFY(page->headerTextRect().height() >= page->headerTextPixels());
+    QVERIFY(page->footerTextRect().height() >= page->footerTextPixels());
+    QCOMPARE(fixture.state().value("header_footer_preset").toString(), QString("default"));
+    auto *customCard = fixture.widget("rrHeaderFooterPreset_default");
+    const auto cardImage = customCard->grab().toImage();
+    QCOMPARE(cardImage.pixelColor(cardImage.width() / 2, cardImage.height() - 4), ui::themeColors(dark).ink);
+    QVERIFY(captureState("header-footer-large"));
+    const auto selectSize = [&](ui::SettingSlider *slider, bool maximum) {
+        const int inset = ui::metrics::control::sliderInset;
+        return fixture.click(slider, QPoint(maximum ? slider->width() - inset : inset, slider->height() / 2));
+    };
+    QVERIFY(selectSize(header, false));
+    QTRY_VERIFY(!page->chrome.headerEnabled);
+    QVERIFY(selectSize(footer, false));
+    QTRY_VERIFY(!page->chrome.footerEnabled);
+    QCOMPARE(page->topHeight(), 0);
+    QCOMPARE(page->bottomHeight(), 0);
+    QVERIFY(captureState("header-footer-off"));
+    const auto savedPreferences = storage::readJson(fixture.paths.preferences());
+    const auto saved = savedPreferences.value(textKey).toObject();
+    QCOMPARE(saved.value("header_font_size").toInt(), maximumSize);
+    QCOMPARE(saved.value("footer_font_size").toInt(), maximumSize);
+    QVERIFY(!savedPreferences.contains(customKey));
+    // Preset changes preserve independent text sizes and Off states.
+    QVERIFY(fixture.press("rrHeaderFooterPreset_alternative_a"));
+    QTRY_COMPARE(header->value(), offSize);
+    QTRY_COMPARE(footer->value(), offSize);
+    QVERIFY(fixture.press("rrHeaderFooterProgressBar_off"));
+    QTRY_COMPARE(fixture.state().value("header_footer_preset").toString(), QString("custom"));
+    const auto savedCustom = storage::readJson(fixture.paths.preferences()).value(customKey);
+    QVERIFY(fixture.press("rrHeaderFooterPreset_default"));
+    QTRY_COMPARE(header->value(), offSize);
+    QVERIFY(fixture.press("rrHeaderTextSizeMore"));
+    QTRY_COMPARE(header->value(), smallSize);
+    QVERIFY(!fixture.visible("rrReplaceCustom"));
+    QCOMPARE(fixture.state().value("header_footer_preset").toString(), QString("default"));
+    QCOMPARE(storage::readJson(fixture.paths.preferences()).value(customKey), savedCustom);
+    QVERIFY(selectSize(header, true));
+    QTRY_COMPARE(header->value(), maximumSize);
+    QVERIFY(selectSize(footer, true));
+    QTRY_COMPARE(footer->value(), maximumSize);
+    QVERIFY(selectSize(header, false));
+    QVERIFY(fixture.press("rrHeaderFooterClose"));
+    QVERIFY(fixture.press("rrPage"));
+    QTRY_VERIFY(!fixture.state().value("busy").toBool() && !fixture.state().value("preview_busy").toBool());
+    fixture.window.readerWindow()->close();
+    QTRY_VERIFY_WITH_TIMEOUT(fixture.window.idle(), 30000);
+    fixture.window.openBook(book);
+    QTRY_COMPARE_WITH_TIMEOUT(opened.count(), 2, 10000);
+    QTRY_VERIFY(!fixture.state().value("busy").toBool() && !fixture.state().value("preview_busy").toBool());
+    page = static_cast<ReadingPage *>(fixture.widget("rrPage"));
+    QVERIFY(!page->chrome.headerEnabled && page->chrome.footerEnabled);
+    QCOMPARE(page->chrome.headerSize, maximumSize);
+    QCOMPARE(page->chrome.footerSize, maximumSize);
+}
+}
+
 class DesktopTests final : public QObject {
     Q_OBJECT
 private slots:
@@ -3051,6 +3170,12 @@ exit 7
         QVERIFY(!page->annotationContains(fourth - QPoint(0, page->topHeight())));
         QVERIFY(!fixture.visible("rrAnnotationOverlap"));
         QCOMPARE(fixture.stored("highlights.json", "highlights"), highlights);
+    }
+    void headerFooterSizes_data() { screenshotVariants(); }
+    void headerFooterSizes() {
+        QFETCH(int, preset);
+        QFETCH(bool, dark);
+        checkHeaderFooterSizes(preset, dark);
     }
     void headerFooterDismissal_data() { bookmarks_data(); }
     void headerFooterDismissal() {
@@ -5322,6 +5447,12 @@ exit 7
 class ScreenshotTests final : public QObject {
     Q_OBJECT
 private slots:
+    void headerFooterSizes_data() { screenshotVariants(); }
+    void headerFooterSizes() {
+        QFETCH(int, preset);
+        QFETCH(bool, dark);
+        checkHeaderFooterSizes(preset, dark);
+    }
     void publisherFontDefault_data() { screenshotVariants(); }
     void publisherFontDefault() {
         QFETCH(int, preset);
@@ -6290,7 +6421,7 @@ int main(int argc, char **argv) {
         return app.exec();
     }
     QFile fixture(book);
-    const int expectedScreenshots = lightGallery ? 56 : 754;
+    const int expectedScreenshots = lightGallery ? 56 : 762;
     if (captures.size() != expectedScreenshots)
         qCritical() << "Expected" << expectedScreenshots << "screenshots, captured" << captures.size();
     if (!fixture.open(QIODevice::ReadOnly) || captures.size() != expectedScreenshots) {

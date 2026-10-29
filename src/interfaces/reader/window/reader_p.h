@@ -334,7 +334,8 @@ private:
     kobalt::ui::DropdownButton *headerFooterRow = nullptr;
     kobalt::reader::SlotMap *slotMap = nullptr;
     QVector<kobalt::reader::PresetCard *> presetCards;
-    QVector<QPushButton *> headerSizeButtons, footerSizeButtons, progressBarButtons;
+    kobalt::reader::StripSizeControl *headerSizeControl = nullptr, *footerSizeControl = nullptr;
+    QVector<QPushButton *> progressBarButtons;
     // Header and footer and the field list fill the reading area like
     // Chapters, over the Layout panel, which stays open beneath them.
     kobalt::reader::HeaderFooterView *headerFooterView = nullptr;
@@ -351,7 +352,8 @@ private:
     // Reads the preset and layout from the preferences and shows them.
     void loadChrome();
     // Saves the preset, and the Custom layout when given, then shows them.
-    bool saveChrome(kobalt::headerfooter::Preset preset, const kobalt::headerfooter::Layout *custom = nullptr);
+    bool saveChrome(kobalt::headerfooter::Preset preset, const kobalt::headerfooter::Layout *custom = nullptr,
+                    const kobalt::headerfooter::Layout *text = nullptr);
     void syncChromeControls();
     void openFieldChooser(int slot);
     void closeFieldChooser();

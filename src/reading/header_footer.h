@@ -52,15 +52,20 @@ inline constexpr bool footerSlot(int slot) {
 enum class Preset { Default, AlternativeA, AlternativeB, Custom };
 inline constexpr Preset presets[] = {Preset::Default, Preset::AlternativeA, Preset::AlternativeB, Preset::Custom};
 
-// Everything a preset decides about the header and the footer.
+// Both strips use the same sizes in 300 PPI pixels.
+inline constexpr int smallSize = 24, mediumSize = 26, largeSize = 28, maximumSize = 48;
+inline constexpr int offSize = smallSize - 1;
+int legacySize(const QString &value);
+
+// Resolved slot configuration and independent text sizes.
 struct Layout {
     std::array<Field, slotCount> slotFields{};
-    // "off", "small", "medium" or "large".
-    QString headerSize = QStringLiteral("small"), footerSize = QStringLiteral("small");
+    int headerSize = smallSize, footerSize = smallSize;
+    bool headerEnabled = true, footerEnabled = true;
     // Each slot chooses its own case.
     std::array<bool, slotCount> uppercase{{true, true, true, true, true, true}};
     bool progressBar = true;
-    // A strip is drawn when its size is not Off and one of its slots shows something.
+    // A strip is drawn when enabled and one of its slots shows something.
     bool header() const;
     bool footer() const;
     bool operator==(const Layout &other) const;
@@ -72,6 +77,8 @@ struct Layout {
 // The preset is saved per book. Custom is one layout shared by every book.
 inline constexpr auto presetKey = "header_footer";
 inline constexpr auto customKey = "header_footer_custom";
+inline constexpr auto textKey = "header_footer_text";
+QJsonObject textSettings(const Layout &layout);
 
 Layout presetLayout(Preset preset);
 QString presetValue(Preset preset);
