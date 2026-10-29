@@ -174,18 +174,22 @@ void ReadingBook::sleepReading(const QJsonObject &preferences) {
         sleepingReading = true;
         sleepingAt = utc();
         sleepingTimeout = sessionTimeout::milliseconds(preferences);
-        if (history)
-            history->pause(readingMilliseconds(), model->state().value("position").toString());
     }
     stopReading();
 }
 void ReadingBook::stopReading(bool background, bool nativeAllowed) {
-    if (history && !sleepingReading)
-        history->stop(readingMilliseconds(), model->state().value("position").toString());
     if (activeReading.isValid()) {
         const auto elapsed = activeReading.elapsed();
         completedReadingMilliseconds += elapsed;
         activeReading.invalidate();
+    }
+    // Freeze the duration before history work so both use the same boundary.
+    if (history) {
+        const auto position = model->state().value("position").toString();
+        if (sleepingReading)
+            history->pause(completedReadingMilliseconds, position);
+        else
+            history->stop(completedReadingMilliseconds, position);
     }
     // End Nickel's interval before local storage work, so its clock does not
     // include that I/O and its asynchronous flush can run alongside our save.
