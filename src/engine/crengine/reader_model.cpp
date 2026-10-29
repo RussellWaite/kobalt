@@ -558,7 +558,9 @@ QString ReaderModel::title() const {
 QString ReaderModel::author() const {
     return engine_ ? qstring(engine_->getAuthors()) : QString();
 }
-QImage ReaderModel::coverImage(QSize maximumSize, const QString &preferredPath) const {
+QImage ReaderModel::coverImage(QSize maximumSize, const QString &preferredPath, QString *usedPath) const {
+    if (usedPath)
+        usedPath->clear();
     if (!engine_ || maximumSize.isEmpty() || qint64(maximumSize.width()) * maximumSize.height() > 4 * 1024 * 1024) {
         return {};
     }
@@ -612,6 +614,8 @@ QImage ReaderModel::coverImage(QSize maximumSize, const QString &preferredPath) 
     if (!preferredPath.isEmpty()) {
         const auto image = decode(LVOpenFileStream(cre(preferredPath).c_str(), LVOM_READ));
         if (!image.isNull()) {
+            if (usedPath)
+                *usedPath = preferredPath;
             return image;
         }
     }

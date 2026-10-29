@@ -387,6 +387,31 @@ if(BUILD_TESTING)
         -P "${CMAKE_CURRENT_SOURCE_DIR}/run-test.cmake")
     set_tests_properties(platform.shutdown PROPERTIES ENVIRONMENT "${headless_environment}"
         LABELS "platform;integration" TIMEOUT 125)
+    add_executable(kobalt-sleep-persistence-tests "${KOBALT_ROOT}/tests/sleep_persistence.cpp"
+        "${source}/storage/sleep_snapshot.cpp")
+    target_include_directories(kobalt-sleep-persistence-tests PRIVATE "${source}")
+    target_compile_definitions(kobalt-sleep-persistence-tests PRIVATE KOBALT_SCENARIO_PLAYER)
+    target_link_libraries(kobalt-sleep-persistence-tests PRIVATE Qt6::Core Qt6::Gui)
+    target_compile_options(kobalt-sleep-persistence-tests PRIVATE -Wall -Wextra -Werror)
+    add_dependencies(kobalt-tests kobalt-sleep-persistence-tests)
+    add_test(NAME platform.sleep-persistence COMMAND "${CMAKE_COMMAND}"
+        "-DTEST_EXECUTABLE=$<TARGET_FILE:kobalt-sleep-persistence-tests>"
+        "-DTEST_TIMEOUT=30" "-DTEST_TMP_ROOT=${CMAKE_CURRENT_BINARY_DIR}/test-tmp"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/run-test.cmake")
+    set_tests_properties(platform.sleep-persistence PROPERTIES ENVIRONMENT "${headless_environment}"
+        LABELS "platform;integration" TIMEOUT 35)
+    add_executable(kobalt-scenario-sleep-tests "${KOBALT_ROOT}/tests/scenario_sleep.cpp"
+        "${source}/scenario/player.cpp")
+    target_include_directories(kobalt-scenario-sleep-tests PRIVATE "${source}")
+    target_link_libraries(kobalt-scenario-sleep-tests PRIVATE Qt6::Widgets Qt6::GuiPrivate Qt6::Network)
+    target_compile_options(kobalt-scenario-sleep-tests PRIVATE -Wall -Wextra -Werror)
+    add_dependencies(kobalt-tests kobalt-scenario-sleep-tests)
+    add_test(NAME platform.scenario-sleep COMMAND "${CMAKE_COMMAND}"
+        "-DTEST_EXECUTABLE=$<TARGET_FILE:kobalt-scenario-sleep-tests>"
+        "-DTEST_TIMEOUT=30" "-DTEST_TMP_ROOT=${CMAKE_CURRENT_BINARY_DIR}/test-tmp"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/run-test.cmake")
+    set_tests_properties(platform.scenario-sleep PROPERTIES ENVIRONMENT "${headless_environment}"
+        LABELS "platform;integration" TIMEOUT 35)
     add_executable(kobalt-power-screen-tests "${KOBALT_ROOT}/tests/kobo_power_screen.cpp"
         "${KOBALT_ROOT}/platforms/kobo/common/home_sleep_screen.cpp"
         "${KOBALT_ROOT}/platforms/kobo/common/window_presentation.cpp")

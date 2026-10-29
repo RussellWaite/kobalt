@@ -3041,6 +3041,35 @@ private slots:
         QCOMPARE(cover.size(), QSize(60, 30));
         QVERIFY(qGreen(cover.pixel(5, 5)) > qBlue(cover.pixel(5, 5)));
         QVERIFY(qBlue(cover.pixel(55, 5)) > qGreen(cover.pixel(55, 5)));
+        QTemporaryDir nativeCover;
+        QVERIFY(nativeCover.isValid());
+        const auto nativePath = nativeCover.path() + "/native.png";
+        QImage nativeImage(40, 60, QImage::Format_RGB32);
+        nativeImage.fill(Qt::red);
+        QVERIFY(nativeImage.save(nativePath));
+        QFileInfo provenance;
+        bool nativeDone = false;
+        host.session()->coverImage({2048, 2048}, [&](QImage image, QFileInfo source) {
+            cover = std::move(image);
+            provenance = std::move(source);
+            nativeDone = true;
+        }, nativePath);
+        QTRY_VERIFY(nativeDone);
+        QCOMPARE(cover.size(), nativeImage.size());
+        QCOMPARE(provenance.absoluteFilePath(), nativePath);
+        QFile corrupt(nativePath);
+        QVERIFY(corrupt.open(QIODevice::WriteOnly | QIODevice::Truncate));
+        corrupt.write("broken PNG");
+        corrupt.close();
+        nativeDone = false;
+        host.session()->coverImage({2048, 2048}, [&](QImage image, QFileInfo source) {
+            cover = std::move(image);
+            provenance = std::move(source);
+            nativeDone = true;
+        }, nativePath);
+        QTRY_VERIFY(nativeDone);
+        QVERIFY(!cover.isNull());
+        QVERIFY(provenance.filePath().isEmpty());
         host.session()->coverImage({4096, 4096}, [&](QImage image) {
             cover = std::move(image);
             ++completed;

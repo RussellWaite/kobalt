@@ -3,6 +3,7 @@
 #include "open_request.h"
 #include "highlight_geometry.h"
 #include <QElapsedTimer>
+#include <QFileInfo>
 #include <QObject>
 #include <atomic>
 #include <functional>
@@ -319,6 +320,7 @@ public:
     }
     // Decodes on the engine worker. A cancelled or replaced source returns no image.
     void coverImage(QSize maximumSize, std::function<void(QImage)> finished, QString preferredPath = {});
+    void coverImage(QSize maximumSize, std::function<void(QImage, QFileInfo)> finished, QString preferredPath);
     QString chapterTitle() const {
         return frame.state.value("chapter_title").toString();
     }

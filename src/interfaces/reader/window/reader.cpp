@@ -36,6 +36,9 @@
 #include <QTime>
 #include <QTouchEvent>
 #include <utility>
+#ifdef KOBALT_SCENARIO_PLAYER
+#include "scenario/sleep_persistence.h"
+#endif
 
 namespace kobalt::reader {
 namespace strings = kobalt::strings;
@@ -232,17 +235,35 @@ void Reader::saveTransition(quint64 request, bool usb, const QString &location, 
 void Reader::prepareSleepCover() {
     const auto request = ++sleepCoverRequest;
     sleepCover = {};
-    if (!presentation->supportsSleepScreen() || sleep::mode(preferences) != sleep::Mode::Cover) {
+    sleepCoverSource = {};
+#ifdef KOBALT_SCENARIO_PLAYER
+    setProperty("eval_sleep_cover_pending", false);
+    setProperty("eval_sleep_cover_ready", false);
+#endif
+    auto mode = sleep::mode(preferences);
+#ifdef KOBALT_SCENARIO_PLAYER
+    if (scenario::sleepPersistenceOptions().mode >= 0)
+        mode = sleep::Mode(scenario::sleepPersistenceOptions().mode);
+#endif
+    if (!presentation->supportsSleepScreen() || mode != sleep::Mode::Cover) {
         return;
     }
     // Decode off the GUI thread while the book is available. Keep at most
     // 16 MiB, only for the cover option, and reuse it in either orientation.
     QPointer<Reader> guard(this);
+#ifdef KOBALT_SCENARIO_PLAYER
+    setProperty("eval_sleep_cover_pending", true);
+#endif
     model->coverImage(
         {2048, 2048},
-        [guard, request](QImage image) {
+        [guard, request](QImage image, QFileInfo source) {
             if (guard && guard->sleepCoverRequest == request) {
                 guard->sleepCover = std::move(image);
+                guard->sleepCoverSource = std::move(source);
+#ifdef KOBALT_SCENARIO_PLAYER
+                guard->setProperty("eval_sleep_cover_ready", !guard->sleepCover.isNull());
+                guard->setProperty("eval_sleep_cover_pending", false);
+#endif
             }
         },
         services.coverImagePath);
@@ -263,7 +284,11 @@ sleep::Snapshot Reader::captureSleepScreen() {
     const qint64 pixels = qint64(page->width()) * page->height();
     const auto *modal = QApplication::activeModalWidget();
     const bool foreground = !modal || modal == this || isAncestorOf(modal);
-    const auto mode = sleep::mode(preferences);
+    auto mode = sleep::mode(preferences);
+#ifdef KOBALT_SCENARIO_PLAYER
+    if (scenario::sleepPersistenceOptions().mode >= 0)
+        mode = sleep::Mode(scenario::sleepPersistenceOptions().mode);
+#endif
     if (mode == sleep::Mode::Stock || !presentation->supportsSleepScreen() || !foreground || pixels <= 0 ||
         pixels > 4 * 1024 * 1024 || !readyForPresentation() || appearanceEdit.panelOpen() || model->temporaryTypography())
         return {};
@@ -272,9 +297,15 @@ sleep::Snapshot Reader::captureSleepScreen() {
     if (frame.isNull())
         return {};
     const int percent = pageProgressPercent(model->page(), model->pages());
-    return {std::move(frame), kobalt::shownOrientation(QGuiApplication::primaryScreen()),
+    sleep::Snapshot snapshot{std::move(frame), kobalt::shownOrientation(QGuiApplication::primaryScreen()),
             strings::get("sleep.percent_read").arg(percent), sleepTimeLeft(book->estimates().bookMilliseconds),
             darkTheme, mode, !useCover, percent, sleep::tile(preferences)};
+    if (useCover && sleepCoverSource.isFile()) {
+        snapshot.coverPath = sleepCoverSource.absoluteFilePath();
+        snapshot.coverBytes = sleepCoverSource.size();
+        snapshot.coverModified = sleepCoverSource.lastModified().toMSecsSinceEpoch();
+    }
+    return snapshot;
 }
 
 void Reader::sleepReader() {
@@ -1002,8 +1033,11 @@ void Reader::closeEvent(QCloseEvent *event) {
         finishExit();
         return;
     }
+    QElapsedTimer sleepDispatch;
+    sleepDispatch.start();
     if (!closeWithoutSaving)
         presentation->saveSleepScreen(exitSleepSnapshot);
+    closingTimes.add("sleep_dispatch", sleepDispatch);
     exitSleepSnapshot = {};
     setProperty("reader_exit_clean_pending", true);
     setProperty("reader_preparing_handoff", true);
@@ -1942,7 +1976,10 @@ void Reader::finishExit() {
     }
     exportRunning = true;
     dismissProgressChoice();
+    QElapsedTimer sleepCapture;
+    sleepCapture.start();
     exitSleepSnapshot = captureSleepScreen();
+    closingTimes.add("sleep_capture", sleepCapture);
     book->stopReading(true);
     setEnabled(false);
     closeSaveProgress = 0;

@@ -135,6 +135,15 @@ public:
 
     // Runs one step for the given repetition. Returns an empty string or the reason it failed.
     QString step(const QJsonObject &step, int repetition) {
+        if (step.contains("sleep_persistence")) {
+            if (!host.sleepPersistence) {
+                unsupported = true;
+                return "the host has no sleep persistence experiment";
+            }
+            const auto result = host.sleepPersistence(step.value("sleep_persistence").toObject());
+            matched["sleep-persistence"] = result;
+            return result.value("error").toString();
+        }
         if (step.contains("press")) {
             if (step.contains("unless") && visible(host, step.value("unless").toString()))
                 return {};
@@ -334,6 +343,7 @@ public:
         matched.clear();
         mark.invalidate();
     }
+    QJsonObject details() const { return matched.value("sleep-persistence"); }
     // Set when a step needed a book the host cannot open.
     bool unsupported = false;
 
@@ -381,6 +391,8 @@ QVector<QJsonObject> run(const QJsonObject &file, const Host &host, const Option
         const auto id = scenario.value("id").toString();
         if (!wanted(id, options.filter))
             continue;
+        if (scenario.value("opt_in").toBool() && options.filter.isEmpty())
+            continue;
         if (options.started)
             options.started(id);
         auto result = qt::object({{"id", id},
@@ -389,7 +401,22 @@ QVector<QJsonObject> run(const QJsonObject &file, const Host &host, const Option
                                   {"unit", scenario.value("unit").toString("ms")},
                                   {"fixture", scenario.value("fixture").toObject()}});
         QJsonArray samples;
+        QJsonArray details;
         QJsonObject stages;
+        if (needs(scenario, "sleep-persistence") && !host.sleepPersistence) {
+            result["status"] = QStringLiteral("skipped");
+            result["reason"] = QStringLiteral("the host has no sleep persistence experiment");
+            result["samples"] = samples;
+            result["stages"] = stages;
+            results.append(result);
+            continue;
+        }
+        // Cleanup runs after failures too. Sleep overrides exist only in memory.
+        struct SleepCleanup {
+            const Host &host;
+            bool enabled;
+            ~SleepCleanup() { if (enabled) host.sleepPersistence({}); }
+        } sleepCleanup{host, needs(scenario, "sleep-persistence") && bool(host.sleepPersistence)};
         if (needs(scenario, "dictionary") && host.dictionary && !host.dictionary()) {
             result["status"] = QStringLiteral("skipped");
             result["reason"] = QStringLiteral("no dictionary is installed");
@@ -415,6 +442,18 @@ QVector<QJsonObject> run(const QJsonObject &file, const Host &host, const Option
                 failure = "no sample";
             if (failure.isEmpty())
                 failure = runner.steps(scenario.value("after").toArray(), index);
+            if (needs(scenario, "sleep-persistence")) {
+                auto detail = runner.details();
+                detail["trial"] = index;
+                detail["warmup"] = index < warmup;
+                detail["status"] = QString(failure.isEmpty() ? "completed" : "failed");
+                if (failure.isEmpty()) {
+                    detail["sample"] = sample;
+                    detail["sample_stages"] = parts;
+                } else
+                    detail["error"] = failure;
+                details.append(detail);
+            }
             if (!failure.isEmpty() || index < warmup)
                 continue;
             samples.append(sample);
@@ -432,6 +471,8 @@ QVector<QJsonObject> run(const QJsonObject &file, const Host &host, const Option
             result["reason"] = failure;
         result["samples"] = samples;
         result["stages"] = stages;
+        if (!details.isEmpty())
+            result["details"] = details;
         results.append(result);
     }
     return results;

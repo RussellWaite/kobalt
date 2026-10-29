@@ -1095,6 +1095,9 @@ void ReaderSession::compareNativePosition(const QString &location, std::function
         Qt::QueuedConnection);
 }
 void ReaderSession::coverImage(QSize maximumSize, std::function<void(QImage)> finished, QString preferredPath) {
+    coverImage(maximumSize, [finished](QImage image, QFileInfo) { finished(std::move(image)); }, preferredPath);
+}
+void ReaderSession::coverImage(QSize maximumSize, std::function<void(QImage, QFileInfo)> finished, QString preferredPath) {
     auto engine = model;
     const auto lease = lease_;
     QPointer<ReaderSession> guard(this);
@@ -1102,13 +1105,21 @@ void ReaderSession::coverImage(QSize maximumSize, std::function<void(QImage)> fi
         engineWorker(),
         [engine, guard, lease, maximumSize, preferredPath, finished] {
             EngineJob activity;
-            auto image = lease && !lease->revoked() ? engine->coverImage(maximumSize, preferredPath) : QImage();
+            QFileInfo before(preferredPath);
+            const auto bytes = before.size();
+            const auto modified = before.lastModified();
+            QString usedPath;
+            auto image = lease && !lease->revoked() ? engine->coverImage(maximumSize, preferredPath, &usedPath) : QImage();
+            const QFileInfo after(usedPath);
+            const auto source = !usedPath.isEmpty() && before.isAbsolute() && before.isFile() &&
+                bytes == after.size() && modified == after.lastModified() ? before : QFileInfo();
             kobalt::qt::invoke(
                 qApp,
-                [guard, lease, image = std::move(image), finished]() mutable {
+                [guard, lease, image = std::move(image), source, finished]() mutable {
                     if (!guard)
                         return;
-                    finished(guard->lease_ == lease && lease && !lease->revoked() ? std::move(image) : QImage());
+                    const bool valid = guard->lease_ == lease && lease && !lease->revoked();
+                    finished(valid ? std::move(image) : QImage(), valid ? source : QFileInfo());
                 },
                 Qt::QueuedConnection);
         },

@@ -321,6 +321,393 @@
       "paths": ["src/", "dependencies/"],
       "repeat": 1,
       "sample": {"memory": "peak_rss_kib"}
+    },
+    {
+      "id": "sleep.close.stock",
+      "kind": "e2e",
+      "opt_in": true,
+      "paths": ["src/storage/sleep_snapshot.cpp","src/interfaces/reader/window/reader.cpp","platforms/kobo/common/"],
+      "book": "benchmark",
+      "needs": ["sleep-persistence"],
+      "warmup": 1,
+      "repeat": 5,
+      "setup": [
+        {"sleep_persistence":{"action":"configure","mode":"stock","compression":-1}},
+        {"open":"benchmark"},
+        {"press":"rrPage","unless":"rrNavChapters"},
+        {"visible":"rrNavChapters"},
+        {"press":"rrNavChapters"},
+        {"visible":"rrChapter1"},
+        {"press":"rrChapter1"},
+        {"settle":true},
+        {"key":"PageDown"},
+        {"settle":true}
+      ],
+      "steps": [
+        {"settle":true},
+        {"sleep_persistence":{"action":"ready"}},
+        {"close":true},
+        {"event":"book-close"},
+        {"sleep_persistence":{"action":"drain"}}
+      ],
+      "after": [
+        {"open":"benchmark"}
+      ],
+      "sample": {"event":"book-close","field":"total_ms","stages":true}
+    },
+    {
+      "id": "sleep.close.page.default",
+      "kind": "e2e",
+      "opt_in": true,
+      "paths": ["src/storage/sleep_snapshot.cpp","src/interfaces/reader/window/reader.cpp","platforms/kobo/common/"],
+      "book": "benchmark",
+      "needs": ["sleep-persistence"],
+      "warmup": 1,
+      "repeat": 5,
+      "setup": [
+        {"sleep_persistence":{"action":"configure","mode":"page","compression":-1}},
+        {"open":"benchmark"},
+        {"press":"rrPage","unless":"rrNavChapters"},
+        {"visible":"rrNavChapters"},
+        {"press":"rrNavChapters"},
+        {"visible":"rrChapter1"},
+        {"press":"rrChapter1"},
+        {"settle":true},
+        {"key":"PageDown"},
+        {"settle":true}
+      ],
+      "steps": [
+        {"settle":true},
+        {"sleep_persistence":{"action":"ready"}},
+        {"close":true},
+        {"event":"book-close"},
+        {"sleep_persistence":{"action":"drain"}}
+      ],
+      "after": [
+        {"open":"benchmark"}
+      ],
+      "sample": {"event":"book-close","field":"total_ms","stages":true}
+    },
+    {
+      "id": "sleep.close.page.compression-1",
+      "kind": "e2e",
+      "opt_in": true,
+      "paths": ["src/storage/sleep_snapshot.cpp","src/interfaces/reader/window/reader.cpp","platforms/kobo/common/"],
+      "book": "benchmark",
+      "needs": ["sleep-persistence"],
+      "warmup": 1,
+      "repeat": 5,
+      "setup": [
+        {"sleep_persistence":{"action":"configure","mode":"page","compression":1}},
+        {"open":"benchmark"},
+        {"press":"rrPage","unless":"rrNavChapters"},
+        {"visible":"rrNavChapters"},
+        {"press":"rrNavChapters"},
+        {"visible":"rrChapter1"},
+        {"press":"rrChapter1"},
+        {"settle":true},
+        {"key":"PageDown"},
+        {"settle":true}
+      ],
+      "steps": [
+        {"settle":true},
+        {"sleep_persistence":{"action":"ready"}},
+        {"close":true},
+        {"event":"book-close"},
+        {"sleep_persistence":{"action":"drain"}}
+      ],
+      "after": [
+        {"open":"benchmark"}
+      ],
+      "sample": {"event":"book-close","field":"total_ms","stages":true}
+    },
+    {
+      "id": "sleep.close.page.compression-0",
+      "kind": "e2e",
+      "opt_in": true,
+      "paths": ["src/storage/sleep_snapshot.cpp","src/interfaces/reader/window/reader.cpp","platforms/kobo/common/"],
+      "book": "benchmark",
+      "needs": ["sleep-persistence"],
+      "warmup": 1,
+      "repeat": 5,
+      "setup": [
+        {"sleep_persistence":{"action":"configure","mode":"page","compression":0}},
+        {"open":"benchmark"},
+        {"press":"rrPage","unless":"rrNavChapters"},
+        {"visible":"rrNavChapters"},
+        {"press":"rrNavChapters"},
+        {"visible":"rrChapter1"},
+        {"press":"rrChapter1"},
+        {"settle":true},
+        {"key":"PageDown"},
+        {"settle":true}
+      ],
+      "steps": [
+        {"settle":true},
+        {"sleep_persistence":{"action":"ready"}},
+        {"close":true},
+        {"event":"book-close"},
+        {"sleep_persistence":{"action":"drain"}}
+      ],
+      "after": [
+        {"open":"benchmark"}
+      ],
+      "sample": {"event":"book-close","field":"total_ms","stages":true}
+    },
+    {
+      "id": "sleep.close.cover.default",
+      "kind": "e2e",
+      "opt_in": true,
+      "paths": ["src/storage/sleep_snapshot.cpp","src/interfaces/reader/window/reader.cpp","platforms/kobo/common/"],
+      "book": "benchmark",
+      "needs": ["sleep-persistence"],
+      "warmup": 1,
+      "repeat": 5,
+      "setup": [
+        {"sleep_persistence":{"action":"configure","mode":"cover","compression":-1}},
+        {"open":"benchmark"},
+        {"press":"rrPage","unless":"rrNavChapters"},
+        {"visible":"rrNavChapters"},
+        {"press":"rrNavChapters"},
+        {"visible":"rrChapter1"},
+        {"press":"rrChapter1"},
+        {"settle":true},
+        {"key":"PageDown"},
+        {"settle":true}
+      ],
+      "steps": [
+        {"settle":true},
+        {"sleep_persistence":{"action":"ready"}},
+        {"close":true},
+        {"event":"book-close"},
+        {"sleep_persistence":{"action":"drain"}}
+      ],
+      "after": [
+        {"open":"benchmark"}
+      ],
+      "sample": {"event":"book-close","field":"total_ms","stages":true}
+    },
+    {
+      "id": "sleep.close.cover.compression-1",
+      "kind": "e2e",
+      "opt_in": true,
+      "paths": ["src/storage/sleep_snapshot.cpp","src/interfaces/reader/window/reader.cpp","platforms/kobo/common/"],
+      "book": "benchmark",
+      "needs": ["sleep-persistence"],
+      "warmup": 1,
+      "repeat": 5,
+      "setup": [
+        {"sleep_persistence":{"action":"configure","mode":"cover","compression":1}},
+        {"open":"benchmark"},
+        {"press":"rrPage","unless":"rrNavChapters"},
+        {"visible":"rrNavChapters"},
+        {"press":"rrNavChapters"},
+        {"visible":"rrChapter1"},
+        {"press":"rrChapter1"},
+        {"settle":true},
+        {"key":"PageDown"},
+        {"settle":true}
+      ],
+      "steps": [
+        {"settle":true},
+        {"sleep_persistence":{"action":"ready"}},
+        {"close":true},
+        {"event":"book-close"},
+        {"sleep_persistence":{"action":"drain"}}
+      ],
+      "after": [
+        {"open":"benchmark"}
+      ],
+      "sample": {"event":"book-close","field":"total_ms","stages":true}
+    },
+    {
+      "id": "sleep.close.cover.compression-0",
+      "kind": "e2e",
+      "opt_in": true,
+      "paths": ["src/storage/sleep_snapshot.cpp","src/interfaces/reader/window/reader.cpp","platforms/kobo/common/"],
+      "book": "benchmark",
+      "needs": ["sleep-persistence"],
+      "warmup": 1,
+      "repeat": 5,
+      "setup": [
+        {"sleep_persistence":{"action":"configure","mode":"cover","compression":0}},
+        {"open":"benchmark"},
+        {"press":"rrPage","unless":"rrNavChapters"},
+        {"visible":"rrNavChapters"},
+        {"press":"rrNavChapters"},
+        {"visible":"rrChapter1"},
+        {"press":"rrChapter1"},
+        {"settle":true},
+        {"key":"PageDown"},
+        {"settle":true}
+      ],
+      "steps": [
+        {"settle":true},
+        {"sleep_persistence":{"action":"ready"}},
+        {"close":true},
+        {"event":"book-close"},
+        {"sleep_persistence":{"action":"drain"}}
+      ],
+      "after": [
+        {"open":"benchmark"}
+      ],
+      "sample": {"event":"book-close","field":"total_ms","stages":true}
+    },
+    {
+      "id": "sleep.png.page.default",
+      "kind": "micro",
+      "opt_in": true,
+      "paths": ["src/storage/sleep_snapshot.cpp"],
+      "book": "benchmark",
+      "needs": ["sleep-persistence"],
+      "warmup": 1,
+      "repeat": 5,
+      "setup": [
+        {"sleep_persistence":{"action":"configure","mode":"page","compression":-1}},
+        {"open":"benchmark"},
+        {"press":"rrPage","unless":"rrNavChapters"},
+        {"visible":"rrNavChapters"},
+        {"press":"rrNavChapters"},
+        {"visible":"rrChapter1"},
+        {"press":"rrChapter1"},
+        {"settle":true},
+        {"key":"PageDown"},
+        {"settle":true}
+      ],
+      "steps": [
+        {"sleep_persistence":{"action":"measure"}}
+      ],
+      "sample": {"event":"sleep-persistence","field":"total_ms","stages":true}
+    },
+    {
+      "id": "sleep.png.page.compression-1",
+      "kind": "micro",
+      "opt_in": true,
+      "paths": ["src/storage/sleep_snapshot.cpp"],
+      "book": "benchmark",
+      "needs": ["sleep-persistence"],
+      "warmup": 1,
+      "repeat": 5,
+      "setup": [
+        {"sleep_persistence":{"action":"configure","mode":"page","compression":1}},
+        {"open":"benchmark"},
+        {"press":"rrPage","unless":"rrNavChapters"},
+        {"visible":"rrNavChapters"},
+        {"press":"rrNavChapters"},
+        {"visible":"rrChapter1"},
+        {"press":"rrChapter1"},
+        {"settle":true},
+        {"key":"PageDown"},
+        {"settle":true}
+      ],
+      "steps": [
+        {"sleep_persistence":{"action":"measure"}}
+      ],
+      "sample": {"event":"sleep-persistence","field":"total_ms","stages":true}
+    },
+    {
+      "id": "sleep.png.page.compression-0",
+      "kind": "micro",
+      "opt_in": true,
+      "paths": ["src/storage/sleep_snapshot.cpp"],
+      "book": "benchmark",
+      "needs": ["sleep-persistence"],
+      "warmup": 1,
+      "repeat": 5,
+      "setup": [
+        {"sleep_persistence":{"action":"configure","mode":"page","compression":0}},
+        {"open":"benchmark"},
+        {"press":"rrPage","unless":"rrNavChapters"},
+        {"visible":"rrNavChapters"},
+        {"press":"rrNavChapters"},
+        {"visible":"rrChapter1"},
+        {"press":"rrChapter1"},
+        {"settle":true},
+        {"key":"PageDown"},
+        {"settle":true}
+      ],
+      "steps": [
+        {"sleep_persistence":{"action":"measure"}}
+      ],
+      "sample": {"event":"sleep-persistence","field":"total_ms","stages":true}
+    },
+    {
+      "id": "sleep.png.cover.default",
+      "kind": "micro",
+      "opt_in": true,
+      "paths": ["src/storage/sleep_snapshot.cpp"],
+      "book": "benchmark",
+      "needs": ["sleep-persistence"],
+      "warmup": 1,
+      "repeat": 5,
+      "setup": [
+        {"sleep_persistence":{"action":"configure","mode":"cover","compression":-1}},
+        {"open":"benchmark"},
+        {"press":"rrPage","unless":"rrNavChapters"},
+        {"visible":"rrNavChapters"},
+        {"press":"rrNavChapters"},
+        {"visible":"rrChapter1"},
+        {"press":"rrChapter1"},
+        {"settle":true},
+        {"key":"PageDown"},
+        {"settle":true}
+      ],
+      "steps": [
+        {"sleep_persistence":{"action":"measure"}}
+      ],
+      "sample": {"event":"sleep-persistence","field":"total_ms","stages":true}
+    },
+    {
+      "id": "sleep.png.cover.compression-1",
+      "kind": "micro",
+      "opt_in": true,
+      "paths": ["src/storage/sleep_snapshot.cpp"],
+      "book": "benchmark",
+      "needs": ["sleep-persistence"],
+      "warmup": 1,
+      "repeat": 5,
+      "setup": [
+        {"sleep_persistence":{"action":"configure","mode":"cover","compression":1}},
+        {"open":"benchmark"},
+        {"press":"rrPage","unless":"rrNavChapters"},
+        {"visible":"rrNavChapters"},
+        {"press":"rrNavChapters"},
+        {"visible":"rrChapter1"},
+        {"press":"rrChapter1"},
+        {"settle":true},
+        {"key":"PageDown"},
+        {"settle":true}
+      ],
+      "steps": [
+        {"sleep_persistence":{"action":"measure"}}
+      ],
+      "sample": {"event":"sleep-persistence","field":"total_ms","stages":true}
+    },
+    {
+      "id": "sleep.png.cover.compression-0",
+      "kind": "micro",
+      "opt_in": true,
+      "paths": ["src/storage/sleep_snapshot.cpp"],
+      "book": "benchmark",
+      "needs": ["sleep-persistence"],
+      "warmup": 1,
+      "repeat": 5,
+      "setup": [
+        {"sleep_persistence":{"action":"configure","mode":"cover","compression":0}},
+        {"open":"benchmark"},
+        {"press":"rrPage","unless":"rrNavChapters"},
+        {"visible":"rrNavChapters"},
+        {"press":"rrNavChapters"},
+        {"visible":"rrChapter1"},
+        {"press":"rrChapter1"},
+        {"settle":true},
+        {"key":"PageDown"},
+        {"settle":true}
+      ],
+      "steps": [
+        {"sleep_persistence":{"action":"measure"}}
+      ],
+      "sample": {"event":"sleep-persistence","field":"total_ms","stages":true}
     }
   ]
 }
