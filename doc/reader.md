@@ -429,13 +429,13 @@ Kobalt tolerates repeated manifest items when every attribute matches. Conflicti
 
 Device testing includes installation and reading on Clara Colour, Clara BW with firmware 4.45 and Libra 2 with firmware 4.38. Manual rotation and touch targets were confirmed on Clara BW with firmware 4.45. Page animations with NickelDissolve installed were confirmed on Clara BW with firmware 4.45. Dark-mode refresh quality, sleep with a PIN, rotation on other models and firmware versions, page buttons on Libra Colour, the Home button on Touch models and server sync still need hardware validation.
 
-## Standalone reading history
+## Reading history
 
-Android and desktop save reading intervals in the profile database. Opening a usable reading page starts an interval. Backgrounding the app, hiding the reader or closing a book ends it. Returning starts another interval. Foreground menus remain part of reading time. Reading without a page turn still counts. Active intervals save once per minute and at ordinary checkpoints. After an interrupted run, history keeps only the last saved duration and excludes time while the app was closed. See [Storage compatibility](storage.md#standalone-reading-sessions) for the fields and migration rules.
+Android, desktop and Kobo save reading intervals in Kobalt’s profile database. Kobo also keeps reporting sessions to Nickel. Opening a usable reading page starts an interval. Backgrounding the app, hiding the reader or closing a book ends it. Returning starts another interval. Foreground menus remain part of reading time. Reading without a page turn still counts. Active intervals save in the background at start and once per minute. Routine page-turn checkpoints do not write history. Closing waits for the final interval to be saved. After an interrupted run, history keeps only the last saved duration and excludes time while the app was closed. See [Storage compatibility](storage.md#reading-sessions) for the fields and migration rules.
 
 If another Kobalt app already owns the profile, opening a book asks you to close that app first. Separate Mac worktree builds use separate profiles and can run alongside each other.
 
-History stays saved when a book is marked unread or removed from the library. Changed editions stay distinguishable. Recording starts with this feature; previous reading-speed samples cannot supply historical sessions. The Stats interface is unchanged and does not show this history yet. Kobo continues to use Nickel's reading history.
+History stays saved when a book is marked unread or removed from the library. Changed editions stay distinguishable. Recording starts with this feature; previous reading-speed samples cannot supply historical sessions. The Stats interface is unchanged and does not show this history yet. Kobo continues to use Nickel's reading pace for time estimates.
 
 ## Android standalone reader
 

@@ -3,6 +3,7 @@
 #include "native_dialog_overlay.h"
 #include "engine/crengine/reader_model.h"
 #include "reading/reading_progress.h"
+#include "storage/reading_history.h"
 #include <QObject>
 #include <QPointer>
 #include <QTimer>
@@ -101,6 +102,7 @@ private:
     unsigned generation = 0;
     bool busy = false;
     bool profilePrepared = false;
+    std::shared_ptr<kobalt::ReadingHistory::Profile> historyProfile;
     bool homeAfterClose = false;
     void finishHomeNavigation();
 

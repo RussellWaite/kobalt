@@ -36,10 +36,10 @@ ReadingBook::ReadingBook(std::unique_ptr<ReaderSession> session, QString statePa
     progressPoll.invalidate();
     activeReading.invalidate();
     speedSaved.invalidate();
+    if (annotationDatabaseEnabled())
+        history = std::make_unique<ReadingHistory>(paths_.directory, identity_, this->digest, std::move(sourceKey),
+                                                   model->title(), model->author());
     if (!this->bridge) {
-        if (annotationDatabaseEnabled())
-            history = std::make_unique<ReadingHistory>(paths_.directory, identity_, this->digest, std::move(sourceKey),
-                                                       model->title(), model->author());
         speed = std::make_unique<ReadingSpeed>();
         speed->restore(storage::readRecord(paths_.directory, "reading-speed", paths_.readingSpeed()).object);
     }
@@ -162,9 +162,11 @@ void ReadingBook::stopReading(bool background, bool nativeAllowed) {
         completedReadingMilliseconds += elapsed;
         activeReading.invalidate();
     }
-    checkpointReadingHistory(background);
+    // End Nickel's interval before local storage work, so its clock does not
+    // include that I/O and its asynchronous flush can run alongside our save.
     if (bridge && nativeAllowed)
         bridge->stopReading();
+    checkpointReadingHistory(background);
     if (speed) {
         speed->pause();
         if (!background)

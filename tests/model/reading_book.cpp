@@ -22,6 +22,7 @@
 #include <QJsonDocument>
 #include <QTemporaryDir>
 #include <QTimer>
+#include <QThread>
 #include <utility>
 
 using namespace kobalt;
@@ -571,14 +572,103 @@ int main(int argc, char **argv) {
         Calls calls;
         auto session = open();
         const auto hash = session->sourceHash();
+        ReadingBook book(std::move(session), paths.bookState("native-history"), paths, "native-history", hash,
+                         std::make_unique<Bridge>(calls), {}, {});
+        book.observeReading();
+        tick();
+        QJsonObject snapshot;
+        require(book.checkpoint(&snapshot), "Native history initial checkpoint");
+        require(AnnotationDatabase::transaction(paths.directory, [](QSqlDatabase &db) {
+            QSqlQuery query(db);
+            return query.exec("CREATE TABLE native_history_audit(value INTEGER)") &&
+                   query.exec("CREATE TRIGGER audit_native_history AFTER UPDATE ON reading_sessions "
+                              "BEGIN INSERT INTO native_history_audit VALUES(1); END");
+        }), "Native history write audit");
+        for (int turn = 0; turn < 3; ++turn) {
+            require(book.session()->turn(1), "Native history page turn");
+            waitUntil([&] { return !book.session()->busy(); });
+            book.observeReading();
+            require(book.checkpoint(&snapshot, true), "Native history routine checkpoint");
+            storage::drainWriterThread();
+        }
+        require(calls.observed == 4, "History displaced native activity reporting");
+        require(historyValue("SELECT COUNT(*) FROM native_history_audit").toInt() == 0,
+                "Page turns added history transactions");
+        require(book.checkpointReadingHistory(), "Native history periodic checkpoint");
+        require(historyValue("SELECT COUNT(*) FROM native_history_audit").toInt() == 1,
+                "Periodic history save did not use one transaction");
+        std::atomic_bool entered{false}, released{false};
+        storage::RecordWriter blocker;
+        struct Release {
+            std::atomic_bool &released;
+            ~Release() { released = true; }
+        } release{released};
+        blocker.post([&] {
+            entered = true;
+            while (!released) QThread::msleep(1);
+            return true;
+        }, {});
+        waitUntil([&] { return entered.load(); });
+        book.stopReading(true);
+        const auto duration = book.readingMilliseconds();
+        require(book.savesPending(), "Final native history snapshot was not queued");
+        require(calls.stopped == 1, "History delayed native session stop behind the local writer");
+        bool closed = false, saved = false;
+        book.checkpointForClose([&](bool ok) { closed = true; saved = ok; });
+        tick();
+        require(!closed, "Close did not wait for queued history");
+        released = true;
+        waitUntil([&] { return closed; });
+        require(saved, "Native history close checkpoint failed");
+        require(historyValue("SELECT COUNT(*) FROM native_history_audit").toInt() == 2,
+                "Close rewrote the final history interval");
+        require(historyValue("SELECT SUM(active_ms) FROM reading_sessions WHERE identity='native-history'").toLongLong() == duration,
+                "Native history lost or duplicated reading duration");
+        require(historyValue("SELECT COUNT(*) FROM reading_sessions WHERE identity='native-history' AND status='completed'").toInt() == 1,
+                "Native history did not finish exactly one interval");
+        require(AnnotationDatabase::transaction(paths.directory, [](QSqlDatabase &db) {
+            QSqlQuery query(db);
+            return query.exec("DROP TRIGGER audit_native_history") && query.exec("DROP TABLE native_history_audit");
+        }), "Remove native history audit");
+        book.observeReading();
+        tick();
+        storage::drainWriterThread();
+        require(AnnotationDatabase::transaction(paths.directory, [](QSqlDatabase &db) {
+            QSqlQuery query(db);
+            return query.exec("CREATE TRIGGER refuse_native_history BEFORE UPDATE ON reading_sessions "
+                              "BEGIN SELECT RAISE(ABORT,'test'); END");
+        }), "Refuse final native history save");
+        book.stopReading(true);
+        closed = saved = false;
+        book.checkpointForClose([&](bool ok) { closed = true; saved = ok; });
+        waitUntil([&] { return closed; });
+        require(!saved, "Close ignored a failed native history save");
+        const auto stopped = book.readingMilliseconds();
+        tick();
+        require(book.readingMilliseconds() == stopped, "Failed close kept counting reading time");
+        require(AnnotationDatabase::transaction(paths.directory, [](QSqlDatabase &db) {
+            QSqlQuery query(db); return query.exec("DROP TRIGGER refuse_native_history");
+        }), "Release final native history save");
+        closed = saved = false;
+        book.checkpointForClose([&](bool ok) { closed = true; saved = ok; });
+        waitUntil([&] { return closed; });
+        require(saved && historyValue("SELECT SUM(active_ms) FROM reading_sessions WHERE identity='native-history'").toLongLong() == stopped,
+                "History retry lost or duplicated native reading time");
+        book.releaseNative(false);
+    }
+    {
+        Calls calls;
+        auto session = open();
+        const auto hash = session->sourceHash();
         ReadingBook book(std::move(session), paths.bookState("store-id"), paths, "store-id", hash,
                          std::make_unique<Bridge>(calls), calls.current, calls.current);
         require(book.usesNativeCloudSync(), "Downloaded native-library titles exclude KOsync");
         book.observeReading();
         require(calls.observed == 1, "Platform activity was not recorded");
-        require(!book.tracksReadingHistory() &&
-                historyValue("SELECT COUNT(*) FROM reading_sessions WHERE identity='store-id'").toInt() == 0,
-                "Native bridge also recorded standalone history");
+        require(book.tracksReadingHistory(), "Native bridge excluded Kobalt session history");
+        storage::drainWriterThread();
+        require(historyValue("SELECT COUNT(*) FROM reading_sessions WHERE identity='store-id'").toInt() == 1,
+                "Native bridge did not record Kobalt session history");
 
         calls.providesEstimates = true;
         calls.estimate = ReadingEstimates{12000, 45000, false};

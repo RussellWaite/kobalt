@@ -682,9 +682,13 @@ private slots:
         qApp->applicationStateChanged(Qt::ApplicationActive);
         QCOMPARE(value("SELECT COUNT(*) FROM reading_sessions").toInt(), 2);
     }
+    void standaloneReadingHistory_data() {
+        QTest::addColumn<bool>("native");
+        QTest::newRow("standalone") << false;
+        QTest::newRow("native") << true;
+    }
     void standaloneReadingHistory() {
-
-
+        QFETCH(bool, native);
         qputenv("KOBALT_ANNOTATIONS_SQLITE", "1");
         bool suspended = false;
         ReaderFixture host(testPaths(), testFonts, testPlaceholder);
@@ -703,6 +707,12 @@ private slots:
             if (!ok) QTest::qFail("Cannot inspect history", __FILE__, __LINE__);
             return result;
         };
+        if (native) {
+            host.progress = std::make_shared<test::HostProgress>();
+            const auto identity = QUrl::fromLocalFile(QFileInfo(fixture()).absoluteFilePath()).toString();
+            host.progress->current = {identity, "OEBPS/c1.xhtml", 100, 1, true};
+            host.positions = nickel::positionCodec();
+        }
         QSignalSpy opened(&host, &ReaderFixture::opened);
         host.open(fixture(), nativeSize);
         QTRY_COMPARE_WITH_TIMEOUT(opened.count(), 1, 30000);

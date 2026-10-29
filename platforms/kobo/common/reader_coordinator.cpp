@@ -10,6 +10,7 @@
 #include "interfaces/reader_window.h"
 #include "reading/reading_book.h"
 #include "storage/profile_database.h"
+#include "storage/annotation_database.h"
 #include "storage/reader_storage.h"
 #include "reading/reader_session.h"
 #include "engine/crengine/engine_activity.h"
@@ -424,6 +425,16 @@ void ReaderCoordinator::prepareOpening(kobalt::ReaderBookRoute candidate) {
     // before opening our database or importing the profile's saved files.
     if (!profilePrepared)
         profilePrepared = kobalt::storage::prepareProfile(environment_.paths);
+    if (!historyProfile && kobalt::annotationDatabaseEnabled()) {
+        QString error;
+        if (profilePrepared)
+            historyProfile = kobalt::ReadingHistory::openProfile(environment_.paths.directory, &error);
+        if (!historyProfile) {
+            fail(error == "profile-in-use" ? strings::get("error.profile_already_in_use")
+                                          : strings::get("error.saved_data_unavailable"));
+            return;
+        }
+    }
     status("loading");
     const bool assetsReady = environment_.assets.available();
     bool fontsChanged = false;
@@ -567,6 +578,9 @@ void ReaderCoordinator::finishDisposal(const QString &finalStatus, bool nativeAl
                 kobalt::engineActivity().pause(true);
             // The reader and its savers are gone; leave one closed file.
             kobalt::storage::closeProfile();
+            // USB must not export storage with the history ownership file open.
+            // Reacquire and recover on the next opening after this drain.
+            historyProfile.reset();
             const auto callbacks = std::exchange(cleanupCallbacks, {});
             for (const auto &callback : callbacks)
                 callback();
