@@ -512,6 +512,47 @@ static void checkCssDensity() {
     require(sizesAt212[4] == sizesAt300[4] && qAbs(sizesAt300[4].width() - 200) <= 1,
             "Percentage image width changed with CSS density");
 }
+static void checkBionicWidth() {
+    QString family;
+    int defaultWeight = 400;
+    for (const auto &font : kobalt::discoverReadingFonts(kobalt::test::readerFonts().sources))
+        for (const auto &file : font.files)
+            if (QFileInfo(file).fileName() == "AmstelvarAlpha-VF.ttf") {
+                family = font.family;
+                defaultWeight = font.weightAxis.defaultValue;
+            }
+    require(!family.isEmpty(), "Missing variable-width font fixture");
+    const auto publication = [&](int width, bool explicitPrefix) {
+        const QByteArray chapter =
+            "<html xmlns='http://www.w3.org/1999/xhtml'><head><style>p{margin:0;text-indent:0;"
+            "font-family:'" + family.toHtmlEscaped().toUtf8() + "';font-weight:400;font-width:" +
+            QByteArray::number(width) + "%}</style></head><body><p>" +
+            (explicitPrefix ? QByteArray("<span style='font-weight:700'>MMMM</span>MMMM") : QByteArray("MMMMMMMM")) +
+            "</p></body></html>";
+        return storedEpub({
+            {"mimetype", "application/epub+zip"},
+            {"META-INF/container.xml", "<container xmlns='urn:oasis:names:tc:opendocument:xmlns:container' version='1.0'><rootfiles><rootfile full-path='book.opf' media-type='application/oebps-package+xml'/></rootfiles></container>"},
+            {"book.opf", "<package xmlns='http://www.idpf.org/2007/opf' version='2.0'><metadata/><manifest><item id='c' href='c.xhtml' media-type='application/xhtml+xml'/></manifest><spine><itemref idref='c'/></spine></package>"},
+            {"c.xhtml", chapter}});
+    };
+    QImage normalWidth;
+    for (const int width : {100, 75}) {
+        kobalt::ReaderModel actual(kobalt::test::readerFonts()), expected(kobalt::test::readerFonts());
+        QString error;
+        auto settings = kobalt::qt::object({{"font_face", family}, {"font_weight", defaultWeight},
+                                          {"font_pixels", 40}, {"margin_pixels", 0}, {"bold_reading", "bold"}});
+        require(actual.open(publication(width, false), QSize(800, 1000), settings, &error), qPrintable(error));
+        settings["bold_reading"] = "off";
+        require(expected.open(publication(width, true), QSize(800, 1000), settings, &error), qPrintable(error));
+        require(actual.setOpticalSize(14) && expected.setOpticalSize(14), "Cannot set fixture optical size");
+        require(actual.image(0) == expected.image(0),
+                "Bold Reading lost authored font width or optical size on emphasized runs");
+        if (width == 100)
+            normalWidth = actual.image(0);
+        else
+            require(actual.image(0) != normalWidth, "The variable-width fixture did not change its glyph widths");
+    }
+}
 static void checkObfuscatedFonts() {
     QFile font(kobalt::test::readerAssets().file("fonts/InstrumentSerif-Regular.ttf"));
     require(font.open(QIODevice::ReadOnly), "open synthetic embedded font fixture");
@@ -740,6 +781,7 @@ int main(int argc, char **argv) {
             "Optical size normalization lost defaults or whole-point bounds");
     checkVerticalJustification();
     checkCssDensity();
+    checkBionicWidth();
     {
         kobalt::ReaderModel unopened(kobalt::test::readerFonts());
         const kobalt::PositionCodec synthetic{[](const kobalt::ReaderModel &, const QString &, QString *) {

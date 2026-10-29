@@ -1,19 +1,19 @@
 --- a/crengine/include/lvrend.h
 +++ b/crengine/include/lvrend.h
-@@ -216,6 +216,10 @@
+@@ -215,6 +215,10 @@
+ // Set/get global document base font weight.
  void LVRendSetBaseFontWeight(int weight);
  int LVRendGetBaseFontWeight();
-
++
 +// A positive value overrides optical size in points; zero follows CSS.
 +void LVRendSetFontOpticalSize(float points);
 +float LVRendGetFontOpticalSize();
-+
+
  int measureBorder(ldomNode *enode,int border);
  int lengthToPx( ldomNode *node, css_length_t val, int base_px, int base_em = -1, bool unspecified_as_em=false );
- int scaleForRenderDPI( int value );
 --- a/crengine/src/lvrend.cpp
 +++ b/crengine/src/lvrend.cpp
-@@ -2667,6 +2667,17 @@
+@@ -2668,6 +2668,17 @@
      return rend_font_base_weight;
  }
 
@@ -31,7 +31,7 @@
  /// docFragmentIdx: pass the node's DocFragment sibling index if the caller already
  /// knows it (eg. from a traversal that tracks it), or leave at the default to
  /// have it looked up by walking up from node (see ldomNode::getDocFragmentIdx()).
-@@ -2711,7 +2722,9 @@
+@@ -2712,7 +2723,9 @@
      // GetFont's computeVariations() derives those from weight/italic and
      // ignores requested.wght/requested.ital.
      LVFontVariations variations;
@@ -40,9 +40,9 @@
 +        variations.set(LVFONT_TAG_OPSZ, rend_font_optical_size);
 +    else if (style->font_optical_sizing != css_fos_none && gRenderDPI >= 100)
          variations.set(LVFONT_TAG_OPSZ, sz * 72.0f / (float)gRenderDPI);
-     if (docFragmentIdx == DOC_FRAGMENT_IDX_UNKNOWN)
-         docFragmentIdx = (documentId != -1) ? node->getDocFragmentIdx() : -1;
-@@ -3694,7 +3707,9 @@
+     // font-width: selects among static width faces, and sets the wdth axis of variable ones.
+     if (style->font_width != css_fwd_normal)
+@@ -3698,7 +3711,9 @@
              return LVFontRef();
      }
      LVFontVariations variations;
@@ -51,8 +51,8 @@
 +        variations.set(LVFONT_TAG_OPSZ, rend_font_optical_size);
 +    else if (style->font_optical_sizing != css_fos_none && gRenderDPI >= 100)
          variations.set(LVFONT_TAG_OPSZ, font->getSize() * 72.0f / (float)gRenderDPI);
-     return fontMan->GetFont(font->getSize(), 700,
-         style->font_style >= css_fs_italic, font->getFontFamily(), font->getTypeFace(), font->getFeatures(),
+     if (style->font_width != css_fwd_normal)
+         variations.set(LVFONT_TAG_WDTH, style->font_width / 10.0f);
 --- a/crengine/src/lvtinydom.cpp
 +++ b/crengine/src/lvtinydom.cpp
 @@ -468,6 +468,7 @@

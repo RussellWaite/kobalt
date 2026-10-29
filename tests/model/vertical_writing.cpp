@@ -114,5 +114,33 @@ int main(int argc, char **argv) {
         require(open(mixed, &error), qPrintable(error));
         require(!ink(mixed.image(0)).isEmpty(), "Inline mixed content rendered an empty page");
     }
+    // Combined decorations must equal the union of each separate stroke,
+    // including an overline that continues through a nested underline span.
+    for (const auto *mode : {"vertical-rl", "vertical-lr"}) {
+        for (const bool nested : {false, true}) {
+            QImage pages[3];
+            for (int variant = 0; variant < 3; ++variant) {
+                const bool underline = variant != 0, overline = variant != 1;
+                const QByteArray rules = underline && overline ? "underline overline"
+                                             : underline ? "underline" : "overline";
+                const QByteArray text = nested
+                    ? "<span style='text-decoration:" + QByteArray(overline ? "overline" : "none") +
+                          "'>日本<span style='font-size:150%;text-decoration:" +
+                          QByteArray(underline ? "underline" : "none") + "'>語縦</span>書文章</span>"
+                    : "<span style='text-decoration:" + rules + "'>日本語縦書文章</span>";
+                auto content = chapter(mode);
+                content.replace("日本語縦書文章", text);
+                data["v.xhtml"] = content;
+                ReaderModel decorated(test::readerFonts());
+                require(open(decorated, &error), qPrintable(error));
+                pages[variant] = decorated.image(0);
+            }
+            for (int y = 0; y < pages[2].height(); ++y)
+                for (int x = 0; x < pages[2].width(); ++x)
+                    require(qGray(pages[2].pixel(x, y)) ==
+                                qMin(qGray(pages[0].pixel(x, y)), qGray(pages[1].pixel(x, y))),
+                            "Combined vertical decorations lost a stroke or changed its edge");
+        }
+    }
     std::puts("PASS: mixed chapters and blocks, inline acceptance, page progression, selection and reflow");
 }

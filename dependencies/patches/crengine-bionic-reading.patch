@@ -52,7 +52,7 @@
 +#endif
 --- a/crengine/include/lvtextfm.h
 +++ b/crengine/include/lvtextfm.h
-@@ -425,8 +425,17 @@
+@@ -426,8 +426,17 @@
      friend class LGrayDrawBuf;
  private:
      formatted_text_fragment_t * m_pbuffer;
@@ -67,20 +67,20 @@
 +            if (text == m_readingTexts[i].c_str()) return true;
 +        return false;
 +    }
- 
+
      /// set strut height and baseline (line boxes starting minimal values)
      void setStrut(lUInt16 height, lUInt16 baseline) {
-@@ -470,6 +479,7 @@
+@@ -476,6 +485,7 @@
          lUInt16 width = m_pbuffer->width;
          lvtextFreeFormatter( m_pbuffer );
          m_pbuffer = lvtextAllocFormatter( width );
 +        m_readingTexts.clear();
      }
- 
+
      void AddSourceObject(
 --- a/crengine/src/lvtinydom.cpp
 +++ b/crengine/src/lvtinydom.cpp
-@@ -10926,6 +10926,10 @@
+@@ -10964,6 +10964,10 @@
                  printf(" if (%x==%x || %x==%x)\n", src->object, node , ((ldomNode*)(src->object))->getEffectiveNode(), node);
                  printf(" %d %s %s vs. %d\n", i, LCSTR(ldomXPointer((ldomNode*)(src->object),src->t.offset).toStringV1()),
                                      LCSTR(ldomXPointer(((ldomNode*)(src->object))->getEffectiveNode() ,src->t.offset).toStringV1()), offset); */
@@ -91,7 +91,7 @@
                  // Check and handle the case of ::first-letter
                  if ( src->t.offset > 0 && offset < src->t.offset) {
                      // Currently, we can only get a non-0 src->t.offset if that text
-@@ -19365,6 +19369,8 @@
+@@ -19707,6 +19711,8 @@
      _nodeStyleHash = 0; // force recalculation by calcStyleHash()
      lUInt32 styleHash = calcStyleHash(_rendered, _partial_rerendering_fake_node_style_hash);
      lUInt32 stylesheetHash = (((_ua_stylesheet.getHash() * 31) + calcHash(_def_style))*31 + calcHash(_def_font))*31 + getFontFamilyFontsHash();
@@ -100,7 +100,7 @@
      //calcStyleHash( getRootNode(), styleHash );
      _hdr.render_style_hash = styleHash;
      _hdr.stylesheet_hash = stylesheetHash;
-@@ -19395,6 +19401,8 @@
+@@ -19737,6 +19743,8 @@
      // printf("checkRenderContext: _nodeStyleHash before %x\n", _nodeStyleHash);
      lUInt32 styleHash = calcStyleHash(_rendered, _partial_rerendering_fake_node_style_hash);
      lUInt32 stylesheetHash = (((_ua_stylesheet.getHash() * 31) + calcHash(_def_style))*31 + calcHash(_def_font))*31 + getFontFamilyFontsHash();
@@ -119,10 +119,10 @@
  #include "../include/lvtinydom.h"
  #include "../include/fb2def.h"
  #include "../include/lvrend.h"
-@@ -3676,6 +3677,47 @@
- // as is to the inline children elements: it is only used to get the width of
- // the container, which is only needed to compute indent (text-indent) values in %,
- // and to get paragraph direction (LTR/RTL/UNSET).
+@@ -3680,6 +3681,49 @@
+ // as is to the inline children elements: it is used to get the container width
+ // for text-indent:NN%, paragraph direction (LTR/RTL/UNSET), and the height:NN%
+ // base to keep in the formatter for measuring inline images.
 +// Rendering and intrinsic box sizing must use the same prefix fonts and runs.
 +static LVFontRef bionicFont(ldomNode *node, LVFontRef font, int length, int offset, bool legacy) {
 +    if (!node->isEffectiveText()) return LVFontRef();
@@ -142,6 +142,8 @@
 +    LVFontVariations variations;
 +    if (style->font_optical_sizing != css_fos_none && gRenderDPI >= 100)
 +        variations.set(LVFONT_TAG_OPSZ, font->getSize() * 72.0f / (float)gRenderDPI);
++    if (style->font_width != css_fwd_normal)
++        variations.set(LVFONT_TAG_WDTH, style->font_width / 10.0f);
 +    return fontMan->GetFont(font->getSize(), 700,
 +        style->font_style >= css_fs_italic, font->getFontFamily(), font->getTypeFace(), font->getFeatures(),
 +        node->getDocument()->getFontContextDocIndex(), false,
@@ -167,9 +169,9 @@
  void renderFinalBlock( ldomNode * enode, LFormattedText * txform, RenderRectAccessor * fmt, lUInt32 & baseflags,
                         int indent, int line_h, TextLangCfg * lang_cfg, lUInt32 bgcolor, int valign_dy,
                         bool * is_link_start, lString32 running_bidi_ctrlchars )
-@@ -5078,8 +5120,21 @@
+@@ -5082,8 +5126,21 @@
              // ignoring this single letter.
- 
+
              if ( txt.length() > 0 ) {
 -                txform->AddSourceLine( txt.c_str(), txt.length(), cl, bgcl, font.get(), lang_cfg, baseflags | tflags,
 -                    line_h, valign_dy, indent, enode, textOffset, letter_spacing );
@@ -191,7 +193,7 @@
                  baseflags &= ~LTEXT_FLAG_NEWLINE & ~LTEXT_SRC_IS_CLEAR_BOTH; // clear newline flag
                  // To show the lang tag for the lang used for this text node AFTER it:
                  // lString32 lang_tag_txt = U"[" + (lang_cfg ? lang_cfg->getLangTag() : lString32("??")) + U"]";
-@@ -13415,16 +13470,35 @@
+@@ -13504,17 +13561,36 @@
          lbCtx.lbpLang = lang_cfg->getLBProps();
          lb_process_next_char(&lbCtx, (utf32_t)(*txt));
          #endif
@@ -200,9 +202,10 @@
 +        auto runs = emphasis.isNull() ? std::vector<LVBionicRun>()
 +            : lvBionicRuns(txt, text.length(), bionicContinuation(node));
          while (true) {
+             int chunk_len = len > MAX_TEXT_CHUNK_SIZE ? MAX_TEXT_CHUNK_SIZE : len;
 -            int chars_measured = font->measureText(
 -                    txt + start,
--                    len,
+-                    chunk_len,
 -                    widths, flags,
 -                    0x7FFF, // very wide width
 -                    '?',    // replacement char
@@ -230,7 +233,7 @@
 +                    if (measured < to - from) break;
 +                }
 +            } else {
-+                chars_measured = font->measureText(txt + start, len, widths, flags,
++                chars_measured = font->measureText(txt + start, chunk_len, widths, flags,
 +                    0x7FFF, '?', lang_cfg, letter_spacing, false);
 +            }
                      // todo: provide direction and hints
