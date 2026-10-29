@@ -4,6 +4,8 @@
 #include "../toolchains/nickelhook-qt6/NickelHook.h"
 #include <cstring>
 #include <dlfcn.h>
+#include <string>
+#include <vector>
 #ifdef __APPLE__
 #include <mach-o/dyld.h>
 #else
@@ -73,10 +75,21 @@ bool connectScreensaverPowerOff() {
     for (uint32_t i = 0; i < _dyld_image_count(); ++i)
         inspect(_dyld_get_image_name(i), _dyld_get_image_header(i), result);
 #else
+    struct Library {
+        std::string path;
+        const void *base;
+    };
+    std::vector<Library> libraries;
+    // The callback holds a loader lock. Calling dlopen here can deadlock
+    // against another thread loading a library under the other loader lock.
+    // Own the names before returning; the loader's pointers can then expire.
     dl_iterate_phdr([](dl_phdr_info *info, size_t, void *data) {
-        inspect(info->dlpi_name, reinterpret_cast<void *>(info->dlpi_addr), *static_cast<Inspection *>(data));
+        if (info->dlpi_name && *info->dlpi_name)
+            static_cast<std::vector<Library> *>(data)->push_back({info->dlpi_name, reinterpret_cast<void *>(info->dlpi_addr)});
         return 0;
-    }, &result);
+    }, &libraries);
+    for (const auto &library : libraries)
+        inspect(library.path.c_str(), library.base, result);
 #endif
     const bool ready = result.ready && result.found <= 1;
     if (ready && result.reconnect)

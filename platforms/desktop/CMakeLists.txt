@@ -364,6 +364,17 @@ if(BUILD_TESTING)
     add_executable(kobalt-shutdown-tests "${KOBALT_ROOT}/tests/kobo_shutdown.cpp"
         "${KOBALT_ROOT}/platforms/kobo/common/native_lifecycle.cpp"
         "${KOBALT_ROOT}/platforms/kobo/common/screensaver_compatibility.cpp")
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        add_executable(kobalt-screensaver-loader-tests "${KOBALT_ROOT}/tests/screensaver_loader.cpp"
+            "${KOBALT_ROOT}/platforms/kobo/common/screensaver_compatibility.cpp")
+        target_include_directories(kobalt-screensaver-loader-tests PRIVATE "${KOBALT_ROOT}" "${KOBALT_ROOT}/src")
+        target_link_libraries(kobalt-screensaver-loader-tests PRIVATE Qt6::Core ${CMAKE_DL_LIBS})
+        target_link_options(kobalt-screensaver-loader-tests PRIVATE "-Wl,--wrap=dl_iterate_phdr,--wrap=dlopen")
+        target_compile_options(kobalt-screensaver-loader-tests PRIVATE -Wall -Wextra -Werror)
+        add_dependencies(kobalt-tests kobalt-screensaver-loader-tests)
+        add_test(NAME platform.screensaver-loader COMMAND kobalt-screensaver-loader-tests)
+        set_tests_properties(platform.screensaver-loader PROPERTIES LABELS "platform" TIMEOUT 30)
+    endif()
     add_library(kobalt-screensaver-fixture SHARED "${KOBALT_ROOT}/tests/support/screensaver_fixture.cpp")
     target_include_directories(kobalt-screensaver-fixture PRIVATE "${KOBALT_ROOT}")
     target_compile_definitions(kobalt-shutdown-tests PRIVATE
