@@ -29,7 +29,7 @@ bool initial(ldomNode *node) {
     if (text(node->getNodeName()) != "span") return false;
     static const QRegularExpression name("drop.?cap|initial", QRegularExpression::CaseInsensitiveOption);
     const auto style = node->getStyle();
-    // Some publishers use generic names such as "big". A leading floated
+    // Some publishers use generic names such as "big". A floated
     // single letter is also evidence of a text initial, regardless of its name.
     const bool floated = !style.isNull() && style->float_ == css_f_left;
     if (!floated && !name.match(text(node->getAttributeValue("class"))).hasMatch()) return false;
@@ -52,7 +52,8 @@ void markBeautifierContent(ldomDocument *document) {
     if (!document || !document->getRootNode()) return;
     const auto role = document->getAttrNameIndex("data-kobalt-beautify");
     const auto initialAttribute = document->getAttrNameIndex("data-kobalt-initial");
-    std::vector<ldomNode *> markedInitials;
+    const auto firstLetterAttribute = document->getAttrNameIndex("data-kobalt-first-letter");
+    const auto engineFirstLetter = document->getAttrNameIndex("HasFirstLetter");
     struct Frame { ldomNode *node; bool blocked; };
     std::vector<Frame> stack{{document->getRootNode(), false}};
     while (!stack.empty()) {
@@ -63,6 +64,14 @@ void markBeautifierContent(ldomDocument *document) {
         // Never trust source-supplied markers.
         if (node->hasAttribute(role)) node->setAttributeValue(0, role, U"");
         if (node->hasAttribute(initialAttribute)) node->setAttributeValue(0, initialAttribute, U"");
+        if (node->hasAttribute(firstLetterAttribute)) node->setAttributeValue(0, firstLetterAttribute, U"");
+        // Text initials are independent of prose spacing and indentation. A
+        // subtitle, leading gap or quotation must not keep a drop cap enlarged.
+        if (initial(node)) node->setAttributeValue(0, initialAttribute, U"1");
+        static const QRegularExpression opener("drop.?cap|stickupcap", QRegularExpression::CaseInsensitiveOption);
+        const bool firstLetter = node->hasAttribute(engineFirstLetter) ||
+            (text(node->getNodeName()) == "p" && opener.match(text(node->getAttributeValue("class"))).hasMatch());
+        if (firstLetter) node->setAttributeValue(0, firstLetterAttribute, U"1");
         const bool blocked = frame.blocked || special(node);
         for (int i = node->getChildCount() - 1; i >= 0; --i) stack.push_back({node->getChildNode(i), blocked});
         if (blocked || text(node->getNodeName()) != "p" ||
@@ -70,12 +79,10 @@ void markBeautifierContent(ldomDocument *document) {
         const auto style = node->getStyle();
         if (style.isNull() || style->text_indent.value < 0 || style->margin[0].value || style->margin[1].value ||
             style->padding[0].value || style->padding[1].value) continue;
-        // A leading gap may be the only scene separator. Leave such paragraphs
-        // unchanged. Zero leading margins are common in ordinary EPUB prose.
+        // A leading gap may be the only scene separator. Keep its paragraph
+        // spacing and indentation. Zero margins are common in ordinary prose.
         if (style->margin[2].value > 0 || style->padding[2].value > 0) continue;
         if (text(node->getText()).trimmed().size() < 80) continue;
-        static const QRegularExpression opener("drop.?cap|stickupcap", QRegularExpression::CaseInsensitiveOption);
-        const bool firstLetter = opener.match(text(node->getAttributeValue("class"))).hasMatch();
         bool safe = true;
         std::vector<ldomNode *> children, initials;
         for (int i = 0; i < node->getChildCount(); ++i) children.push_back(node->getChildNode(i));
@@ -109,10 +116,6 @@ void markBeautifierContent(ldomDocument *document) {
         }
         if (!safe) continue;
         node->setAttributeValue(0, role, firstLetter ? U"first-letter" : !initials.empty() ? U"opening" : U"body");
-        // Descendants have not been visited by the outer walk yet. Mark initials
-        // after that walk so it cannot clear these attributes again.
-        markedInitials.insert(markedInitials.end(), initials.begin(), initials.end());
     }
-    for (auto *child : markedInitials) child->setAttributeValue(0, initialAttribute, U"1");
 }
 }

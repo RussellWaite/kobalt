@@ -134,6 +134,24 @@ int main(int argc, char **argv) {
                     "Beautifier changed a protected passage");
         }
     }
+    // Initials do not depend on prose classification, paragraph length or position.
+    for (const auto &body : {
+            QByteArray("<p class='subtitle'>A date before the opening</p><p style='margin-top:1.2em'><span class='big'>Z</span>etamarker") + prose + "</p>",
+            QByteArray("<blockquote><p style='margin-top:1.2em'><span class='big'>Z</span>etamarker</p></blockquote>"),
+            QByteArray("<p>Earlier words. <span class='big'>Z</span>etamarker") + prose + "</p>"}) {
+        QMap<QString, qint64> sizes;
+        ReaderModel decorated(test::readerFonts()), reference(test::readerFonts());
+        require(decorated.openResources(fixture(body, sizes,
+            ".big{float:left;font-size:200%;margin-top:-.5em;margin-bottom:-.2em}"), sizes,
+            {1072, 1448}, {}, &error), qPrintable(error));
+        const auto before = decorated.image(0);
+        require(reference.openResources(fixture(body, sizes), sizes, {1072, 1448}, {}, &error), qPrintable(error));
+        require(before != reference.image(0), "Initial fixture has no visible decoration");
+        require(decorated.applyAppearance({{"beautifier_initials", true}}) && decorated.image(0) == reference.image(0),
+            "Initial normalization depends on paragraph position or classification");
+        require(decorated.applyAppearance({{"beautifier_initials", false}}) && decorated.image(0) == before,
+            "Initial normalization did not restore publisher styling");
+    }
     // Explicit paragraph controls take precedence over beautifier defaults.
     QMap<QString, qint64> sizes;
     const auto ordinary = fixture("<p>Firstmarker" + prose + "</p><p>Secondmarker" + prose + "</p>", sizes);
@@ -170,6 +188,34 @@ int main(int argc, char **argv) {
         {{"beautifier_initials", true}, {"beautifier_spacing", true}, {"beautifier_indent", true}}, &error), qPrintable(error));
     require(largeLetter.applyAppearance({{"beautifier_initials", true}, {"beautifier_spacing", true}, {"beautifier_indent", true}}) && largeLetter.image(0) != largeImage &&
         largeLetter.image(0) == normalLetter.image(0), "CSS first letter was not normalized");
+    const QByteArray spacedLetterBody = "<p class='subtitle'>A date before the opening</p><blockquote><p style='margin-top:1.2em'>Firstmarker</p></blockquote>";
+    QTemporaryDir initialCache(QDir::currentPath() + "/initial-cache-XXXXXX");
+    require(initialCache.isValid(), "Cannot create initial cache");
+    ReaderModel spacedLetter(test::readerFonts()), plainLetter(test::readerFonts());
+    spacedLetter.setDocumentCache(initialCache.path(), QByteArray(64, 'c'), "initial", 1024 * 1024);
+    require(spacedLetter.openResources(fixture(spacedLetterBody, sizes,
+        "blockquote p::first-letter{font-size:3em;float:left}"), sizes, {1072, 1448}, {}, &error), qPrintable(error));
+    require(plainLetter.openResources(fixture(spacedLetterBody, sizes, "blockquote p::first-letter{font-size:1em}"), sizes, {1072, 1448}, {}, &error), qPrintable(error));
+    const auto spacedBefore = spacedLetter.image(0);
+    require(spacedBefore != plainLetter.image(0), "CSS initial fixture has no visible decoration");
+    require(spacedLetter.applyAppearance({{"beautifier_initials", true}}) && spacedLetter.image(0) == plainLetter.image(0),
+        "CSS initial normalization depends on paragraph classification or class name");
+    require(spacedLetter.saveDocumentCache(), "Cannot save initial cache");
+    ReaderModel cachedLetter(test::readerFonts());
+    cachedLetter.setDocumentCache(initialCache.path(), QByteArray(64, 'c'), "initial", 1024 * 1024);
+    require(cachedLetter.openResources(fixture(spacedLetterBody, sizes,
+        "blockquote p::first-letter{font-size:3em;float:left}"), sizes, {1072, 1448}, spacedLetter.state(), &error), qPrintable(error));
+    require(cachedLetter.openedFromCache() && cachedLetter.image(0) == spacedLetter.image(0),
+        "Warm cache lost independent CSS initial normalization");
+    require(spacedLetter.applyAppearance({{"beautifier_initials", false}}) && spacedLetter.image(0) == spacedBefore,
+        "CSS initial normalization did not restore publisher styling");
+    const auto image = QByteArray("<svg xmlns='http://www.w3.org/2000/svg' width='60' height='90'><rect width='60' height='90'/></svg>").toBase64();
+    ReaderModel imageInitial(test::readerFonts());
+    require(imageInitial.openResources(fixture("<p><span class='dropcap'><img src='data:image/svg+xml;base64," + image +
+        "'/></span>Image marker" + prose + "</p>", sizes), sizes, {1072, 1448}, {}, &error), qPrintable(error));
+    const auto imageBefore = imageInitial.image(0);
+    require(imageInitial.applyAppearance({{"beautifier_initials", true}}) && imageInitial.image(0) == imageBefore,
+        "Text-initial normalization changed an image initial");
     QJsonObject prefs;
     appearance::rememberTextLayout(prefs, {{"font_pixels", 44}, {"beautifier_initials", true}, {"beautifier_spacing", true}, {"beautifier_indent", true}});
     require(!appearance::bookDefaults(prefs).value("beautifier_initials").toBool(), "Beautifier leaked through inheritance");

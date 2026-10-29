@@ -938,7 +938,7 @@ void ReaderModel::applyStyleSheet() {
             overrides += prose + " { text-indent:1.2em !important; }\n"
                 "p[data-kobalt-beautify=\"opening\"], p[data-kobalt-beautify=\"first-letter\"] { text-indent:0 !important; }\n";
         if (beautifierInitials_)
-            overrides += "p[data-kobalt-beautify=\"first-letter\"]::first-letter, span[data-kobalt-initial=\"1\"] { font-size:1em !important; font-family:inherit !important; font-weight:inherit !important; font-style:inherit !important; float:none !important; line-height:inherit !important; margin:0 !important; padding:0 !important; initial-letter:normal !important; }\n";
+            overrides += "p[data-kobalt-beautify=\"first-letter\"]::first-letter, [data-kobalt-first-letter=\"1\"]::first-letter, span[data-kobalt-initial=\"1\"] { font-size:1em !important; font-family:inherit !important; font-weight:inherit !important; font-style:inherit !important; float:none !important; line-height:inherit !important; margin:0 !important; padding:0 !important; initial-letter:normal !important; }\n";
     }
     if (paragraphSpacing_ >= 0)
         overrides += QString("p[data-kobalt-paragraph=\"1\"] { margin-top:0 !important; margin-bottom:%1em !important; padding-top:0 !important; padding-bottom:0 !important; }\n")
