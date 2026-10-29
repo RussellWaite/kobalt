@@ -226,7 +226,7 @@ Window::Window(storage::Paths paths, EngineFontInputs fonts, QString placeholder
     resolutionPicker->setObjectName("desktopResolutionPicker");
     resolutionPicker->setAccessibleName(tr("Rendering resolution"));
     resolutionPicker->setToolTip(
-        tr("Change preview sharpness without changing the book layout. Native uses the Mac display resolution."));
+        tr("Change preview sharpness without changing the book layout. Native uses the display resolution."));
     resolutionPicker->addItem(tr("212 DPI"), 212);
     resolutionPicker->addItem(tr("300 DPI"), 300);
     resolutionPicker->addItem(tr("Native"), 0);

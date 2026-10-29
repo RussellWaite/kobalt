@@ -30,7 +30,11 @@
 #include <algorithm>
 #include <cstdio>
 #include <stdexcept>
+#ifdef __APPLE__
 #include <mach/mach.h>
+#else
+#include <unistd.h>
+#endif
 #include <sys/resource.h>
 
 using namespace kobalt;
@@ -54,11 +58,19 @@ void waitFor(const std::function<bool()> &ready, const QString &message, int tim
     QCoreApplication::processEvents();
 }
 qint64 residentBytes() {
+#ifdef __APPLE__
     mach_task_basic_info info{};
     mach_msg_type_number_t size = MACH_TASK_BASIC_INFO_COUNT;
     require(task_info(mach_task_self(), MACH_TASK_BASIC_INFO, reinterpret_cast<task_info_t>(&info), &size) == KERN_SUCCESS,
             "Cannot measure resident memory");
     return info.resident_size;
+#else
+    QFile status("/proc/self/statm");
+    require(status.open(QIODevice::ReadOnly), "Cannot measure resident memory");
+    const auto fields = status.readAll().simplified().split(' ');
+    require(fields.size() >= 2, "Invalid resident memory measurement");
+    return fields[1].toLongLong() * sysconf(_SC_PAGESIZE);
+#endif
 }
 double cpuMs() {
     rusage usage{};

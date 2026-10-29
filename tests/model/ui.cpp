@@ -137,6 +137,18 @@ protected:
     }
 };
 int main(int argc, char **argv) {
+#ifdef Q_OS_LINUX
+    // Noto Sans Math may be installed system-wide. This fixture must begin
+    // without it in Qt, then prove the private face is registered on demand.
+    QTemporaryDir fontEnvironment;
+    require(fontEnvironment.isValid(), "Cannot isolate the component font environment");
+    const auto fontConfig = fontEnvironment.filePath("fonts.conf");
+    QFile config(fontConfig);
+    require(config.open(QIODevice::WriteOnly), "Cannot create the component font configuration");
+    require(config.write("<fontconfig></fontconfig>\n") > 0, "Cannot write the component font configuration");
+    config.close();
+    qputenv("FONTCONFIG_FILE", fontConfig.toUtf8());
+#endif
     QApplication app(argc, argv);
     {
         // The loading view is built before the whole bundle is verified. A

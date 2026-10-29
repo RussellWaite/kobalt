@@ -142,3 +142,5 @@ Read `report.md` from the top and decide:
 5. State the verdict as ready, not ready or needs review, with the reasons.
 
 Never re-record the baseline to make a report pass.
+
+Linux uses the same evaluation scripts. They select the host’s `linux` or `mac` presets, build directories and galleries automatically. Configure the corresponding desktop preset first, or pass `QT_PREFIX` for a prepared native Qt SDK. Linux records kernel, architecture, hostname, core count and initial load; power state is recorded as unknown. Keep evaluation baselines on the same host and Qt SDK.

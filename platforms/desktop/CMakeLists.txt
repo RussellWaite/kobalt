@@ -1,20 +1,30 @@
 cmake_minimum_required(VERSION 3.22)
 project(Kobalt LANGUAGES C CXX)
 
-if(NOT APPLE)
-    message(FATAL_ERROR "Only the Mac development app is configured so far.")
+if(NOT APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    message(FATAL_ERROR "The desktop app supports macOS and Linux.")
+endif()
+
+if(APPLE)
+    set(KOBALT_DESKTOP_PLATFORM mac)
+else()
+    set(KOBALT_DESKTOP_PLATFORM linux)
 endif()
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 include(CTest)
-set(qt_components Core Gui Widgets Network Sensors Sql)
+option(KOBALT_DESKTOP_SENSORS "Build real sensor adapter and sensor integration checks" OFF)
+set(qt_components Core Gui Widgets Network Sql)
+if(KOBALT_DESKTOP_SENSORS)
+    list(APPEND qt_components Sensors)
+endif()
 if(BUILD_TESTING)
     # The scenario player sends input through the window system, as real input arrives.
     list(APPEND qt_components Test GuiPrivate)
 endif()
-find_package(Qt6 6.11.3 EXACT REQUIRED COMPONENTS ${qt_components})
+find_package(Qt6 6.11 REQUIRED COMPONENTS ${qt_components})
 file(REAL_PATH "${Qt6_DIR}/.." qt_config_root)
 foreach(component IN LISTS qt_components)
     file(REAL_PATH "${Qt6${component}_DIR}/.." component_root)
@@ -84,7 +94,15 @@ target_include_directories(kobalt-core SYSTEM PUBLIC
     "${KOBALT_TEST_PNG_INCLUDE}")
 include("${KOBALT_ROOT}/platforms/cache-policy.cmake")
 target_compile_definitions(kobalt-core PUBLIC KOBALT_READER_HARDWARE KOBALT_VERSION="${KOBALT_VERSION}"
-    KOBALT_LAYOUT_POLICY="${layout_policy}" fdatasync=fsync)
+    KOBALT_LAYOUT_POLICY="${layout_policy}")
+if(APPLE)
+    target_compile_definitions(kobalt-core PUBLIC fdatasync=fsync)
+endif()
+if(KOBALT_DESKTOP_SENSORS)
+    target_link_libraries(kobalt-core PUBLIC Qt6::Sensors)
+else()
+    target_compile_definitions(kobalt-core PUBLIC KOBALT_NO_SENSORS)
+endif()
 target_compile_options(kobalt-core PRIVATE -Wall -Wextra)
 option(KOBALT_SQLITE_ANNOTATIONS_DEFAULT "Use SQLite annotation storage by default" ON)
 if(KOBALT_SQLITE_ANNOTATIONS_DEFAULT)
@@ -94,7 +112,7 @@ else()
     set_source_files_properties("${source}/storage/annotation_database.cpp" PROPERTIES
         COMPILE_DEFINITIONS KOBALT_SQLITE_ANNOTATIONS_DEFAULT=0)
 endif()
-target_link_libraries(kobalt-core PUBLIC Qt6::Widgets Qt6::Network Qt6::Sensors Qt6::Sql
+target_link_libraries(kobalt-core PUBLIC Qt6::Widgets Qt6::Network Qt6::Sql
     "${CRENGINE_BUILD}/libcrengine.a"
     "${KOBALT_TEST_DEPENDENCIES}/lib/libharfbuzz.a" "${KOBALT_TEST_DEPENDENCIES}/lib/libxxhash.a"
     "${KOBALT_TEST_DEPENDENCIES}/lib/libutf8proc.a" "${KOBALT_TEST_DEPENDENCIES}/lib/libjpeg.a"
@@ -102,13 +120,21 @@ target_link_libraries(kobalt-core PUBLIC Qt6::Widgets Qt6::Network Qt6::Sensors 
     "${KOBALT_TEST_DEPENDENCIES}/lib/libfribidi.a" "${KOBALT_TEST_DEPENDENCIES}/lib/libunibreak.a"
     "${KOBALT_TEST_PNG}" z)
 # The engine and Qt must keep separate FreeType glyph implementations.
-target_link_options(kobalt-core INTERFACE "LINKER:-force_load,${KOBALT_TEST_DEPENDENCIES}/lib/libfreetype.a")
+if(APPLE)
+    target_link_options(kobalt-core INTERFACE "LINKER:-force_load,${KOBALT_TEST_DEPENDENCIES}/lib/libfreetype.a")
+else()
+    # Keep private static dependencies out of the executable dynamic symbol table,
+    # so Qt and its plugins resolve their own font and image library symbols.
+    target_link_options(kobalt-core INTERFACE "LINKER:--exclude-libs,ALL")
+endif()
 file(GLOB_RECURSE interfaces CONFIGURE_DEPENDS "${source}/interfaces/*.cpp")
 add_library(kobalt-desktop OBJECT ${interfaces}
     window.cpp services.cpp
     ../android/reader.cpp ../android/start_screen.cpp
     "${source}/platform/api/reader_orientation.cpp")
 target_link_libraries(kobalt-desktop PUBLIC kobalt-core)
+set_source_files_properties("${source}/interfaces/reader/views/reading_page.cpp" PROPERTIES
+    COMPILE_DEFINITIONS KOBALT_DESKTOP_POINTER)
 target_compile_options(kobalt-desktop PRIVATE -Wall -Wextra)
 # A build from a linked Git worktree is a variant named after the worktree's
 # folder. A variant has its own name, bundle identifier and profile, so it can
@@ -127,14 +153,20 @@ if(EXISTS "${KOBALT_ROOT}/.git")
         get_filename_component(default_variant "${KOBALT_ROOT}" NAME)
     endif()
 endif()
-set(KOBALT_MAC_VARIANT "${default_variant}" CACHE STRING "Name of a side-by-side Mac development build; empty for the regular app")
-if(NOT KOBALT_MAC_VARIANT MATCHES "^[A-Za-z0-9-]*$")
-    message(FATAL_ERROR "KOBALT_MAC_VARIANT may only hold letters, digits and hyphens.")
+if(APPLE)
+    set(variant_option KOBALT_MAC_VARIANT)
+else()
+    set(variant_option KOBALT_LINUX_VARIANT)
 endif()
-if(KOBALT_MAC_VARIANT)
-    set(KOBALT_BUNDLE_NAME "Kobalt (${KOBALT_MAC_VARIANT})")
-    set(KOBALT_BUNDLE_IDENTIFIER "com.nicoverbruggen.kobalt.desktop.variant.${KOBALT_MAC_VARIANT}")
-    set(KOBALT_PROFILE_NAME "Kobalt-${KOBALT_MAC_VARIANT}")
+set(${variant_option} "${default_variant}" CACHE STRING "Name of a side-by-side desktop development build; empty for the regular app")
+set(desktop_variant "${${variant_option}}")
+if(NOT desktop_variant MATCHES "^[A-Za-z0-9-]*$")
+    message(FATAL_ERROR "${variant_option} may only hold letters, digits and hyphens.")
+endif()
+if(desktop_variant)
+    set(KOBALT_BUNDLE_NAME "Kobalt (${desktop_variant})")
+    set(KOBALT_BUNDLE_IDENTIFIER "com.nicoverbruggen.kobalt.desktop.variant.${desktop_variant}")
+    set(KOBALT_PROFILE_NAME "Kobalt-${desktop_variant}")
     set(KOBALT_DOCUMENT_TYPES "")
 else()
     set(KOBALT_BUNDLE_NAME "Kobalt")
@@ -147,25 +179,34 @@ else()
         <key>LSItemContentTypes</key><array><string>org.idpf.epub-container</string></array>
     </dict></array>")
 endif()
-message(STATUS "Mac app: ${KOBALT_BUNDLE_NAME}, ${KOBALT_BUNDLE_IDENTIFIER}")
-add_executable(Kobalt MACOSX_BUNDLE main.cpp)
+message(STATUS "Desktop app: ${KOBALT_BUNDLE_NAME}, ${KOBALT_BUNDLE_IDENTIFIER}")
+add_executable(Kobalt main.cpp)
+if(APPLE)
+    set_target_properties(Kobalt PROPERTIES MACOSX_BUNDLE ON)
+    set(runtime_asset_path "../Resources/assets")
+else()
+    set(runtime_asset_path "assets/runtime")
+endif()
 target_link_libraries(Kobalt PRIVATE kobalt-desktop kobalt-core)
 # The profile folder under Application Support follows the application name.
-target_compile_definitions(Kobalt PRIVATE KOBALT_PROFILE_NAME="${KOBALT_PROFILE_NAME}")
+target_compile_definitions(Kobalt PRIVATE KOBALT_PROFILE_NAME="${KOBALT_PROFILE_NAME}"
+    KOBALT_RUNTIME_ASSET_PATH="${runtime_asset_path}")
 set_target_properties(Kobalt PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"
     MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/Info.plist.in")
 set(resources "${KOBALT_ROOT}/assets")
 file(GLOB notices CONFIGURE_DEPENDS "${resources}/notices/*")
 qt_add_resources(kobalt-desktop desktop_artwork PREFIX "/desktop" BASE "${resources}" FILES "${resources}/kobalt-android.svg")
 qt_add_resources(kobalt-desktop notices PREFIX "/kobalt" BASE "${resources}" FILES "${resources}/acknowledgments.json" ${notices})
-set(bundle_assets "${CMAKE_CURRENT_BINARY_DIR}/Kobalt.app/Contents/Resources/assets")
-add_custom_command(OUTPUT "${bundle_assets}/manifest.json"
-    COMMAND "${CMAKE_COMMAND}" -E rm -rf "${bundle_assets}"
-    COMMAND "${CMAKE_COMMAND}" -E copy_directory "${KOBALT_ASSETS}" "${bundle_assets}"
-    DEPENDS ${KOBALT_ASSET_INPUTS}
-    VERBATIM)
-add_custom_target(kobalt-runtime-assets DEPENDS "${bundle_assets}/manifest.json")
-add_dependencies(Kobalt kobalt-runtime-assets)
+if(APPLE)
+    set(bundle_assets "${CMAKE_CURRENT_BINARY_DIR}/Kobalt.app/Contents/Resources/assets")
+    add_custom_command(OUTPUT "${bundle_assets}/manifest.json"
+        COMMAND "${CMAKE_COMMAND}" -E rm -rf "${bundle_assets}"
+        COMMAND "${CMAKE_COMMAND}" -E copy_directory "${KOBALT_ASSETS}" "${bundle_assets}"
+        DEPENDS ${KOBALT_ASSET_INPUTS}
+        VERBATIM)
+    add_custom_target(kobalt-runtime-assets DEPENDS "${bundle_assets}/manifest.json")
+    add_dependencies(Kobalt kobalt-runtime-assets)
+endif()
 
 # Compares two release-evaluation runs; see doc/release-evaluation.md.
 add_executable(kobalt-eval-compare EXCLUDE_FROM_ALL "${KOBALT_ROOT}/platforms/eval/compare.cpp")
@@ -315,6 +356,9 @@ if(BUILD_TESTING)
             progressChoiceKeepAndGo finishedSyncWithoutPositionKeepsLocalReading
             progressChoiceForOlderAlert progressChoiceUnavailablePosition
             appearanceOpeningDoesNotRepaintToolbar annotationFramesKeepFirstPaintComplete annotationListResolvesPagesOnDemand)
+        if(NOT KOBALT_DESKTOP_SENSORS AND check MATCHES "^(sleepRequestFreezesOrientationBeforeHandoff|closePublishesHeldOrientationBeforeBackgroundPaint)$")
+            continue()
+        endif()
         add_test(NAME lifecycle.${check} COMMAND "${CMAKE_COMMAND}"
             "-DTEST_EXECUTABLE=$<TARGET_FILE:kobalt-reader-lifecycle-tests>" "-DTEST_ARGUMENTS=${check}"
             "-DTEST_TIMEOUT=120" "-DTEST_TMP_ROOT=${CMAKE_CURRENT_BINARY_DIR}/test-tmp"
@@ -526,33 +570,39 @@ if(BUILD_TESTING)
             "-DREFERENCES=${KOBALT_ROOT}/tests/fixtures/screenshot-books.json"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/prepare-screenshot-books.cmake"
         COMMAND "${CMAKE_COMMAND}" "-DTEST_EXECUTABLE=$<TARGET_FILE:kobalt-desktop-tests>"
-            "-DTEST_ARGUMENTS=--screenshots;${KOBALT_ROOT}/build/screenshots/mac"
+            "-DTEST_ARGUMENTS=--screenshots;${KOBALT_ROOT}/build/screenshots/${KOBALT_DESKTOP_PLATFORM}"
             "-DTEST_TMP_ROOT=${CMAKE_CURRENT_BINARY_DIR}/test-tmp" "-DTEST_TIMEOUT=600"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/run-test.cmake"
         DEPENDS kobalt-desktop-tests USES_TERMINAL VERBATIM)
     # Timings come from one process at a time; KOBALT_PERF_FILTER and
     # KOBALT_PERF_REPETITIONS narrow or lengthen a run. taskpolicy keeps the
     # process on one kind of core, so repeated runs agree.
-    find_program(KOBALT_TASKPOLICY taskpolicy REQUIRED)
+    set(perf_executable "$<TARGET_FILE:kobalt-desktop-tests>")
+    set(perf_arguments "--perf;${CMAKE_BINARY_DIR}/perf/perf.json")
+    if(APPLE)
+        find_program(KOBALT_TASKPOLICY taskpolicy REQUIRED)
+        set(perf_executable "${KOBALT_TASKPOLICY}")
+        list(PREPEND perf_arguments -t 0 -l 0 "$<TARGET_FILE:kobalt-desktop-tests>")
+    endif()
     # The large-book scenario opens a pinned Gutenberg edition, fetched once.
     add_custom_target(perf
         COMMAND "${CMAKE_COMMAND}" "-DOUTPUT=${KOBALT_ROOT}/build/screenshot-books"
             "-DREFERENCES=${KOBALT_ROOT}/tests/fixtures/screenshot-books.json" -DNAMES=war-and-peace
             -P "${CMAKE_CURRENT_SOURCE_DIR}/prepare-screenshot-books.cmake"
-        COMMAND "${CMAKE_COMMAND}" "-DTEST_EXECUTABLE=${KOBALT_TASKPOLICY}"
-            "-DTEST_ARGUMENTS=-t;0;-l;0;$<TARGET_FILE:kobalt-desktop-tests>;--perf;${CMAKE_BINARY_DIR}/perf/perf.json"
+        COMMAND "${CMAKE_COMMAND}" "-DTEST_EXECUTABLE=${perf_executable}"
+            "-DTEST_ARGUMENTS=${perf_arguments}"
             "-DTEST_TMP_ROOT=${CMAKE_CURRENT_BINARY_DIR}/test-tmp" "-DTEST_TIMEOUT=600"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/run-test.cmake"
         DEPENDS kobalt-desktop-tests USES_TERMINAL VERBATIM)
     add_custom_target(screenshots-light
         COMMAND "${CMAKE_COMMAND}" "-DTEST_EXECUTABLE=$<TARGET_FILE:kobalt-desktop-tests>"
-            "-DTEST_ARGUMENTS=--screenshots;${KOBALT_ROOT}/build/screenshots/mac-light;--light"
+            "-DTEST_ARGUMENTS=--screenshots;${KOBALT_ROOT}/build/screenshots/${KOBALT_DESKTOP_PLATFORM}-light;--light"
             "-DTEST_TMP_ROOT=${CMAKE_CURRENT_BINARY_DIR}/test-tmp" "-DTEST_TIMEOUT=120"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/run-test.cmake"
         DEPENDS kobalt-desktop-tests USES_TERMINAL VERBATIM)
     add_custom_target(screenshot-gallery
         COMMAND "${CMAKE_COMMAND}" "-DTEST_EXECUTABLE=$<TARGET_FILE:kobalt-desktop-tests>"
-            "-DTEST_ARGUMENTS=--gallery;${KOBALT_ROOT}/build/screenshots/mac"
+            "-DTEST_ARGUMENTS=--gallery;${KOBALT_ROOT}/build/screenshots/${KOBALT_DESKTOP_PLATFORM}"
             "-DTEST_TMP_ROOT=${CMAKE_CURRENT_BINARY_DIR}/test-tmp" "-DTEST_TIMEOUT=30"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/run-test.cmake"
         DEPENDS kobalt-desktop-tests USES_TERMINAL VERBATIM)

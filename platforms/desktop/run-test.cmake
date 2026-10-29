@@ -1,3 +1,7 @@
+# A launcher run owns this root so cancellation can remove only its scratch state.
+if(NOT "$ENV{KOBALT_TEST_TMP_ROOT}" STREQUAL "")
+    set(TEST_TMP_ROOT "$ENV{KOBALT_TEST_TMP_ROOT}")
+endif()
 # Own temporary files outside the test process: standalone checks can exit or
 # abort before their QTemporaryDir destructors run.
 if(NOT EXISTS "${TEST_EXECUTABLE}" OR NOT IS_DIRECTORY "${TEST_TMP_ROOT}")
@@ -14,8 +18,9 @@ if(EXISTS "${work}")
     message(FATAL_ERROR "Test temporary directory already exists: ${work}")
 endif()
 file(MAKE_DIRECTORY "${work}")
+# Keep diagnostics capturable with Linux SDKs that otherwise log to the journal.
 execute_process(
-    COMMAND "${CMAKE_COMMAND}" -E env "TMPDIR=${work}" "${TEST_EXECUTABLE}" ${TEST_ARGUMENTS}
+    COMMAND "${CMAKE_COMMAND}" -E env "TMPDIR=${work}" "QT_FORCE_STDERR_LOGGING=1" "${TEST_EXECUTABLE}" ${TEST_ARGUMENTS}
     WORKING_DIRECTORY "${work}"
     RESULT_VARIABLE result
     TIMEOUT ${TEST_TIMEOUT})

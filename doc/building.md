@@ -6,9 +6,19 @@ Install CMake 3.22 or later on the build host. The Kobo and Android launchers al
 
 Application builds do not use Python, compile Qt or read prepared libraries or assets from another checkout. The first configuration downloads the selected third-party archives and verifies their SHA-256 checksums. Exported source bundles use their local `application/upstream/` archives instead. Missing or changed bundled archives fail configuration without a network fallback. For another local archive directory, set the CMake `KOBALT_SOURCE_ARCHIVES` path. The build compiles those libraries before compiling Kobalt. Later builds reuse the configured sources and objects. Network access is required for uncached sources and Android Gradle packages.
 
+## Developer launcher
+
+Run `./start.sh` from the repository root to build and open the small Qt Widgets developer launcher on Linux or Mac. It needs only a native Qt 6.11+ Core/Gui/Widgets SDK, CMake, Ninja and the native compiler; it does not configure or compile the reader just to open the launcher. It reuses the desktop build’s selected Qt SDK when available. For initial SDK selection, use `./start.sh -DCMAKE_PREFIX_PATH=/path/to/qt`. Startup prints platform-specific setup instructions for missing tools, an outdated CMake or missing Qt. `./start.sh --check` performs the dependency and Qt configuration checks without building or opening the GUI. Docker readiness and the pinned Kobo SDK images are checked with bounded, read-only probes. Missing Docker, daemon/socket access or SDK images produce instructions while desktop actions remain available. Nothing is installed or pulled automatically. Ordinary repeated launches reuse the launcher’s incremental build under `build/launcher-linux/` or `build/launcher-mac/`.
+
+The buttons configure and incrementally build the desktop app before opening it, build and verify the Qt 5 or Qt 6 Kobo package through the existing prepared-image script, build and run the full headless CTest suite, or build and watch the existing autonomous UI scenarios in a desktop window. The visible mode uses `kobalt-desktop-tests --watch` and `platforms/eval/scenarios.json`; it is not the full headless assertion suite and records no performance timings. It prepares the pinned large-book fixture when needed. Tests keep their own profiles and never drive the user’s running reader.
+
+The launcher shows command output and exit status, runs one job at a time per worktree, and retains its latest job log under the launcher output directory. Stop or closing the launcher cancels its active process group and removes only that run’s temporary profiles. Kobo’s build script owns and removes its own container, including on interruption; unavailable cleanup retains its container ID for recovery. A desktop app opened by the launcher remains open independently. Kobo buttons require a running container engine and the prepared images documented below; the launcher does not install SDKs or pull images.
+
+To validate the launcher without opening a window, run `cmake --preset linux`, `cmake --build --preset linux`, then `ctest --preset linux` from `platforms/launcher/`. Substitute `mac` on Mac. These checks cover action selection, command failure, cancellation, temporary-profile cleanup and Kobo container ownership.
+
 ## Mac
 
-Use an installed native Qt 6.11.3 SDK with Core, Gui, Widgets, Network, Sensors, Test, Sql and its bundled libpng headers and archive. CMake 3.22 or later, Ninja, the Xcode command-line tools, make, patch and pkg-config must be available. The headless tests also use the system `zip` executable to create an offline EPUB fixture. The current desktop project supports macOS; Linux validation has not been restored yet.
+Use an installed native Qt 6.11 or newer Qt 6 SDK with Core, Gui, Widgets, Network, Test, GuiPrivate, Sql and its bundled libpng headers and archive. CMake 3.22 or later, Ninja, the Xcode command-line tools, make, patch and pkg-config must be available. The headless tests also use the system `zip` executable to create an offline EPUB fixture. The desktop project supports macOS and Linux.
 
 Run these commands from `platforms/desktop/`:
 
@@ -53,7 +63,25 @@ The restored engine group checks layout, alignment, indentation, vertical text, 
 
 The separate reader lifecycle executable covers preview cancellation and failed apply, draft persistence through sleep and closing, orientation handoff, sleep images, stale searches, pending bookmarks, finish dialogs, progress conflicts, USB final-save recovery, complete annotation frames and toolbar invalidation. Run `ctest --preset mac -L lifecycle` for this group. It reuses production objects and does not add work to the fast build target or the fast checks. Controlled host services replace hardware callbacks; no device or firmware is needed. See [Native validation](validation.md#test-inventory) for the assertion inventory and exclusions.
 
-The additional native integration groups reuse the same production objects. Run `ctest --preset mac -L ui` for shared canvas and paint checks, `-L platform` for portable orientation, font-source and Kobo-helper checks, or `-L corpus` for the representative literary corpus. The orientation matrix uses the production 250 ms debounce and takes about 20 seconds; it is not part of the fast lane. No test probes device hardware. See [Native validation](validation.md) for fixture ownership and deliberate exclusions.
+The additional native integration groups reuse the same production objects. Run `ctest --preset mac -L ui` for shared canvas and paint checks, `-L platform` for portable orientation, font-source and Kobo-helper checks, or `-L corpus` for the representative literary corpus. With `KOBALT_DESKTOP_SENSORS=ON`, the orientation matrix uses the production 250 ms debounce and takes about 20 seconds; it is not part of the fast lane. No test probes device hardware. See [Native validation](validation.md) for fixture ownership and deliberate exclusions.
+
+## Linux
+
+Use a prepared native Qt 6.11 or newer Qt 6 SDK with Core, Gui, Widgets, Network and Sql. Headless checks also need Test, matching GuiPrivate headers, and the minimal platform plugin. Desktop builds use sensorless orientation by default. Set `-DKOBALT_DESKTOP_SENSORS=ON` with a matching Qt Sensors module to run the real sensor adapter and sensor-specific integration assertions. Manual rotation and sensorless lifecycle checks run in the default build. Kobo and Android keep real sensor support. Install CMake 3.22 or later, Ninja, a C/C++ compiler, make, patch, pkg-config, Git, zip, and libpng/zlib development packages. Never build Qt modules as part of the application build. Distribution Qt packages are supported when they meet these requirements; keep all Qt components from the same SDK.
+
+Run from `platforms/desktop/`:
+
+```sh
+cmake --preset linux
+cmake --build --preset linux
+cmake --build --preset linux-light-tests
+ctest --preset linux-light
+cmake --build --preset linux-light-screenshots
+```
+
+Pass `-DCMAKE_PREFIX_PATH=/path/to/qt` when using a separate SDK. The executable is `build/desktop-linux/Kobalt`; verified runtime assets are under `build/desktop-linux/assets/runtime/`. Building does not open a window. Linked-worktree builds have an isolated profile named after the worktree folder. Override it with `KOBALT_LINUX_VARIANT`, or use an empty value for the regular profile. Qt selects the platform application-data directory.
+
+Linux provides the same light, fast, integration and full test lanes, performance and evaluation tools, and screenshot galleries as Mac. Substitute `linux` for `mac` in desktop preset commands. Full validation uses `cmake --build --preset linux-tests` then `ctest --preset linux`; full captures use `linux-screenshots`. Captures go to `build/screenshots/linux/` and `build/screenshots/linux-light/`. Tests use Fusion and the minimal platform plugin without X11, Wayland or a visible window. Each platform owns its output and temporary files. Compare screenshots with the same host and Qt SDK. GUI operation under X11/Wayland and distribution packaging require separate validation.
 
 ## Assets
 
@@ -107,7 +135,7 @@ Stop and reap run-owned helper processes and remove temporary profiles, staging 
 
 ## GitHub builds and tagged releases
 
-`.github/workflows/ci.yml` builds Qt5, Qt6 and a signed Android release APK on branch pushes and tags. Helper checks validate version inputs, source pins and missing-key failures. Kobo jobs check the system archive member, numeric root ownership and executable permissions. Native application tests still run with the Mac presets above; the Linux workflow does not run them.
+`.github/workflows/ci.yml` builds Qt5, Qt6 and a signed Android release APK on branch pushes and tags. Helper checks validate version inputs, source pins and missing-key failures. Kobo jobs check the system archive member, numeric root ownership and executable permissions. The native desktop CI matrix builds the app and shared tests on Linux and Mac, runs each native suite, and retains primary-view galleries. CI selects Qt 6.11.3 for reproducibility; local desktop builds accept newer Qt 6 SDKs.
 
 A tag such as `v1.0-beta.4` supplies the displayed version and Android version name. Package filenames stay fixed across releases so download links remain compatible: `Kobalt-qt5.zip`, `Kobalt-qt6.zip`, `Kobalt-android-arm64.apk` and `Kobalt-sources.tar.gz`. Branch builds use the version in `assets/manifest.json`. CI checks that a triggering tag identifies the checked-out commit. Local builds can set `KOBALT_RELEASE_VERSION` to test the same path without editing the tracked asset manifest.
 

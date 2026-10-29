@@ -58,12 +58,16 @@
 #include <QJsonArray>
 #include <QLabel>
 #include <QLineEdit>
+#ifndef KOBALT_NO_SENSORS
 #include <QOrientationSensor>
+#endif
 #include <QPointer>
 #include <QPushButton>
 #include <QScreen>
+#ifndef KOBALT_NO_SENSORS
 #include <QSensorBackend>
 #include <QSensorManager>
+#endif
 #include <QSignalSpy>
 #include <QSlider>
 #include <QStyle>
@@ -77,6 +81,7 @@
 #include <atomic>
 #include <zlib.h>
 
+#ifndef KOBALT_NO_SENSORS
 namespace kobalt::test {
 class Backend : public QSensorBackend {
 public:
@@ -112,6 +117,8 @@ struct SensorRegistration {
     const QByteArray id;
 };
 }
+
+#endif
 
 using namespace kobalt;
 using test::PaintRegions;
@@ -2180,6 +2187,7 @@ private slots:
                                      : strings::get("search_panel.matches").arg(referenceCount));
     }
 
+#ifndef KOBALT_NO_SENSORS
     void sleepRequestFreezesOrientationBeforeHandoff_data() {
         QTest::addColumn<bool>("handoff");
         QTest::newRow("completed-sleep") << true;
@@ -2274,6 +2282,7 @@ private slots:
         QCOMPARE(painted.first(), Qt::InvertedPortraitOrientation);
     }
 
+#endif
     void closeRestoresOrientationBeforeBackgroundPaint() {
         const auto paths = testPaths();
         QVERIFY(storage::writeJson(paths.preferences(), {{"orientation", int(Qt::InvertedPortraitOrientation)}}));

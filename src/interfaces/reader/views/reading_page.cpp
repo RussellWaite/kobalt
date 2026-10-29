@@ -922,7 +922,7 @@ void ReadingPage::beginPointer(QPointF point, const QInputEvent *event) {
 }
 
 void ReadingPage::mousePressEvent(QMouseEvent *event) {
-#ifdef Q_OS_MAC
+#if defined(Q_OS_MAC) || defined(KOBALT_DESKTOP_POINTER)
     if (ui::isPointerMouse(event) && event->button() == Qt::RightButton) {
         cancelHold();
         origin = ui::mousePosition(event);
@@ -939,7 +939,7 @@ void ReadingPage::mousePressEvent(QMouseEvent *event) {
 }
 
 void ReadingPage::mouseMoveEvent(QMouseEvent *event) {
-#ifdef Q_OS_MAC
+#if defined(Q_OS_MAC) || defined(KOBALT_DESKTOP_POINTER)
     if (rightPressed && ui::isPointerMouse(event)) {
         rightMoved |= event->buttons() != Qt::RightButton ||
                       (ui::mousePosition(event) - origin).manhattanLength() > m::lookup::moveTolerance;
@@ -954,7 +954,7 @@ void ReadingPage::mouseMoveEvent(QMouseEvent *event) {
 }
 
 void ReadingPage::mouseReleaseEvent(QMouseEvent *event) {
-#ifdef Q_OS_MAC
+#if defined(Q_OS_MAC) || defined(KOBALT_DESKTOP_POINTER)
     if (ui::isPointerMouse(event) && event->button() == Qt::RightButton) {
         const bool request = rightPressed && !rightMoved && event->buttons() == Qt::NoButton &&
                              (ui::mousePosition(event) - origin).manhattanLength() <= m::lookup::moveTolerance;
