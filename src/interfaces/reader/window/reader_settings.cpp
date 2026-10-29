@@ -286,6 +286,7 @@ void Reader::openSettings() {
     settingsWordSpacing = model->state().value("word_spacing").toInt(100);
     settingsParagraphSpacing = appearance::paragraphSpacing(preferences.value("paragraph_spacing"));
     settingsParagraphIndent = appearance::paragraphIndent(preferences.value("paragraph_indent"));
+    settingsBeautifier = appearance::beautifierSettings(preferences);
     settingsTracking = model->state().value("justification_tracking").toInt(0);
     settingsWidowsOrphans = model->state().value("widows_orphans").toString("publisher");
     showAdvancedText();
@@ -315,6 +316,11 @@ void Reader::openSettings() {
 
 void Reader::showAdvancedText(int changed) {
     auto *panel = static_cast<SettingsPanel *>(general);
+    int rules = 0;
+    for (const auto *key : {"beautifier_initials", "beautifier_spacing", "beautifier_indent"})
+        rules += settingsBeautifier.value(key).toBool();
+    panel->beautifierButton->setCaption(rules > 0
+        ? strings::get("settings.beautifier_active").arg(rules).toUpper() : strings::get("common.off").toUpper());
     const QString wordSpacing = settingsWordSpacing == 80 ? "narrow" : settingsWordSpacing == 120 ? "wide" : "normal";
     panel->wordSpacingButton->setCaption(strings::get(("settings.word_spacing_" + wordSpacing).toUtf8().constData()).toUpper());
     panel->paragraphSpacingButton->setCaption(strings::get("settings.paragraph_adjustments_value")
@@ -367,6 +373,7 @@ void Reader::renderStylingSamples(int unchanged) {
     settings["word_spacing"] = settingsWordSpacing;
     settings["paragraph_spacing"] = settingsParagraphSpacing;
     settings["paragraph_indent"] = settingsParagraphIndent;
+    for (const auto *key : appearance::beautifierKeys) settings[key] = settingsBeautifier.value(key);
     settings["justification_tracking"] = settingsTracking;
     settings["widows_orphans"] = settingsWidowsOrphans;
     settings["vertical_justification"] = settingsVerticalSpacing;
@@ -512,6 +519,7 @@ void Reader::applySettings() {
     next["word_spacing"] = settingsWordSpacing;
     next["paragraph_spacing"] = settingsParagraphSpacing;
     next["paragraph_indent"] = settingsParagraphIndent;
+    for (const auto *key : appearance::beautifierKeys) next[key] = settingsBeautifier.value(key);
     next["justification_tracking"] = settingsTracking;
     next["widows_orphans"] = settingsWidowsOrphans;
     next["page_animations"] = animationOption->isChecked();
@@ -566,6 +574,7 @@ void Reader::applySettings() {
     settings["word_spacing"] = settingsWordSpacing;
     settings["paragraph_spacing"] = settingsParagraphSpacing;
     settings["paragraph_indent"] = settingsParagraphIndent;
+    for (const auto *key : appearance::beautifierKeys) settings[key] = settingsBeautifier.value(key);
     settings["justification_tracking"] = settingsTracking;
     settings["widows_orphans"] = settingsWidowsOrphans;
     settings["bold_reading"] = bionicOption->isChecked() ? QStringLiteral("bold") : QStringLiteral("off");

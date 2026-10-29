@@ -50,7 +50,7 @@ int main() {
     require(appearance::same({}, dictionary), "Dictionary UI preferences invalidated the book layout");
     // Appearance settings decide the layout. The list must stay complete, because a
     // missing key would let a retained layout survive a changed setting.
-    require(appearance::keys.size() == 31, "The appearance keys changed without this check");
+    require(appearance::keys.size() == 34, "The appearance keys changed without this check");
     require(appearance::bookDefaults({}).value("paragraph_indent").toInt() == -1,
             "Paragraph indentation no longer defaults to Publisher");
     for (int percent : {-1, 0, 100, 300}) {
@@ -133,6 +133,24 @@ int main() {
             "Copy touched a setting it does not own");
 
     require(appearance::same(to, from), "Copied settings do not compare equal");
+    for (bool enabled : {false, true}) {
+        const auto global = appearance::cleanPreferences({{"book_beautifier", enabled},
+            {"beautifier_initials", true}, {"beautifier_spacing", false}, {"beautifier_indent", false}});
+        QJsonObject stale{{"book_beautifier", !enabled}, {"beautifier_spacing", true}};
+        appearance::applyBookDefaults(stale, appearance::bookDefaults(global));
+        require(!stale.contains("book_beautifier") && stale.value("beautifier_initials").toBool() == enabled &&
+            !stale.value("beautifier_spacing").toBool() && !stale.value("beautifier_indent").toBool(), "Global beautifier did not replace a stale book snapshot");
+    }
+    const auto directRules = appearance::bookDefaults({{"beautifier_initials", true}});
+    require(directRules.value("beautifier_initials").toBool() &&
+        !directRules.value("beautifier_spacing").toBool() && !directRules.value("beautifier_indent").toBool(),
+        "A checked rule required the retired master switch");
+    for (const auto *key : appearance::beautifierKeys)
+        require(!appearance::bookDefaults({}).value(key).toBool(), "A rule was enabled by default");
+    const auto invalidBeautifier = appearance::beautifierSettings(appearance::cleanPreferences(
+        {{"book_beautifier", "yes"}, {"beautifier_initials", "no"}}));
+    require(!invalidBeautifier.value("book_beautifier").toBool() && !invalidBeautifier.value("beautifier_initials").toBool(),
+        "Invalid beautifier settings did not use safe defaults");
     const auto advanced = qt::object({{"word_spacing", 80}, {"justification_tracking", 5}, {"widows_orphans", "avoid"}});
     auto advancedBook = qt::object({{"font_pixels", 40}, {"word_spacing", 120}, {"justification_tracking", 15}, {"widows_orphans", "allow"}});
     appearance::applyBookDefaults(advancedBook, appearance::bookDefaults(advanced));

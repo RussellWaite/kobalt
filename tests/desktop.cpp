@@ -1,3 +1,4 @@
+#include "interfaces/reader/ui/controls/options.h"
 #include "interfaces/reader/ui/controls/keyboard.h"
 #include "assets/assets.h"
 #include "assets/bundled_fonts.h"
@@ -4677,6 +4678,11 @@ exit 7
     void globalLayout() {
         Fixture fixture;
         QVERIFY(fixture.prepared);
+        auto globalBeautifier = storage::readJson(fixture.paths.preferences());
+        globalBeautifier["beautifier_initials"] = true;
+        globalBeautifier["beautifier_spacing"] = false;
+        globalBeautifier["beautifier_indent"] = false;
+        QVERIFY(storage::writeJson(fixture.paths.preferences(), globalBeautifier));
         fixture.window.findChild<QComboBox *>("desktopScreenPicker")->setCurrentIndex(2);
         QSignalSpy opened(&fixture.window, &desktop::Window::bookOpened);
         fixture.window.openBook(book);
@@ -4712,11 +4718,16 @@ exit 7
         QVERIFY(storage::writeJson(fixture.paths.bookState(identity),
                                   {{"book", identity}, {"fingerprint", first.value("fingerprint")},
                                    {"font_pixels", 34}, {"margin_pixels", 3}, {"top_margin_pixels", 6},
-                                   {"bottom_margin_pixels", 9}, {"orientation", 1}}));
+                                   {"bottom_margin_pixels", 9}, {"orientation", 1}, {"book_beautifier", false}, {"beautifier_spacing", true}}));
         fixture.window.openBook(other);
         QTRY_COMPARE(opened.count(), 2);
         QTRY_VERIFY(!fixture.state().value("busy").toBool());
         const auto second = fixture.state();
+        QVERIFY(!second.contains("book_beautifier"));
+        QVERIFY(second.value("beautifier_initials").toBool());
+        QVERIFY(!second.value("beautifier_spacing").toBool());
+        QVERIFY(!second.value("beautifier_indent").toBool());
+
         QCOMPARE(second.value("font_pixels").toInt(), 34);
         QCOMPARE(second.value("margin_pixels"), first.value("margin_pixels"));
         QCOMPARE(second.value("top_margin_pixels"), first.value("top_margin_pixels"));
@@ -6094,6 +6105,44 @@ private slots:
         QVERIFY(!fixture.widget("rrParagraphSpacingSlider"));
         QVERIFY(fixture.press("rrSettings"));
         QVERIFY(fixture.press("rrSettingsStyling"));
+        QVERIFY(revealSettingsOption(fixture, "rrBeautifierSettings"));
+        QCOMPARE(fixture.widget("rrBeautifierSettings")->font(), fixture.widget("rrWordSpacing")->font());
+        QVERIFY(fixture.press("rrBeautifierSettings"));
+        QTRY_VERIFY(fixture.visible("rrBeautifierPopup"));
+        QVERIFY(!fixture.widget("rrBeautifierEnabled"));
+        QVERIFY(!fixture.widget("rrBeautifierInitials")->property("checked").toBool());
+        QVERIFY(fixture.widget("rrBeautifierInitials")->isEnabled());
+        QVERIFY(capture(fixture, name + "-beautifier-off"));
+        auto *initials = static_cast<ui::DescribedOption *>(fixture.widget("rrBeautifierInitials"));
+        QVERIFY(initials->presentation().leadingIndicator);
+        QVERIFY(initials->presentation().dividers.testFlag(Qt::TopEdge));
+        // Tap the description side of the row, well away from its left checkbox.
+        QVERIFY(fixture.click(initials, QPoint(initials->width() * 3 / 4, initials->height() * 2 / 3)));
+        QTRY_VERIFY(initials->isChecked());
+        QVERIFY(capture(fixture, name + "-beautifier-rules"));
+        QVERIFY(fixture.press("rrBeautifierCancel"));
+        QTRY_VERIFY(!fixture.widget("rrBeautifierPopup"));
+        QVERIFY(fixture.press("rrBeautifierSettings"));
+        QVERIFY(!fixture.widget("rrBeautifierInitials")->property("checked").toBool());
+        QVERIFY(fixture.press("rrBeautifierInitials"));
+        QVERIFY(fixture.press("rrBeautifierDone"));
+        QTRY_VERIFY(!fixture.widget("rrBeautifierPopup"));
+        QVERIFY(capture(fixture, name + "-beautifier-settings"));
+        QVERIFY(fixture.press("rrSettingsClose"));
+        QTRY_VERIFY(!fixture.state().value("busy").toBool());
+        QTRY_VERIFY(fixture.state().value("beautifier_initials").toBool());
+        QVERIFY(!fixture.state().value("beautifier_spacing").toBool());
+        QVERIFY(fixture.press("rrSettings"));
+        QVERIFY(fixture.press("rrSettingsStyling"));
+        QVERIFY(revealSettingsOption(fixture, "rrBeautifierSettings"));
+        QVERIFY(fixture.press("rrBeautifierSettings"));
+        QVERIFY(fixture.widget("rrBeautifierInitials")->property("checked").toBool());
+        QVERIFY(!fixture.widget("rrBeautifierSpacing")->property("checked").toBool());
+        QVERIFY(fixture.press("rrBeautifierInitials"));
+        QVERIFY(fixture.press("rrBeautifierDone"));
+        QTRY_VERIFY(!fixture.widget("rrBeautifierPopup"));
+        while (fixture.widget("rrSettingsOptionsPrevious")->isEnabled())
+            QVERIFY(fixture.press("rrSettingsOptionsPrevious"));
         QVERIFY(revealSettingsOption(fixture, "rrParagraphSpacing"));
         QCOMPARE(fixture.widget("rrParagraphSpacing")->font(), fixture.widget("rrWordSpacing")->font());
         QCOMPARE(fixture.widget("rrParagraphSpacing")->minimumHeight(), fixture.widget("rrWordSpacing")->minimumHeight());
@@ -6148,7 +6197,7 @@ private slots:
         QCOMPARE(fixture.widget("rrParagraphSpacingSlider")->property("value").toInt(), 0);
         QVERIFY(capture(fixture, name + "-styling-paragraph-indent"));
         QVERIFY(fixture.press("rrParagraphSpacingClose"));
-        QVERIFY(!storage::readJson(fixture.paths.preferences()).contains("paragraph_spacing"));
+        QCOMPARE(storage::readJson(fixture.paths.preferences()).value("paragraph_spacing").toInt(-2), -1);
         QVERIFY(fixture.press("rrSettingsClose"));
         QTRY_VERIFY(!fixture.state().value("busy").toBool());
         QCOMPARE(storage::readJson(fixture.paths.preferences()).value("paragraph_spacing").toInt(-2), 0);
@@ -6738,7 +6787,7 @@ int main(int argc, char **argv) {
         return app.exec();
     }
     QFile fixture(book);
-    const int expectedScreenshots = lightGallery ? 56 : 806;
+    const int expectedScreenshots = lightGallery ? 56 : 818;
     if (captures.size() != expectedScreenshots)
         qCritical() << "Expected" << expectedScreenshots << "screenshots, captured" << captures.size();
     if (!fixture.open(QIODevice::ReadOnly) || captures.size() != expectedScreenshots) {

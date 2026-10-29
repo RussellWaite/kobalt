@@ -20,6 +20,7 @@ inline QString screenshotGroup(const QString &scene) {
     if (scene.startsWith("links-") || scene.startsWith("footnotes-") || scene.startsWith("tappable-links-")) return "Links and footnotes";
     if (scene.startsWith("search")) return "Search";
     if (scene.startsWith("kosync-")) return "Settings and About";
+    if (scene.startsWith("beautifier-")) return "Typography";
     if (scene.startsWith("settings") || scene == "about" || scene == "acknowledgments" || scene.startsWith("license")) return "Settings and About";
     if (scene.startsWith("annotation") || scene == "annotating" || scene.startsWith("bookmark")) return "Bookmarks and annotations";
     if (scene.startsWith("vertical-") || scene == "layout" || scene.startsWith("header-footer")) return "Layout";
@@ -83,6 +84,9 @@ inline QString screenshotTitle(const QString &scene, const QJsonObject &book) {
         {"header-footer-large", "Headers and footers: enlarged text"},
         {"header-footer-off", "Headers and footers: disabled"},
         {"layout", "Page layout"},
+        {"beautifier-off", "No book normalization rules selected"},
+        {"beautifier-rules", "Book normalization rules"},
+        {"beautifier-settings", "Book normalization in Settings"},
         {"library-book-menu", "Book actions"},
         {"library-empty", "Welcome to the library"},
         {"library-folders", "Book folders"},

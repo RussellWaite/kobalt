@@ -34,6 +34,11 @@ QJsonObject globalPreferences(QJsonObject preferences) {
     if (!preferences.contains("bold_reading") && preferences.contains("bionic_reading"))
         preferences["bold_reading"] = preferences.value("bionic_reading");
     preferences.remove("bionic_reading");
+    if (preferences.contains("book_beautifier")) {
+        const auto rules = beautifierSettings(preferences);
+        for (const auto *key : beautifierKeys) preferences[key] = rules.value(key);
+        preferences.remove("book_beautifier");
+    }
     if (!preferences.contains("header_footer") && preferences.value(lastPresetKey).isString())
         preferences["header_footer"] = preferences.value(lastPresetKey);
     preferences.remove(lastPresetKey);
@@ -73,6 +78,8 @@ QJsonObject cleanPreferences(QJsonObject preferences) {
                             "page_animations", "show_link_indicator", "edge_light_gestures", "dense_stats_chart",
                             "hide_nonlinear_fragments", "avoid_wasteful_styling",
                             "minimal_annotation_mode", "show_header", "show_footer", "show_clock", "auto_rotate"})
+        if (preferences.contains(key) && !preferences.value(key).isBool()) preferences.remove(key);
+    for (const auto *key : beautifierKeys)
         if (preferences.contains(key) && !preferences.value(key).isBool()) preferences.remove(key);
     const auto choice = [&](const char *key, const QStringList &values) {
         if (preferences.contains(key) && !values.contains(preferences.value(key).toString())) preferences.remove(key);
@@ -130,6 +137,8 @@ QJsonObject cleanPreferences(QJsonObject preferences) {
 }
 QJsonObject bookDefaults(const QJsonObject &preferences) {
     auto defaults = typographyDefaults();
+    const auto beautifier = beautifierSettings(preferences);
+    for (const auto *key : beautifierKeys) defaults[key] = beautifier.value(key);
     defaults.remove("font_face");
     applyFontDefault(defaults, preferences);
     defaults["vertical_justification"] = verticalSpacingMode(preferences.value("vertical_justification"));
@@ -185,6 +194,9 @@ void applyBookDefaults(QJsonObject &saved, const QJsonObject &defaults) {
     applyFontDefault(saved, defaults);
     for (const auto *key : marginKeys)
         saved[key] = defaults.value(key);
+    const auto beautifier = beautifierSettings(defaults);
+    for (const auto *key : beautifierKeys) saved[key] = beautifier.value(key);
+    saved.remove("book_beautifier");
     // Settings choices replace stale book values.
     saved["columns"] = 1;
     saved["vertical_justification"] = verticalSpacingMode(defaults.value("vertical_justification"));

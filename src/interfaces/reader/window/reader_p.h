@@ -543,6 +543,7 @@ private:
     int settingsWordSpacing = 100;
     int settingsParagraphSpacing = -1;
     int settingsParagraphIndent = -1;
+    QJsonObject settingsBeautifier;
     int settingsTracking = 0;
     QString settingsWidowsOrphans = "publisher";
     QString settingsVerticalSpacing = "off", settingsVerticalSpacingScope = "all";

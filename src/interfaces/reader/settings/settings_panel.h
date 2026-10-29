@@ -52,6 +52,7 @@ public:
     static QString columnSpacingLabel(int percent);
     enum class AdvancedText { WordSpacing, Tracking, Pagination, VerticalSpacing, VerticalSpacingScope, ParagraphSpacing };
     static QString paragraphSpacingLabel(int percent);
+    void showBeautifier(const QJsonObject &current, std::function<void(QJsonObject)> chosen);
     void showParagraphAdjustments(int spacing, int indent, std::function<void(int, int)> chosen);
     // The sheet stays open while choosing, so each choice can be compared in
     // its preview.
@@ -91,7 +92,7 @@ public:
     ui::CaptionButton *columnSpacingButton = nullptr;
     ui::CaptionButton *verticalSpacingButton = nullptr, *verticalSpacingScopeButton = nullptr;
     ui::CaptionButton *wordSpacingButton = nullptr, *trackingButton = nullptr, *widowsOrphansButton = nullptr;
-    ui::CaptionButton *paragraphSpacingButton = nullptr;
+    ui::CaptionButton *paragraphSpacingButton = nullptr, *beautifierButton = nullptr;
     ui::CaptionButton *sleepScreenButton = nullptr, *sessionTimeoutButton = nullptr, *sleepTileButton = nullptr, *menuViewButton = nullptr;
     ui::CaptionButton *pageNavigationButton = nullptr, *tapZonesButton = nullptr, *navigationBarButton = nullptr,
                       *tappableLinksButton = nullptr;

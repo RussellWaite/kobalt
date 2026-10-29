@@ -918,6 +918,12 @@ bool ReaderSession::setOpticalSize(double points) {
     }
     return true;
 }
+bool ReaderSession::setBookBeautifier(bool enabled) {
+    if (temporaryTypography()) return false;
+    for (const auto *key : appearance::beautifierKeys) desired[key] = enabled;
+    request(true);
+    return true;
+}
 bool ReaderSession::setHyphenation(const QString &mode) {
     if (temporaryTypography())
         return false;

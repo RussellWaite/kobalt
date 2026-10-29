@@ -1235,6 +1235,12 @@ void Reader::buildSettings() {
             showAdvancedText(int(SettingsPanel::AdvancedText::WordSpacing));
         });
     });
+    connect(settings->beautifierButton, &QPushButton::clicked, this, [this, settings] {
+        settings->showBeautifier(settingsBeautifier, [this](QJsonObject value) {
+            settingsBeautifier = std::move(value);
+            showAdvancedText();
+        });
+    });
     connect(settings->paragraphSpacingButton, &QPushButton::clicked, this, [this, settings] {
         settings->showParagraphAdjustments(settingsParagraphSpacing, settingsParagraphIndent,
             [this](int percent, int indent) {
@@ -1376,6 +1382,7 @@ void Reader::buildSettings() {
         settingsVerticalSpacingScope = "all";
         settingsParagraphSpacing = -1;
         settingsParagraphIndent = -1;
+        settingsBeautifier = appearance::beautifierSettings({});
         showAdvancedText();
         screenRefreshMode = kobalt::ScreenRefresh::Smart;
         showScreenRefresh();

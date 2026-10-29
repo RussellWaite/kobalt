@@ -341,6 +341,7 @@ private:
     double opticalSize_ = 0;
     int weight_ = 0;
     QString bionic_ = "off";
+    bool beautifierInitials_ = false, beautifierSpacing_ = false, beautifierIndent_ = false;
     // The engine DOM version that parses this book and writes its positions.
     int domVersion_ = 0;
     QString hyphenation_ = "off";

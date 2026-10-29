@@ -313,6 +313,9 @@ int main(int argc, char **argv) {
             int failures = 0;
             ReadingBook book(std::move(session), statePath, paths, identity, hash, nullptr, {}, {});
             book.onCheckpointFailed([&] { ++failures; });
+            require(!book.session()->state().value("beautifier_initials").toBool(), "Beautifier must default off");
+            require(book.session()->setBookBeautifier(true), "Cannot enable beautifier");
+            waitUntil([&] { return !book.session()->busy(); });
             require(book.saveDictionaryChoice({}), "Cannot clear an imported dictionary choice");
             QJsonObject snapshot;
             require(book.checkpoint(&snapshot), "Cannot save imported checkpoint fields");
@@ -320,6 +323,11 @@ int main(int argc, char **argv) {
             require(saved.value("future_optional") == optional && saved.contains("future_null") &&
                         saved.value("future_null").isNull(), "Opening checkpoint lost optional fields");
             require(!saved.contains("dictionary_id"), "Checkpoint restored a cleared dictionary choice");
+            require(saved.value("beautifier_initials").toBool(), "Checkpoint lost beautifier rendering state");
+            {
+                auto reopened = open(QSize(758, 900), saved, identity, positions);
+                require(reopened->state().value("beautifier_initials").toBool(), "Reopen lost beautifier rendering state");
+            }
             require(snapshot.contains("chapter_title") && snapshot.contains("cached_pages") &&
                         snapshot.contains("page"), "Inspection snapshot lost display fields");
             // A display title can exceed the saved-record budget without

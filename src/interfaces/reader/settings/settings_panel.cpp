@@ -442,6 +442,9 @@ SettingsPanel::SettingsPanel(QWidget *parent, const SettingsPanelInputs &inputs)
         strings::get("settings.vertical_spacing_apply_to"), [] {});
     verticalSpacingScopeButton->setDescription(strings::get("settings.vertical_spacing_scope_description"));
     section(stylingPage, stylingRows, "rrSmartStylingSection", strings::get("settings.section_smart_styling"));
+    beautifierButton = ui::makeCaptionButton(stylingPage, stylingRows, "rrBeautifierSettings",
+        strings::get("reader.book_beautifier"), [] {});
+    beautifierButton->setDescription(strings::get("settings.beautifier_summary"));
     avoidWastefulStylingOption =
         check(stylingPage, "rrAvoidWastefulStyling", strings::get("settings.avoid_wasteful_styling"),
               strings::get("settings.avoid_wasteful_styling_description"));
@@ -484,7 +487,8 @@ SettingsPanel::SettingsPanel(QWidget *parent, const SettingsPanelInputs &inputs)
               strings::get("settings.hide_nonlinear_fragments_description"));
     stylingRows->addWidget(hideNonlinearOption);
     for (const auto &[button, icon] :
-         {std::pair{wordSpacingButton, ui::ControlIcon::SpreadHorizontal},
+         {std::pair{beautifierButton, ui::ControlIcon::MagicWand},
+          std::pair{wordSpacingButton, ui::ControlIcon::SpreadHorizontal},
           std::pair{paragraphSpacingButton, ui::ControlIcon::Paragraph},
           std::pair{trackingButton, ui::ControlIcon::AlignJustify},
           std::pair{widowsOrphansButton, ui::ControlIcon::Paragraph},
@@ -702,7 +706,7 @@ SettingsPanel::SettingsPanel(QWidget *parent, const SettingsPanelInputs &inputs)
           tapZonesButton, tappableLinksButton, navigationBarButton,
           menuViewButton, uiFontButton, uiMonoFontButton, headerFooterFontButton, headerFooterWeightButton,
           dictionaryFontButton, dictionaryFontSizeButton,
-          defaultFontButton, serifFontButton, sansFontButton, monoFontButton, wordSpacingButton, paragraphSpacingButton, trackingButton, widowsOrphansButton, verticalSpacingButton, verticalSpacingScopeButton}) {
+          defaultFontButton, serifFontButton, sansFontButton, monoFontButton, beautifierButton, wordSpacingButton, paragraphSpacingButton, trackingButton, widowsOrphansButton, verticalSpacingButton, verticalSpacingScopeButton}) {
         button->setRule(Qt::BottomEdge);
         // The refresh row's caption shows its current choice, set when Settings opens.
         if (button == resetDefaults)
@@ -714,7 +718,7 @@ SettingsPanel::SettingsPanel(QWidget *parent, const SettingsPanelInputs &inputs)
                 .arg(int(c::labelText))
                 .arg(int(c::listActionHeight))
                 .arg(int(c::inset)));
-        if (button == wordSpacingButton || button == paragraphSpacingButton || button == trackingButton || button == widowsOrphansButton || button == verticalSpacingButton || button == verticalSpacingScopeButton) {
+        if (button == beautifierButton || button == wordSpacingButton || button == paragraphSpacingButton || button == trackingButton || button == widowsOrphansButton || button == verticalSpacingButton || button == verticalSpacingScopeButton) {
             button->setMaximumHeight(QWIDGETSIZE_MAX);
             readerStyle(button, QString("QPushButton{font-size:%1px;border:0;border-radius:0;text-align:left;padding:0;background:palette(window);color:palette(window-text);}").arg(int(c::labelText)));
             button->setMinimumHeight(c::listActionHeight);
@@ -1076,6 +1080,65 @@ QString SettingsPanel::paragraphSpacingLabel(int percent) {
     return percent < 0 ? strings::get("reader.publisher_spacing")
         : strings::get("common.percent").arg(percent);
 }
+void SettingsPanel::showBeautifier(const QJsonObject &current, std::function<void(QJsonObject)> chosen) {
+    if (fontDialog) return;
+    fontDialog = new ui::ModalOverlay(parentWidget());
+    fontDialog->setObjectName("rrBeautifierPopup");
+    fontDialog->setDimmed(true);
+    fontDialog->setGeometry(parentWidget()->rect());
+    fontDialog->dismissed = [this] { dismissFontChoices(); };
+    auto *card = fontDialog->card();
+    auto *rows = card->rows();
+    rows->setContentsMargins(m::control::border, m::notice::cardMargins.top(), m::control::border, m::control::border);
+    rows->setSpacing(0);
+    auto *heading = card->title(strings::get("reader.book_beautifier"));
+    heading->setContentsMargins(c::inset, 0, c::inset, m::notice::cardMargins.bottom());
+    auto *hint = card->message(strings::get("settings.beautifier_description"));
+    hint->setContentsMargins(c::inset, 0, c::inset, m::notice::cardMargins.bottom());
+    readerStyle(hint, styles::font(c::descriptionText));
+    QVector<ui::DescribedOption *> options;
+    const QStringList names{"rrBeautifierInitials", "rrBeautifierSpacing", "rrBeautifierIndent"};
+    const QStringList labels{"initials", "spacing", "indent"};
+    for (int i = 0; i < int(appearance::beautifierKeys.size()); ++i) {
+        const auto prefix = "settings.beautifier_" + labels[i];
+        auto *option = new ui::DescribedOption(strings::get(prefix.toUtf8().constData()),
+            strings::get((prefix + "_description").toUtf8().constData()), card);
+        option->setObjectName(names[i]);
+        auto presentation = option->presentation();
+        presentation.indicator = ui::DescribedOption::Indicator::Square;
+        presentation.pressedFill = true;
+        presentation.leadingIndicator = true;
+        presentation.dividers = Qt::BottomEdge;
+        if (i == 0) presentation.dividers |= Qt::TopEdge;
+        presentation.horizontalInset = c::inset;
+        presentation.labelPixels = c::labelText;
+        presentation.descriptionPixels = c::descriptionText;
+        presentation.indicatorSize = {c::checkSize, c::checkSize};
+        presentation.minimumRowHeight = c::optionHeight;
+        option->setPresentation(presentation);
+        option->setChecked(current.value(appearance::beautifierKeys[i]).toBool(false));
+        rows->addWidget(option);
+        options.append(option);
+    }
+    auto *cancel = ui::makeModalButton(card, {strings::get("common.cancel"), "rrBeautifierCancel"}, false);
+    auto *done = ui::makeModalButton(card, {strings::get("common.done"), "rrBeautifierDone"}, true);
+    card->adaptiveActions({cancel, done});
+    connect(cancel, &QPushButton::clicked, this, [this] { dismissFontChoices(); });
+    connect(done, &QPushButton::clicked, this, [this, options, chosen] {
+        QJsonObject value;
+        for (int i = 0; i < options.size(); ++i) value[appearance::beautifierKeys[i]] = options[i]->isChecked();
+        dismissFontChoices();
+        chosen(value);
+    });
+    const int width = qMin<int>(ui::px(1064), parentWidget()->width() - 2 * m::notice::sideClearance);
+    for (auto *option : options) option->setFixedHeight(option->heightForWidth(width - 2 * m::control::border));
+    card->fitToWidth(width);
+    fontDialog->centerCard();
+    fontDialog->show();
+    fontDialog->raise();
+    fontDialog->setFocus();
+}
+
 void SettingsPanel::showColumnSpacingChoices(int current, std::function<void(int)> chosen) {
     if (fontDialog)
         return;

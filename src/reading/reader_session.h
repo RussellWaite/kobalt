@@ -139,6 +139,7 @@ public:
     bool setThickness(int steps);
     void setDarkMode(bool enabled);
     bool setHyphenation(const QString &mode);
+    bool setBookBeautifier(bool enabled);
     // Keep at most one turn behind the current turn. The latest direction wins.
     bool turn(int direction);
     bool canTurn() const;

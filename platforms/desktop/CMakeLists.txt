@@ -600,7 +600,7 @@ if(BUILD_TESTING)
     kobalt_regressions(model font_axes touch_rotation)
     kobalt_regressions(platform reader_orientation font_sources system_fonts nickel_dictionary_selection
         nickel_reading_pace_cache nickel_reading_save nickel_session_calls nickel_book_menu native_progress native_sync_network native_lifecycle usb_removal page_transition_native)
-    kobalt_regressions(engine vertical_spacing source_index columns advanced_text paragraph_spacing alignment indentation page_layout vertical_writing mathml line_breaking
+    kobalt_regressions(engine vertical_spacing source_index columns advanced_text paragraph_spacing beautifier alignment indentation page_layout vertical_writing mathml line_breaking
         fallback_styles svg_limits image_proportions whitespace links search word_selection reader publisher_markup local_reader document_word_count document_cache)
     kobalt_regressions(component ui acknowledgments kosync_ui)
     target_link_libraries(kobalt-kosync-ui-tests PRIVATE Qt6::Test)

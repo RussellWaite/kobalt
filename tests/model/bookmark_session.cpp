@@ -414,6 +414,16 @@ int main(int argc, char **argv) {
         waitUntil([&] {
             return !model.busy();
         });
+        const auto beforeBeautifier = session->bookmarks();
+        for (bool enabled : {true, false}) {
+            require(model.setBookBeautifier(enabled), "Cannot toggle beautifier with bookmarks");
+            waitUntil([&] { return !model.busy(); });
+            waitUntil([&] { session->sync(); return session->resolved(); });
+            require(session->bookmarks().size() == beforeBeautifier.size(), "Beautifier lost bookmarks");
+            for (int i = 0; i < beforeBeautifier.size(); ++i)
+                require(session->bookmarks()[i].position == beforeBeautifier[i].position && session->page(i) >= 0,
+                        "Beautifier changed a bookmark anchor");
+        }
         const int pagesBefore = model.pages();
         require(model.style(minimumFontPixels(), 100), "Cannot change the text size");
         waitUntil([&] {
