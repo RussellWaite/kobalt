@@ -430,6 +430,8 @@ void ReaderModel::configure(QSize size, const QJsonObject &settings) {
         widowsOrphans_ = "publisher";
     pixels_ = qBound(minimumFontPixels(), saved.value("font_pixels").toInt(defaultFontPixels()), maximumFontPixels());
     spacing_ = qBound(100, saved.value("line_spacing").toInt(defaultLineSpacing), maximumLineSpacing);
+    paragraphSpacing_ = appearance::paragraphSpacing(saved.value("paragraph_spacing"));
+    paragraphIndent_ = appearance::paragraphIndent(saved.value("paragraph_indent"));
     margin_ = qBound(0, saved.value("margin_pixels").toInt(defaultMarginPixels()), maximumMarginPixels());
     topMargin_ =
         qBound(0, saved.value("top_margin_pixels").toInt(defaultVerticalMarginPixels(margin_)), maximumMarginPixels());
@@ -675,6 +677,14 @@ bool ReaderModel::style(int pixels, int spacing, const QString &face, int margin
 bool ReaderModel::applyAppearance(const QJsonObject &settings, QSize size, OpeningProgress progress) {
     const int pixels = settings.value("font_pixels").toInt(pixels_);
     const int spacing = settings.value("line_spacing").toInt(spacing_);
+    const int paragraphSpacing = settings.contains("paragraph_spacing")
+        ? appearance::paragraphSpacing(settings.value("paragraph_spacing")) : paragraphSpacing_;
+    if (settings.contains("paragraph_spacing") && settings.value("paragraph_spacing") != paragraphSpacing)
+        return false;
+    const int paragraphIndent = settings.contains("paragraph_indent")
+        ? appearance::paragraphIndent(settings.value("paragraph_indent")) : paragraphIndent_;
+    if (settings.contains("paragraph_indent") && settings.value("paragraph_indent") != paragraphIndent)
+        return false;
     const int margin = settings.value("margin_pixels").toInt(margin_);
     const int topMargin = settings.value("top_margin_pixels").toInt(topMargin_);
     const int bottomMargin = settings.value("bottom_margin_pixels").toInt(bottomMargin_);
@@ -737,6 +747,8 @@ bool ReaderModel::applyAppearance(const QJsonObject &settings, QSize size, Openi
     const bool styled = fallbackFaces != fallbackFaces_ || avoidWastefulStyling != avoidWastefulStyling_ ||
                         wordSpacing != wordSpacing_ || tracking != justificationTracking_ || widowsOrphans != widowsOrphans_ ||
                         bionicChanged || axisChanged || opticalChanged || pixels != pixels_ || spacing != spacing_ ||
+                        paragraphSpacing != paragraphSpacing_ ||
+                        paragraphIndent != paragraphIndent_ ||
                         face != face_ || defaultFace != defaultFace_ || margin != margin_ || topMargin != topMargin_ ||
                         bottomMargin != bottomMargin_ || alignment != alignment_ || hyphenation != hyphenation_;
     const bool resized = size != size_ || columns != columns_ || columnSpacing != columnSpacing_;
@@ -750,6 +762,8 @@ bool ReaderModel::applyAppearance(const QJsonObject &settings, QSize size, Openi
     OpeningCallback callback(engine_, std::move(progress));
     pixels_ = pixels;
     spacing_ = spacing;
+    paragraphSpacing_ = paragraphSpacing;
+    paragraphIndent_ = paragraphIndent;
     face_ = face;
     defaultFace_ = defaultFace;
     fallbackFaces_ = fallbackFaces;
@@ -895,10 +909,16 @@ void ReaderModel::applyStyleSheet() {
             "math, math * { font-family: math !important; }\n";
     }
     // Like Nickel's line-height override, leave inline spans and media alone.
-    // Relative font sizes, indentation and paragraph margins remain publisher CSS.
+    // Relative font sizes remain publisher CSS.
     overrides +=
         QString("body,p,div,section,article,blockquote,li,dt,dd,h1,h2,h3,h4,h5,h6 { line-height:%1% !important; }")
             .arg(spacing_);
+    if (paragraphSpacing_ >= 0)
+        overrides += QString("p[data-kobalt-paragraph=\"1\"] { margin-top:0 !important; margin-bottom:%1em !important; padding-top:0 !important; padding-bottom:0 !important; }\n")
+                         .arg(paragraphSpacing_ / 100.0, 0, 'f', 2);
+    if (paragraphIndent_ >= 0)
+        overrides += QString("p[data-kobalt-paragraph=\"1\"] { text-indent:%1em !important; }\n")
+                         .arg(paragraphIndent_ / 100.0, 0, 'f', 2);
     // Only marked text blocks override publisher alignment; decorative blocks keep it.
     if (alignment_ != "publisher")
         overrides +=
@@ -1324,6 +1344,8 @@ QJsonObject ReaderModel::state() const {
                                {"position", position()},
                                {"font_pixels", pixels_},
                                {"line_spacing", spacing_},
+                               {"paragraph_spacing", paragraphSpacing_},
+                               {"paragraph_indent", paragraphIndent_},
                                {"line_spacing_version", 1},
                                {"font_face", face_},
                                {"default_font_face", defaultFace_},

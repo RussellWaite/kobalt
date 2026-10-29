@@ -4635,6 +4635,27 @@ exit 7
         QVERIFY(fixture.press("rrSettings"));
         QTRY_VERIFY(fixture.visible("rrGeneralSettings"));
         checkBounds(fixture.widget("rrGeneralSettings"));
+        QVERIFY(fixture.press("rrSettingsStyling"));
+        for (const auto *row : {"rrParagraphSpacing", "rrWordSpacing", "rrJustificationTracking", "rrWidowsOrphans", "rrVerticalSpacing"}) {
+            QVERIFY(revealSettingsOption(fixture, row));
+            QVERIFY(fixture.press(row));
+            const QString prefix = QString(row) == "rrJustificationTracking" ? "rrTracking" : row;
+            auto *popup = fixture.widget(qPrintable(prefix + "Popup"));
+            QVERIFY(popup);
+            auto *overlay = dynamic_cast<ui::ModalOverlay *>(popup);
+            QVERIFY(overlay);
+            QCOMPARE(overlay->card()->width(), int(ui::px(1264)));
+            QVERIFY(overlay->rect().contains(overlay->card()->geometry()));
+            QTRY_VERIFY_WITH_TIMEOUT(fixture.widget("rrStylingPreview")->property("sample_ready").toBool(), 10000);
+            if (QString(row) == "rrParagraphSpacing")
+                QVERIFY(fixture.widget("rrStylingPreview")->geometry().bottom() <
+                        fixture.widget("rrParagraphControls")->geometry().top());
+            if (!output.isEmpty()) {
+                QCoreApplication::processEvents();
+                QVERIFY(fixture.window.readerWindow()->grab().save(output + "/wide-" + row + (dark ? "-dark.png" : "-light.png")));
+            }
+            QVERIFY(fixture.press(qPrintable(prefix + "Close")));
+        }
         if (!output.isEmpty()) {
             QCoreApplication::processEvents();
             QVERIFY(fixture.window.grab().save(output + (dark ? "/full-width-settings-dark.png" : "/full-width-settings-light.png")));
@@ -6056,6 +6077,91 @@ private slots:
                 QTest::newRow(qPrintable(QString::number(preset) + '-' + QString(publication) + (dark ? "-dark" : "-light"))) << QString(publication) << preset << dark;
     }
     void typography_data() { screenshotVariants(); }
+    void paragraphSpacing_data() { screenshotVariants(); }
+    void paragraphSpacing() {
+        QFETCH(int, preset);
+        QFETCH(bool, dark);
+        Fixture fixture(dark);
+        QVERIFY(fixture.prepared);
+        fixture.window.findChild<QComboBox *>("desktopScreenPicker")->setCurrentIndex(preset);
+        const auto name = QString(preset == 1 ? "six-inch-" : "seven-inch-") + (dark ? "dark" : "light");
+        QSignalSpy opened(&fixture.window, &desktop::Window::bookOpened);
+        fixture.window.openBook(book);
+        QTRY_COMPARE(opened.count(), 1);
+        QTRY_VERIFY(!fixture.state().value("busy").toBool());
+        QVERIFY(fixture.press("rrPage"));
+        QVERIFY(fixture.press("rrNavText"));
+        QVERIFY(!fixture.widget("rrParagraphSpacingSlider"));
+        QVERIFY(fixture.press("rrSettings"));
+        QVERIFY(fixture.press("rrSettingsStyling"));
+        QVERIFY(revealSettingsOption(fixture, "rrParagraphSpacing"));
+        QCOMPARE(fixture.widget("rrParagraphSpacing")->font(), fixture.widget("rrWordSpacing")->font());
+        QCOMPARE(fixture.widget("rrParagraphSpacing")->minimumHeight(), fixture.widget("rrWordSpacing")->minimumHeight());
+        QCOMPARE(fixture.widget("rrParagraphSpacing")->maximumHeight(), fixture.widget("rrWordSpacing")->maximumHeight());
+        for (const auto *name : {"rrWordSpacing", "rrJustificationTracking", "rrParagraphSpacing",
+                                 "rrWidowsOrphans", "rrVerticalSpacing", "rrVerticalSpacingScope"}) {
+            const auto *row = fixture.widget(name);
+            const auto font = ui::interfaceFont(ui::metrics::chrome::descriptionText);
+            const int textWidth = row->width() - ui::metrics::chrome::inset - ui::metrics::chrome::actionRight -
+                                  ui::metrics::chrome::cellIcon - ui::px(20);
+            QVERIFY2(ui::wrappedInterfaceTextHeight(row->accessibleDescription(), font, textWidth) <
+                         2 * ui::interfaceLineHeight(font), name);
+        }
+        QVERIFY(capture(fixture, name + "-styling-paragraph-row"));
+        QVERIFY(fixture.press("rrParagraphSpacing"));
+        QTRY_VERIFY(fixture.visible("rrParagraphSpacingPopup"));
+        QTRY_VERIFY_WITH_TIMEOUT(fixture.widget("rrStylingPreview")->property("sample_ready").toBool(), 10000);
+        auto *preview = fixture.widget("rrStylingPreview");
+        QVERIFY(preview->geometry().bottom() < fixture.widget("rrParagraphControls")->geometry().top());
+        const auto publisher = preview->grab().toImage();
+        QCOMPARE(fixture.widget("rrParagraphSpacingSlider")->property("value").toInt(), -1);
+        QVERIFY(!fixture.visible("rrParagraphSpacingSliderCurrentPrefix"));
+        QVERIFY(!fixture.visible("rrParagraphIndentSliderCurrentPrefix"));
+        QCOMPARE(qobject_cast<QLabel *>(fixture.widget("rrParagraphSpacingValue"))->text(),
+                 strings::get("controls.currently") + " " + strings::get("reader.publisher_spacing"));
+        QVERIFY(capture(fixture, name + "-styling-paragraph-publisher"));
+        QCOMPARE(preview->property("paragraph_gap_count").toInt(), 2);
+        QVERIFY(fixture.press("rrParagraphSpacingMore"));
+        QTRY_VERIFY_WITH_TIMEOUT(preview->property("sample_ready").toBool(), 10000);
+        QTRY_VERIFY(preview->grab().toImage() != publisher);
+        QVERIFY(capture(fixture, name + "-styling-paragraph-custom"));
+        QCOMPARE(preview->property("paragraph_gap_count").toInt(), 0);
+        auto *gapSlider = static_cast<ui::SettingSlider *>(fixture.widget("rrParagraphSpacingSlider"));
+        const auto selectGap = [&](int stop) {
+            const int inset = ui::metrics::control::sliderInset;
+            return fixture.click(gapSlider, QPoint(inset + (gapSlider->width() - 2 * inset) * stop / 5,
+                (gapSlider->height() + ui::metrics::control::sliderLabelHeight) / 2));
+        };
+        QVERIFY(selectGap(3));
+        QTRY_COMPARE(gapSlider->value(), 100);
+        QTRY_VERIFY_WITH_TIMEOUT(preview->property("sample_ready").toBool(), 10000);
+        QCOMPARE(preview->property("paragraph_gap_count").toInt(), 2);
+        QVERIFY(capture(fixture, name + "-styling-paragraph-gaps"));
+        QVERIFY(selectGap(1));
+        QTRY_COMPARE(gapSlider->value(), 0);
+        QTRY_VERIFY_WITH_TIMEOUT(preview->property("sample_ready").toBool(), 10000);
+        const auto spaced = preview->grab().toImage();
+        QCOMPARE(fixture.widget("rrParagraphIndentSlider")->property("value").toInt(), -1);
+        QVERIFY(fixture.press("rrParagraphIndentMore"));
+        QTRY_VERIFY_WITH_TIMEOUT(preview->property("sample_ready").toBool(), 10000);
+        QTRY_VERIFY(preview->grab().toImage() != spaced);
+        QCOMPARE(fixture.widget("rrParagraphSpacingSlider")->property("value").toInt(), 0);
+        QVERIFY(capture(fixture, name + "-styling-paragraph-indent"));
+        QVERIFY(fixture.press("rrParagraphSpacingClose"));
+        QVERIFY(!storage::readJson(fixture.paths.preferences()).contains("paragraph_spacing"));
+        QVERIFY(fixture.press("rrSettingsClose"));
+        QTRY_VERIFY(!fixture.state().value("busy").toBool());
+        QCOMPARE(storage::readJson(fixture.paths.preferences()).value("paragraph_spacing").toInt(-2), 0);
+        QCOMPARE(storage::readJson(fixture.paths.preferences()).value("paragraph_indent").toInt(-2), 0);
+        QTRY_COMPARE(fixture.state().value("paragraph_spacing").toInt(-2), 0);
+        const auto other = fixture.directory.path() + "/other-paragraph-book.epub";
+        QVERIFY(QFile::copy(book, other));
+        fixture.window.openBook(other);
+        QTRY_COMPARE(opened.count(), 2);
+        QTRY_VERIFY(!fixture.state().value("busy").toBool());
+        QCOMPARE(fixture.state().value("paragraph_spacing").toInt(-2), 0);
+        QCOMPARE(fixture.state().value("paragraph_indent").toInt(-2), 0);
+    }
     void typography() {
         QFETCH(int, preset);
         QFETCH(bool, dark);
@@ -6632,7 +6738,7 @@ int main(int argc, char **argv) {
         return app.exec();
     }
     QFile fixture(book);
-    const int expectedScreenshots = lightGallery ? 56 : 786;
+    const int expectedScreenshots = lightGallery ? 56 : 806;
     if (captures.size() != expectedScreenshots)
         qCritical() << "Expected" << expectedScreenshots << "screenshots, captured" << captures.size();
     if (!fixture.open(QIODevice::ReadOnly) || captures.size() != expectedScreenshots) {

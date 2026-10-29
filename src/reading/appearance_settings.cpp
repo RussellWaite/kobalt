@@ -110,6 +110,10 @@ QJsonObject cleanPreferences(QJsonObject preferences) {
             value.toDouble() > maximum || value.toDouble() != value.toInt())) preferences.remove(key);
     };
     number("column_spacing_percent", 100, 300);
+    if (preferences.contains("paragraph_spacing"))
+        preferences["paragraph_spacing"] = paragraphSpacing(preferences.value("paragraph_spacing"));
+    if (preferences.contains("paragraph_indent"))
+        preferences["paragraph_indent"] = paragraphIndent(preferences.value("paragraph_indent"));
     number("dictionary_font_size", 80, 140);
     if (preferences.contains("dictionary_font_size") &&
         !validDictionaryFontSize(preferences.value("dictionary_font_size").toInt()))
@@ -145,6 +149,8 @@ QJsonObject bookDefaults(const QJsonObject &preferences) {
         defaults[key] = readingPixels(qBound(0, design, 120));
     }
     defaults["word_spacing"] = preferences.value("word_spacing").toInt(100);
+    defaults["paragraph_spacing"] = paragraphSpacing(preferences.value("paragraph_spacing"));
+    defaults["paragraph_indent"] = paragraphIndent(preferences.value("paragraph_indent"));
     defaults["justification_tracking"] = preferences.value("justification_tracking").toInt(0);
     defaults["widows_orphans"] = preferences.value("widows_orphans").toString("publisher");
     if (!preferences.value(inheritTextLayoutKey).toBool(true)) {
@@ -186,6 +192,8 @@ void applyBookDefaults(QJsonObject &saved, const QJsonObject &defaults) {
     saved["two_columns_landscape"] = defaults.value("two_columns_landscape").toBool(false);
     saved["column_spacing_percent"] = defaults.value("column_spacing_percent").toInt(defaultColumnSpacingPercent);
     saved["word_spacing"] = defaults.value("word_spacing").toInt(100);
+    saved["paragraph_spacing"] = paragraphSpacing(defaults.value("paragraph_spacing"));
+    saved["paragraph_indent"] = paragraphIndent(defaults.value("paragraph_indent"));
     saved["justification_tracking"] = defaults.value("justification_tracking").toInt(0);
     saved["widows_orphans"] = defaults.value("widows_orphans").toString("publisher");
 }

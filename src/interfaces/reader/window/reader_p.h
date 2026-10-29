@@ -540,6 +540,8 @@ private:
     kobalt::ui::CaptionButton *menuViewButton = nullptr, *tappableLinksButton = nullptr;
     int settingsColumnSpacing = defaultColumnSpacingPercent;
     int settingsWordSpacing = 100;
+    int settingsParagraphSpacing = -1;
+    int settingsParagraphIndent = -1;
     int settingsTracking = 0;
     QString settingsWidowsOrphans = "publisher";
     QString settingsVerticalSpacing = "off", settingsVerticalSpacingScope = "all";
@@ -551,7 +553,7 @@ private:
     // The selected option of a SettingsPanel::AdvancedText setting, in sheet order.
     int stylingChoice(int feature) const;
     // The latest sample render of each setting. Setting one stops its render.
-    std::array<std::shared_ptr<std::atomic_bool>, 5> stylingSampleRenders;
+    std::array<std::shared_ptr<std::atomic_bool>, 6> stylingSampleRenders;
     // Includes queued renders until their results reach the GUI thread.
     int stylingSamplesPending = 0;
     void cancelStylingSamples();

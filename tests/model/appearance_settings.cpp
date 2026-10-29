@@ -50,7 +50,41 @@ int main() {
     require(appearance::same({}, dictionary), "Dictionary UI preferences invalidated the book layout");
     // Appearance settings decide the layout. The list must stay complete, because a
     // missing key would let a retained layout survive a changed setting.
-    require(appearance::keys.size() == 29, "The appearance keys changed without this check");
+    require(appearance::keys.size() == 31, "The appearance keys changed without this check");
+    require(appearance::bookDefaults({}).value("paragraph_indent").toInt() == -1,
+            "Paragraph indentation no longer defaults to Publisher");
+    for (int percent : {-1, 0, 100, 300}) {
+        const auto defaults = appearance::bookDefaults({{"paragraph_indent", percent}, {"inherit_text_layout", false}});
+        QJsonObject book{{"font_pixels", 40}, {"paragraph_indent", 200}};
+        appearance::applyBookDefaults(book, defaults);
+        require(book.value("paragraph_indent").toInt(-2) == percent,
+                "A saved book replaced the global paragraph indentation");
+        QJsonObject remembered;
+        appearance::rememberTextLayout(remembered, book);
+        require(!remembered.value(appearance::lastTextLayoutKey).toObject().contains("paragraph_indent"),
+                "Global paragraph indentation entered text inheritance");
+    }
+    for (const auto &invalid : {QJsonValue(), QJsonValue(true), QJsonValue("100"), QJsonValue(-2), QJsonValue(301), QJsonValue(1.5)})
+        require(appearance::paragraphIndent(invalid) == -1, "Invalid paragraph indentation did not use Publisher");
+    require(!appearance::same({{"paragraph_indent", 0}}, {{"paragraph_indent", 100}}),
+            "Paragraph indentation reused a stale layout");
+    require(appearance::bookDefaults({}).value("paragraph_spacing").toInt() == -1,
+            "Paragraph spacing no longer defaults to Publisher");
+    for (int percent : {-1, 0, 50, 200}) {
+        const auto global = appearance::bookDefaults({{"paragraph_spacing", percent}, {"inherit_text_layout", false}});
+        QJsonObject book{{"font_pixels", 40}, {"paragraph_spacing", 100}};
+        appearance::applyBookDefaults(book, global);
+        require(book.value("paragraph_spacing").toInt(-2) == percent,
+                "A book-specific gap replaced the global paragraph spacing");
+        QJsonObject remembered;
+        appearance::rememberTextLayout(remembered, book);
+        require(!remembered.value(appearance::lastTextLayoutKey).toObject().contains("paragraph_spacing"),
+                "Global paragraph spacing entered text inheritance");
+    }
+    for (const auto &invalid : {QJsonValue(), QJsonValue(true), QJsonValue("50"), QJsonValue(201), QJsonValue(0.5)})
+        require(appearance::paragraphSpacing(invalid) == -1, "Invalid paragraph spacing did not use Publisher");
+    require(!appearance::same({{"paragraph_spacing", 0}}, {{"paragraph_spacing", 50}}),
+            "Paragraph gap reused a stale layout");
 
     const QJsonObject fillOn{{"vertical_justification", "expand"}}, fillOff{{"vertical_justification", "off"}};
     require(!appearance::same(fillOn, fillOff), "Vertical fill reused a retained layout");

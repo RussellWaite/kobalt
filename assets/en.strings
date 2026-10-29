@@ -535,6 +535,15 @@
 "reader.landscape" = "Landscape";
 "reader.landscape_upside_down" = "Landscape, upside down";
 "reader.line_spacing" = "Line spacing: ";
+"reader.publisher_spacing" = "Publisher";
+"settings.section_paragraphs" = "Paragraphs";
+"settings.paragraph_spacing" = "Paragraph adjustments";
+"settings.paragraph_spacing_summary" = "Adjust spacing and first-line indents.";
+"settings.paragraph_spacing_description" = "Values are percentages of the text size: with 12 pt text, a 100% indent is 12 pt. Applies to all books. Headings and special blocks keep their formatting.";
+"settings.paragraph_choices_description" = "Each Publisher choice keeps that part of the book’s formatting. Diagonal lines mark extra space between paragraphs.";
+"settings.paragraph_gap" = "Spacing";
+"settings.paragraph_indent" = "First-line indent";
+"settings.paragraph_adjustments_value" = "Gap %1 · Indent %2";
 "reader.margins" = "Horizontal margins: ";
 "reader.vertical_margins" = "Vertical margins: ";
 /* Arguments: %1, %2 */
@@ -1004,9 +1013,9 @@
 "settings.hide_tab_labels" = "Hide labels in tabs";
 "settings.hide_tab_labels_description" = "Tabs at the bottom of the screen only display an icon when this is selected.";
 
-"settings.justification_tracking_summary" = "Reduce wide word gaps with letter spacing. Only affects justified text (Text > Alignment > Justify).";
+"settings.justification_tracking_summary" = "Adjust letter spacing in justified text.";
 
-"settings.widows_orphans_summary" = "Keep single paragraph lines from appearing alone at the top or bottom of a page.";
+"settings.widows_orphans_summary" = "Control single lines at page edges.";
 
 
 
@@ -1023,7 +1032,7 @@
 
 "settings.widows_orphans_allow_description" = "Allow single lines at page boundaries.";
 "settings.word_spacing" = "Word spacing";
-"settings.word_spacing_summary" = "Adjust the normal width of spaces between words.";
+"settings.word_spacing_summary" = "Adjust spacing between words.";
 "settings.word_spacing_description" = "Change space width relative to the font’s normal spacing. This can change line breaks and page count. Justified lines may still stretch spaces. Applies to all books.";
 "settings.word_spacing_narrow" = "Narrow";
 "settings.word_spacing_normal" = "Normal";
@@ -1077,7 +1086,7 @@
 "settings.vertical_spacing" = "Vertical page spacing";
 "settings.vertical_spacing_mode" = "Page spacing";
 "settings.vertical_spacing_apply_to" = "Pages to adjust";
-"settings.vertical_spacing_description" = "Keep spacing unchanged, spread lines, or center nearly full prose pages.";
+"settings.vertical_spacing_description" = "Adjust blank space on nearly full pages.";
 "settings.vertical_spacing_off" = "Normal";
 "settings.vertical_spacing_off_description" = "Keep the usual line spacing and top alignment.";
 "settings.vertical_spacing_expand" = "Expand line spacing";
@@ -1085,7 +1094,7 @@
 "settings.vertical_spacing_center" = "Center nearly full pages";
 "settings.vertical_spacing_center_description" = "Center prose that occupies at least 90% of the reading height. Keep line spacing unchanged.";
 "settings.vertical_spacing_scope" = "Pages to adjust";
-"settings.vertical_spacing_scope_description" = "Choose which page gaps receive the selected adjustment.";
+"settings.vertical_spacing_scope_description" = "Choose which page gaps to adjust.";
 "settings.vertical_spacing_scope_all" = "All suitable pages";
 "settings.vertical_spacing_scope_all_description" = "Also adjust ordinary pagination gaps on nearly full prose pages.";
 "settings.vertical_spacing_scope_protection" = "Only widow/orphan gaps";

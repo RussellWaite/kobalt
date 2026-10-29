@@ -486,6 +486,8 @@ void ReaderSession::open(OpenRequest request, std::function<void(OpeningResult)>
                 const auto landscapeColumns = saved.value("two_columns_landscape");
                 const auto columnSpacing = saved.value("column_spacing_percent");
                 const auto wordSpacing = saved.value("word_spacing");
+                const auto paragraphSpacing = saved.value("paragraph_spacing");
+                const auto paragraphIndent = saved.value("paragraph_indent");
                 const auto tracking = saved.value("justification_tracking");
                 const auto widowsOrphans = saved.value("widows_orphans");
                 if (!savedMatches)
@@ -497,6 +499,8 @@ void ReaderSession::open(OpenRequest request, std::function<void(OpeningResult)>
                 saved["two_columns_landscape"] = landscapeColumns;
                 saved["column_spacing_percent"] = columnSpacing;
                 saved["word_spacing"] = wordSpacing;
+                saved["paragraph_spacing"] = paragraphSpacing;
+                saved["paragraph_indent"] = paragraphIndent;
                 saved["justification_tracking"] = tracking;
                 saved["widows_orphans"] = widowsOrphans;
                 appearance::migrateLineSpacing(saved);

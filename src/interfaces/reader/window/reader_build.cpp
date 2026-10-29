@@ -1235,6 +1235,14 @@ void Reader::buildSettings() {
             showAdvancedText(int(SettingsPanel::AdvancedText::WordSpacing));
         });
     });
+    connect(settings->paragraphSpacingButton, &QPushButton::clicked, this, [this, settings] {
+        settings->showParagraphAdjustments(settingsParagraphSpacing, settingsParagraphIndent,
+            [this](int percent, int indent) {
+                settingsParagraphSpacing = percent;
+                settingsParagraphIndent = indent;
+                showAdvancedText();
+            });
+    });
     connect(settings->trackingButton, &QPushButton::clicked, this, [this, settings] {
         settings->showAdvancedTextChoices(SettingsPanel::AdvancedText::Tracking,
             stylingChoice(int(SettingsPanel::AdvancedText::Tracking)), [this](int index) {
@@ -1366,6 +1374,8 @@ void Reader::buildSettings() {
         bionicOption->setChecked(false);
         settingsVerticalSpacing = "off";
         settingsVerticalSpacingScope = "all";
+        settingsParagraphSpacing = -1;
+        settingsParagraphIndent = -1;
         showAdvancedText();
         screenRefreshMode = kobalt::ScreenRefresh::Smart;
         showScreenRefresh();

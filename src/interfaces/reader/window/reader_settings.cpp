@@ -284,6 +284,8 @@ void Reader::openSettings() {
     displaySettings->columnSpacingButton->setEnabled(displaySettings->landscapeColumnsOption->isChecked());
     displaySettings->columnSpacingButton->setCaption(SettingsPanel::columnSpacingLabel(settingsColumnSpacing));
     settingsWordSpacing = model->state().value("word_spacing").toInt(100);
+    settingsParagraphSpacing = appearance::paragraphSpacing(preferences.value("paragraph_spacing"));
+    settingsParagraphIndent = appearance::paragraphIndent(preferences.value("paragraph_indent"));
     settingsTracking = model->state().value("justification_tracking").toInt(0);
     settingsWidowsOrphans = model->state().value("widows_orphans").toString("publisher");
     showAdvancedText();
@@ -315,6 +317,9 @@ void Reader::showAdvancedText(int changed) {
     auto *panel = static_cast<SettingsPanel *>(general);
     const QString wordSpacing = settingsWordSpacing == 80 ? "narrow" : settingsWordSpacing == 120 ? "wide" : "normal";
     panel->wordSpacingButton->setCaption(strings::get(("settings.word_spacing_" + wordSpacing).toUtf8().constData()).toUpper());
+    panel->paragraphSpacingButton->setCaption(strings::get("settings.paragraph_adjustments_value")
+        .arg(SettingsPanel::paragraphSpacingLabel(settingsParagraphSpacing),
+             SettingsPanel::paragraphSpacingLabel(settingsParagraphIndent)).toUpper());
     const QString tracking = settingsTracking == 15 ? "more" : settingsTracking == 5 ? "subtle" : "off";
     panel->trackingButton->setCaption(strings::get(("settings.justification_tracking_" + tracking).toUtf8().constData()).toUpper());
     panel->widowsOrphansButton->setCaption(strings::get(("settings.widows_orphans_" + settingsWidowsOrphans).toUtf8().constData()).toUpper());
@@ -334,6 +339,8 @@ void Reader::cancelStylingSamples() {
 int Reader::stylingChoice(int feature) const {
     using Feature = SettingsPanel::AdvancedText;
     switch (Feature(feature)) {
+    case Feature::ParagraphSpacing:
+        return 0;
     case Feature::WordSpacing:
         return settingsWordSpacing == 80 ? 0 : settingsWordSpacing == 120 ? 2 : 1;
     case Feature::Tracking:
@@ -358,6 +365,8 @@ void Reader::renderStylingSamples(int unchanged) {
     auto settings = styleSampleSettings(model->state());
     settings["dark_mode"] = darkOption->isChecked();
     settings["word_spacing"] = settingsWordSpacing;
+    settings["paragraph_spacing"] = settingsParagraphSpacing;
+    settings["paragraph_indent"] = settingsParagraphIndent;
     settings["justification_tracking"] = settingsTracking;
     settings["widows_orphans"] = settingsWidowsOrphans;
     settings["vertical_justification"] = settingsVerticalSpacing;
@@ -366,11 +375,12 @@ void Reader::renderStylingSamples(int unchanged) {
         settings[key] = settingsFontFaces.value(key).toString();
     const auto size = page->image.size();
     const int margin = settings.value("margin_pixels").toInt();
+    const auto textPage = panel->stylingTextPageSize(size, margin);
     // Crops keep a little paper beside the text.
     const int side = qMin(margin, int(ui::px(16)));
     const int top = settings.value("top_margin_pixels").toInt();
-    auto crop = panel->stylingCropSize(size, margin);
-    crop = QSize(qMin(size.width(), crop.width() + 2 * side), qMin(size.height() - top, crop.height()));
+    auto crop = panel->stylingCropSize(textPage, margin);
+    crop = QSize(qMin(textPage.width(), crop.width() + 2 * side), qMin(textPage.height() - top, crop.height()));
     const QPoint cropOrigin(margin - side, top);
     const struct {
         Feature feature;
@@ -378,6 +388,7 @@ void Reader::renderStylingSamples(int unchanged) {
         QVector<QJsonValue> values;
     } requests[] = {
         {Feature::WordSpacing, "word_spacing", {80, 100, 120}},
+        {Feature::ParagraphSpacing, "paragraph_spacing", {settingsParagraphSpacing}},
         {Feature::Tracking, "justification_tracking", {0, 5, 15}},
         {Feature::Pagination, "widows_orphans", {QStringLiteral("publisher"), QStringLiteral("avoid"), QStringLiteral("allow")}},
         {Feature::VerticalSpacing, "vertical_justification", {QStringLiteral("off"), QStringLiteral("center"), QStringLiteral("expand")}},
@@ -402,10 +413,20 @@ void Reader::renderStylingSamples(int unchanged) {
             // Tracking only acts on justified lines, so its sample is justified.
             if (entry.feature == Feature::Tracking)
                 request.settings["text_alignment"] = QStringLiteral("justify");
-            request.page = size;
+            request.page = textPage;
         } else {
             request.settings = styleSamplePageSettings(settings);
             request.page = styleSamplePageSize();
+        }
+        if (entry.feature == Feature::ParagraphSpacing) {
+            // Use the layout sample's opening paragraphs with room beside
+            // the text to see first-line indentation and continuation lines.
+            request.settings["font_pixels"] = readingPixels(30);
+            request.settings["paragraph_indent"] = settingsParagraphIndent;
+            const int margin = readingPixels(96), paper = readingPixels(64);
+            request.settings["margin_pixels"] = margin;
+            request.cropOrigin = {margin - paper, styleSampleReadingArea().top()};
+            request.crop = {request.page.width() - 2 * margin + 2 * paper, readingPixels(640)};
         }
         request.thumbnail = panel->stylingPageSize(request.page, vertical);
         if (vertical) {
@@ -489,6 +510,8 @@ void Reader::applySettings() {
     next["two_columns_landscape"] = static_cast<SettingsPanel *>(general)->landscapeColumnsOption->isChecked();
     next["column_spacing_percent"] = settingsColumnSpacing;
     next["word_spacing"] = settingsWordSpacing;
+    next["paragraph_spacing"] = settingsParagraphSpacing;
+    next["paragraph_indent"] = settingsParagraphIndent;
     next["justification_tracking"] = settingsTracking;
     next["widows_orphans"] = settingsWidowsOrphans;
     next["page_animations"] = animationOption->isChecked();
@@ -541,6 +564,8 @@ void Reader::applySettings() {
     settings["two_columns_landscape"] = preferences.value("two_columns_landscape");
     settings["column_spacing_percent"] = settingsColumnSpacing;
     settings["word_spacing"] = settingsWordSpacing;
+    settings["paragraph_spacing"] = settingsParagraphSpacing;
+    settings["paragraph_indent"] = settingsParagraphIndent;
     settings["justification_tracking"] = settingsTracking;
     settings["widows_orphans"] = settingsWidowsOrphans;
     settings["bold_reading"] = bionicOption->isChecked() ? QStringLiteral("bold") : QStringLiteral("off");

@@ -50,8 +50,8 @@ QJsonObject globalPreferences(QJsonObject preferences);
 QJsonObject cleanPreferences(QJsonObject preferences);
 // The saved settings that decide how the book is laid out and drawn. A
 // retained layout is reused only when all of them match.
-inline constexpr std::array<const char *, 29> keys{
-    "line_spacing_version",   "font_pixels",     "line_spacing",      "font_face",
+inline constexpr std::array<const char *, 31> keys{
+    "line_spacing_version",   "font_pixels",     "line_spacing", "paragraph_spacing", "paragraph_indent", "font_face",
     "default_font_face",      "margin_pixels",   "top_margin_pixels", "bottom_margin_pixels",
     "text_alignment",         "bold_reading",    "weight_steps",      "font_weight",
     "font_optical_size",      "hyphenation",     "dark_mode",         "hide_nonlinear_fragments",
@@ -69,6 +69,16 @@ inline QString verticalSpacingScope(const QJsonValue &value) {
 inline bool validWordSpacing(int percent) {
 
     return percent == 80 || percent == 100 || percent == 120;
+}
+// -1 keeps publisher spacing; other values are percentages of the text size.
+inline int paragraphSpacing(const QJsonValue &value) {
+    const int percent = value.toInt(-1);
+    return value.isDouble() && value.toDouble() == percent && percent >= 0 && percent <= 200 ? percent : -1;
+}
+// -1 keeps publisher indentation; zero removes it.
+inline int paragraphIndent(const QJsonValue &value) {
+    const int percent = value.toInt(-1);
+    return value.isDouble() && value.toDouble() == percent && percent >= 0 && percent <= 300 ? percent : -1;
 }
 inline bool validTracking(int percent) {
     return percent == 0 || percent == 5 || percent == 15;

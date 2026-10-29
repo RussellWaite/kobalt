@@ -333,7 +333,7 @@ private:
     QString defaultFace_ = defaultFontFace;
     std::array<QString, 3> fallbackFaces_;
     QString alignment_ = "left";
-    int pixels_ = defaultFontPixels(), spacing_ = defaultLineSpacing;
+    int pixels_ = defaultFontPixels(), spacing_ = defaultLineSpacing, paragraphSpacing_ = -1, paragraphIndent_ = -1;
     int margin_ = defaultMarginPixels(), topMargin_ = defaultVerticalMarginPixels(margin_),
         bottomMargin_ = defaultVerticalMarginPixels(margin_);
     void activateFontParameters() const;
