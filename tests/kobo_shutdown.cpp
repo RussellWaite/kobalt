@@ -1,9 +1,14 @@
 #include "platforms/kobo/common/native_lifecycle.h"
+#include "platforms/kobo/common/screensaver_compatibility.h"
 #include "storage/annotation_database.h"
 #include "storage/profile_database.h"
 #include <QCoreApplication>
 #include <QTemporaryDir>
 #include <QTest>
+#include <QLibrary>
+#include <dlfcn.h>
+
+extern "C" void kobalt_power_off(void *, bool);
 
 // Export the native entry points and signals used by the real lifecycle adapter.
 class N3PowerWorkflowManager : public QObject {
@@ -13,6 +18,7 @@ public:
     bool sleeping() const;
     bool sleepViewVisible() const;
     bool pinCodeInputDialogVisible() const;
+    void powerOff(bool low);
     bool asleep = false, sleepVisible = false, pinVisible = false;
 signals:
     void aboutToSleep();
@@ -56,6 +62,7 @@ void recordHandoff() {
 void powerOff(void *, bool low) { recordHandoff(); ++powerOffs; batteryLow = low; }
 void reboot(void *) { recordHandoff(); ++reboots; }
 }
+void N3PowerWorkflowManager::powerOff(bool low) { ::powerOff(this, low); }
 
 class ShutdownTests : public QObject {
     Q_OBJECT
@@ -205,6 +212,66 @@ private slots:
         delete manager;
         drained();
         QCOMPARE(powerOffs + reboots, 0);
+    }
+    void screensaverChain_data() {
+        QTest::addColumn<bool>("screensaverLast");
+        QTest::addColumn<bool>("low");
+        for (bool last : {false, true})
+            for (bool low : {false, true})
+                QTest::newRow((QByteArray::number(last) + "-" + QByteArray::number(low)).constData()) << last << low;
+    }
+    void screensaverChain() {
+        QFETCH(bool, screensaverLast);
+        QFETCH(bool, low);
+        using PowerOff = void (*)(void *, bool);
+        QLibrary addon(QStringLiteral(KOBALT_SCREENSAVER_FIXTURE));
+        QVERIFY2(addon.load(), qPrintable(addon.errorString()));
+        const auto hook = reinterpret_cast<PowerOff>(addon.resolve("hook_N3PowerWorkflowManager_powerOff"));
+        const auto reset = reinterpret_cast<void (*)(PowerOff)>(addon.resolve("fixtureReset"));
+        const auto calls = reinterpret_cast<int (*)()>(addon.resolve("fixtureCalls"));
+        const auto stock = reinterpret_cast<PowerOff>(dlsym(RTLD_DEFAULT, "_ZN22N3PowerWorkflowManager8powerOffEb"));
+        QVERIFY(hook && reset && calls && stock);
+        reset(stock);
+        kobalt::nativePowerOff = screensaverLast ? stock : hook;
+        QTemporaryDir profile;
+        profilePath = profile.path();
+        QVERIFY(kobalt::AnnotationDatabase::transaction(profilePath, [](QSqlDatabase &) { return true; }));
+        {
+            kobalt::NativeLifecycle lifecycle(nullptr);
+            QVERIFY(lifecycle.connected());
+            // Repeated discovery must not turn either load order into a cycle.
+            QVERIFY(kobalt::connectScreensaverPowerOff());
+            std::function<void()> drained;
+            lifecycle.prepareShutdown = [&](std::function<void()> ready) { drained = std::move(ready); };
+            const auto entry = screensaverLast ? hook : kobalt_power_off;
+            entry(N3PowerWorkflowManager::sharedInstance(), low);
+            QVERIFY(drained);
+            QCOMPARE(powerOffs, 0);
+            QVERIFY(kobalt::NativeLifecycle::nativeSessionSaveAllowed());
+            // A slow or failed save must not be bypassed by the other mod.
+            QTest::qWait(3500);
+            QCOMPARE(powerOffs, 0);
+            QVERIFY(kobalt::AnnotationDatabase::transaction(profilePath, [](QSqlDatabase &) { return true; }));
+            QVERIFY(kobalt::NativeLifecycle::nativeProgressSaveAllowed());
+            drained();
+            QCOMPARE(powerOffs, 1);
+            QCOMPARE(calls(), 1);
+            QCOMPARE(batteryLow, low);
+            QVERIFY(profileClosedAtHandoff);
+            drained();
+            QCOMPARE(powerOffs, 1);
+            QCOMPARE(calls(), 1);
+        }
+        // An unknown third-party continuation must not be overwritten.
+        reset(powerOff);
+        kobalt::nativePowerOff = stock;
+        QVERIFY(!kobalt::connectScreensaverPowerOff());
+        {
+            kobalt::NativeLifecycle unsupported(nullptr);
+            QVERIFY(!unsupported.connected());
+        }
+        kobalt::nativePowerOff = powerOff;
+        QVERIFY(addon.unload());
     }
 };
 QTEST_GUILESS_MAIN(ShutdownTests)

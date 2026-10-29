@@ -368,7 +368,13 @@ if(BUILD_TESTING)
             LABELS "lifecycle;integration" TIMEOUT 125)
     endforeach()
     add_executable(kobalt-shutdown-tests "${KOBALT_ROOT}/tests/kobo_shutdown.cpp"
-        "${KOBALT_ROOT}/platforms/kobo/common/native_lifecycle.cpp")
+        "${KOBALT_ROOT}/platforms/kobo/common/native_lifecycle.cpp"
+        "${KOBALT_ROOT}/platforms/kobo/common/screensaver_compatibility.cpp")
+    add_library(kobalt-screensaver-fixture SHARED "${KOBALT_ROOT}/tests/support/screensaver_fixture.cpp")
+    target_include_directories(kobalt-screensaver-fixture PRIVATE "${KOBALT_ROOT}")
+    target_compile_definitions(kobalt-shutdown-tests PRIVATE
+        KOBALT_SCREENSAVER_FIXTURE="$<TARGET_FILE:kobalt-screensaver-fixture>")
+    add_dependencies(kobalt-shutdown-tests kobalt-screensaver-fixture)
     set_target_properties(kobalt-shutdown-tests PROPERTIES ENABLE_EXPORTS ON)
     target_compile_definitions(kobalt-shutdown-tests PRIVATE KOBALT_CONFIG_DIR="." KOBALT_SYSTEM_FONT_DIRECTORY="")
     target_link_libraries(kobalt-shutdown-tests PRIVATE kobalt-regression-runtime Qt6::Test)
@@ -463,6 +469,7 @@ if(BUILD_TESTING)
                 set_target_properties(kobalt-${name}-tests PROPERTIES AUTOMOC ON ENABLE_EXPORTS ON)
             elseif(check STREQUAL "native_lifecycle")
                 target_sources(kobalt-${name}-tests PRIVATE "${KOBALT_ROOT}/platforms/kobo/common/native_lifecycle.cpp"
+                    "${KOBALT_ROOT}/platforms/kobo/common/screensaver_compatibility.cpp"
                     "${KOBALT_ROOT}/platforms/kobo/common/native_lifecycle.h")
                 target_link_libraries(kobalt-${name}-tests PRIVATE kobalt-regression-runtime Qt6::Widgets Qt6::Sql)
                 target_include_directories(kobalt-${name}-tests PRIVATE "${KOBALT_ROOT}")

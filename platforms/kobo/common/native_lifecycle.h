@@ -76,6 +76,11 @@ private slots:
     void unplugging();
 
 private:
+    bool eventFilter(QObject *object, QEvent *event) override;
+    void checkSleepView(const char *source);
+    void queueSleepViewCheck();
+    bool sleepHandoffPending = false;
+    QTimer sleepViewCheck;
     bool expectingUsbPrompt = false;
     bool savingBeforeSleep = false;
     bool connected_ = false, asleep = false, usbPending = false, exported = false, poweringOff = false;

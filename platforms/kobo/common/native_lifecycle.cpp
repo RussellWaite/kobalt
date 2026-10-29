@@ -1,10 +1,13 @@
 #include "support/qt_compat.h"
 #include "native_lifecycle.h"
+#include "screensaver_compatibility.h"
 #include "reader_environment.h"
 #include "engine/crengine/engine_activity.h"
 #include "storage/profile_database.h"
 #include "support/diagnostics.h"
 #include <QPointer>
+#include <QCoreApplication>
+#include <QEvent>
 #include <QTimer>
 #include <dlfcn.h>
 #include <memory>
@@ -114,8 +117,36 @@ extern "C" __attribute__((visibility("default"))) void kobalt_show_sleep_view(vo
     NativeLifecycle::finishSleepView();
 }
 void NativeLifecycle::finishSleepView() {
-    if (active && active->asleep && active->sleepViewReady)
-        active->sleepViewReady();
+    if (active)
+        active->checkSleepView("hook");
+}
+void NativeLifecycle::checkSleepView(const char *source) {
+    if (!sleepHandoffPending || !asleep || storageBlocked() || shuttingDown() || removalPending)
+        return;
+    const auto &api = powerApi();
+    const auto *power = api.available() ? api.manager() : nullptr;
+    const bool visible = power && api.visible(power);
+    const bool pin = power && api.pin(power);
+    const bool ready = visible && !pin && bool(sleepViewReady);
+    if (ready) {
+        // Claim this transition before painting. Child show events and a
+        // second hook call must not repeat the handoff.
+        sleepHandoffPending = false;
+        sleepViewCheck.stop();
+        sleepViewReady();
+    }
+    diagnostic(ready ? "sleep-view-handoff" : "sleep-view-unavailable",
+               qt::object({{"source", QString::fromLatin1(source)}, {"visible", visible}, {"pin", pin},
+                           {"sleeping", power && api.sleeping(power)}}), false);
+}
+void NativeLifecycle::queueSleepViewCheck() {
+    if (sleepHandoffPending && asleep && !sleepViewCheck.isActive())
+        sleepViewCheck.start(0);
+}
+bool NativeLifecycle::eventFilter(QObject *object, QEvent *event) {
+    if (event->type() == QEvent::Show && object->inherits("AbstractPowerView"))
+        queueSleepViewCheck();
+    return false;
 }
 bool (*nativeCanSuspend)(void *);
 void (*nativeUsbConnect)(void *);
@@ -149,12 +180,16 @@ extern "C" __attribute__((visibility("default"))) void kobalt_usb_connect(void *
         nativeUsbConnect(manager);
 }
 NativeLifecycle::NativeLifecycle(QObject *parent) : QObject(parent) {
+    sleepViewCheck.setSingleShot(true);
+    connect(&sleepViewCheck, &QTimer::timeout, this, [this] { checkSleepView("fallback"); });
     wakeRetry.setSingleShot(true);
     connect(&wakeRetry, &QTimer::timeout, this, &NativeLifecycle::finishWake);
     const auto power = symbol<QObject *(*)()>("_ZN22N3PowerWorkflowManager14sharedInstanceEv");
     const auto usb = symbol<QObject *(*)()>("_ZN19PlugWorkflowManager14sharedInstanceEv");
     if (!power || !usb || !nativeUsbWorkflow || !nativeCanSuspend || !nativeUsbConnect || !nativeAboutUsbConnect ||
         !nativeShowSleepView || !nativeHideSleepView || !nativePowerOff || !nativeReboot)
+        return;
+    if (!connectScreensaverPowerOff())
         return;
     const auto a = connect(power(), SIGNAL(aboutToSleep()), this, SLOT(aboutToSleep()), Qt::DirectConnection);
     // Nickel can defer resumedFromSleep until the frontlight fade finishes.
@@ -171,6 +206,7 @@ NativeLifecycle::NativeLifecycle(QObject *parent) : QObject(parent) {
     if (connected_) {
         active = this;
         sessionStorageAvailable.store(true);
+        QCoreApplication::instance()->installEventFilter(this);
         asleep = nativeSleeping();
         engineActivity().pause(asleep);
     }
@@ -196,6 +232,7 @@ void NativeLifecycle::usbPlugged() {
 void NativeLifecycle::aboutToSleep() {
     wakeRetry.stop();
     asleep = true;
+    sleepHandoffPending = true;
     engineActivity().pause(!draining && !storageBlocked());
     diagnostic("sleep-start");
     savingBeforeSleep = true;
@@ -203,8 +240,14 @@ void NativeLifecycle::aboutToSleep() {
         sleep();
     }
     savingBeforeSleep = false;
+    // Older NickelHook users can replace our showSleepView hook without
+    // chaining it. Check once after Nickel and the add-on finish their stack.
+    // A later power-view Show event schedules another check, without polling.
+    queueSleepViewCheck();
 }
 void NativeLifecycle::resumed() {
+    sleepHandoffPending = false;
+    sleepViewCheck.stop();
     // The completed signal can arrive after the reader is already awake.
     if (!asleep) {
         return;
@@ -241,7 +284,8 @@ bool NativeLifecycle::canSuspend() {
     // Standby stops the reader's timers. Run pending position saves now,
     // while the device is idle, instead of after the tap that wakes it.
     return !active ||
-           (!active->draining && !active->usbPending && !active->poweringOff && engineActivity().quiescent() &&
+           (!active->sleepViewCheck.isActive() && !active->draining && !active->usbPending && !active->poweringOff &&
+            engineActivity().quiescent() &&
             (!active->sleepWorkPending || !active->sleepWorkPending()) &&
             (!active->beforeStandby || active->beforeStandby()));
 }
