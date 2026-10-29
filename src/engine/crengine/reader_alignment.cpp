@@ -74,7 +74,7 @@ void markBodyAlignment(ldomDocument *document) {
                     style->float_ != css_f_none || style->border_style_top != css_border_none ||
                     style->border_style_bottom != css_border_none || style->border_style_left != css_border_none ||
                     style->border_style_right != css_border_none ||
-                    (name == "p" && style->background_color.value != CSS_COLOR_TRANSPARENT);
+                    (name == "p" && lUInt32(style->background_color.value) != CSS_COLOR_TRANSPARENT);
             if (node->hasAttribute(attribute))
                 node->setAttributeValue(0, attribute, U"");
             if (node->hasAttribute(paragraphAttribute))
