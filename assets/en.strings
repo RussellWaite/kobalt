@@ -450,8 +450,10 @@
 "closing.saving" = "Saving your progress…";
 "closing.may_take_a_while" = "This may take a few moments.";
 "closing.failed" = "Couldn't save your progress";
-"closing.failed_detail" = "The book hasn’t closed because saving failed.";
-"closing.retry" = "Save and close";
+"closing.failed_detail" = "Your progress couldn’t be saved, so the book is still open. Please try again. If this keeps happening, back up your data.";
+"closing.retry" = "Retry save and close";
+"closing.quit" = "Quit without saving";
+"closing.quit_warning" = "Quitting now may lose unsaved progress or annotations.";
 "closing.return" = "Keep reading";
 
 /* reader */

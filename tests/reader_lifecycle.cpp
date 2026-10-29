@@ -3825,11 +3825,19 @@ private slots:
 
     void closeRetriesRequiredNativeSaves_data() {
         QTest::addColumn<bool>("timeSave");
-        QTest::newRow("position") << false;
-        QTest::newRow("reading-time") << true;
+        QTest::addColumn<bool>("discard");
+        QTest::addColumn<bool>("resume");
+        QTest::newRow("position") << false << false << false;
+        QTest::newRow("reading-time") << true << false << false;
+        QTest::newRow("quit-position") << false << true << false;
+        QTest::newRow("quit-reading-time") << true << true << false;
+        QTest::newRow("resume-position") << false << true << true;
+        QTest::newRow("resume-reading-time") << true << true << true;
     }
     void closeRetriesRequiredNativeSaves() {
         QFETCH(bool, timeSave);
+        QFETCH(bool, discard);
+        QFETCH(bool, resume);
         ReaderFixture host(testPaths(), testFonts, testPlaceholder);
         CloseHost cleanup{host};
         const auto identity = QUrl::fromLocalFile(QFileInfo(textBook).absoluteFilePath()).toString();
@@ -3860,11 +3868,82 @@ private slots:
         QCOMPARE(host.book()->readingMilliseconds(), stopped);
         auto *saving = host.window()->findChild<QWidget *>("rrSaving");
         QVERIFY(!saving || !saving->isVisible());
-        host.progress->failWrite = host.progress->holdFinish = false;
+        QVERIFY(!host.window()->findChild<QPushButton *>("rrCloseSaveQuit"));
+        host.progress->holdFinish = false;
+        host.progress->failWrite = discard && !timeSave;
+        host.progress->failFinish = discard && timeSave;
         auto *retry = host.window()->findChild<QPushButton *>("rrCloseSaveRetry");
         QVERIFY(click(canvas, retry));
+        if (discard) {
+            QTRY_VERIFY(host.window()->findChild<QPushButton *>("rrCloseSaveQuit"));
+            QCOMPARE(closed.count(), 0);
+            QCOMPARE(host.progress->finishAttempts, 2);
+            if (resume) {
+                QVERIFY(click(canvas, host.window()->findChild<QPushButton *>("rrCloseSaveReturn")));
+                QTRY_VERIFY(!host.window()->findChild<QPushButton *>("rrCloseSaveQuit"));
+                host.window()->close();
+                QTRY_VERIFY(host.window()->findChild<QPushButton *>("rrCloseSaveRetry"));
+                QVERIFY(!host.window()->findChild<QPushButton *>("rrCloseSaveQuit"));
+                QVERIFY(click(canvas, host.window()->findChild<QPushButton *>("rrCloseSaveRetry")));
+                QTRY_VERIFY(host.window()->findChild<QPushButton *>("rrCloseSaveQuit"));
+            }
+            const auto attempts = host.progress->finishAttempts;
+            const auto writes = host.progress->writeAttempts;
+            const auto stops = host.progress->stopAttempts;
+            const auto saved = host.progress->current;
+            QVERIFY(click(canvas, host.window()->findChild<QPushButton *>("rrCloseSaveQuit")));
+            QTRY_COMPARE_WITH_TIMEOUT(closed.count(), 1, 10000);
+            QCOMPARE(host.progress->finishAttempts, attempts);
+            QCOMPARE(host.progress->writeAttempts, writes);
+            QCOMPARE(host.progress->stopAttempts, stops);
+            QCOMPARE(host.progress->current.location, saved.location);
+            return;
+        }
         QTRY_COMPARE_WITH_TIMEOUT(closed.count(), 1, 10000);
         QCOMPARE(host.progress->finishAttempts, 2);
+    }
+
+    void quitAfterFailedLocalSaveRetry() {
+        const auto paths = testPaths();
+        ReaderFixture host(paths, testFonts, testPlaceholder);
+        CloseHost cleanup{host};
+        const auto identity = QUrl::fromLocalFile(QFileInfo(textBook).absoluteFilePath()).toString();
+        QSignalSpy opened(&host, &ReaderFixture::opened), closed(&host, &ReaderFixture::closed);
+        host.open(textBook, nativeSize);
+        QTRY_COMPARE_WITH_TIMEOUT(opened.count(), 1, 30000);
+        Canvas canvas(host.window(), nativeSize);
+        canvas.resize(900, 900);
+        canvas.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&canvas));
+        QTRY_VERIFY(!host.session()->busy());
+        bool checkpointed = false;
+        host.book()->checkpointForClose([&](bool saved) { checkpointed = saved; });
+        QTRY_VERIFY(checkpointed);
+        const auto saved = storage::readBookState(paths, identity).object;
+        const auto changeSql = [&](const QString &statement) {
+            return AnnotationDatabase::transaction(paths.directory, [&](QSqlDatabase &db) {
+                QSqlQuery query(db);
+                return query.exec(statement);
+            });
+        };
+        QVERIFY(changeSql("CREATE TRIGGER refuse_quit_checkpoint BEFORE UPDATE ON book_state "
+                          "BEGIN SELECT RAISE(ABORT,'test'); END"));
+        struct RemoveFailure {
+            std::function<void()> remove;
+            ~RemoveFailure() { remove(); }
+        } restore{[&] { changeSql("DROP TRIGGER IF EXISTS refuse_quit_checkpoint"); }};
+        QVERIFY(host.session()->go(1));
+        QTRY_VERIFY(!host.session()->busy());
+        QVERIFY(host.session()->state().value("position") != saved.value("position"));
+        host.window()->close();
+        QTRY_VERIFY(host.window()->findChild<QPushButton *>("rrCloseSaveRetry"));
+        QVERIFY(!host.window()->findChild<QPushButton *>("rrCloseSaveQuit"));
+        QVERIFY(click(canvas, host.window()->findChild<QPushButton *>("rrCloseSaveRetry")));
+        QTRY_VERIFY(host.window()->findChild<QPushButton *>("rrCloseSaveQuit"));
+        QCOMPARE(closed.count(), 0);
+        QVERIFY(click(canvas, host.window()->findChild<QPushButton *>("rrCloseSaveQuit")));
+        QTRY_COMPARE_WITH_TIMEOUT(closed.count(), 1, 10000);
+        QCOMPARE(storage::readBookState(paths, identity).object.value("position"), saved.value("position"));
     }
 
     void closeWaitsForNativeTimeBeforePosition() {

@@ -626,6 +626,7 @@ private:
     void cancelExit();
     void showSaving(int progress);
     void hideSaving();
+    bool closeSaveRetried = false, closeWithoutSaving = false;
     quint64 closeRequest = 0;
     QElapsedTimer closeStage;
     int closeSaveProgress = 0;

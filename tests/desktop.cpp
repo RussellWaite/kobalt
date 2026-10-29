@@ -5855,6 +5855,18 @@ private slots:
         QVERIFY(!exposed.isEmpty());
         QCOMPARE(composed.copy(exposed), page.copy(exposed));
         QVERIFY(capture(fixture, name + "-saving"));
+        saving.reset();
+        for (bool retried : {false, true}) {
+            auto failure = std::make_unique<SaveErrorView>(reader, QString(), retried);
+            failure->setGeometry(reader->rect());
+            failure->show();
+            failure->raise();
+            QCOMPARE(failure->quitButton() != nullptr, retried);
+            if (retried)
+                QVERIFY(failure->quitButton()->height() >= failure->secondaryButton()->height());
+            QVERIFY(failure->card()->height() < reader->height());
+            QVERIFY(capture(fixture, name + (retried ? "-save-retry-failed" : "-save-failed")));
+        }
     }
 
     void finish_data() { screenshotVariants(); }

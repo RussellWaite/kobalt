@@ -116,6 +116,8 @@ inline QString screenshotTitle(const QString &scene, const QJsonObject &book) {
         {"menu-return-pressed", "Return button pressed"},
         {"reading", "Reading"},
         {"saving", "Saving reading progress"},
+        {"save-failed", "Saving failed"},
+        {"save-retry-failed", "Saving retry failed"},
         {"search", "Search results"},
         {"search-empty", "Search this book"},
         {"search-no-results", "No matching passages"},

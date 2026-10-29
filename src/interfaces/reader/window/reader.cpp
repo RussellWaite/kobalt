@@ -108,6 +108,18 @@ void Reader::observeReading() {
 }
 
 void Reader::prepareShutdown(std::function<void()> finished) {
+    if (closeWithoutSaving) {
+        // Hosts also call this while retiring an accepted reader close. The
+        // explicit quit waives failed saves, but already queued work must drain.
+        // Defer completion so the host cannot delete us inside closeEvent().
+        qt::later(10, this, [this, finished] {
+            if (pendingStorageSave())
+                prepareShutdown(finished);
+            else
+                finished();
+        });
+        return;
+    }
     prepareTransition(std::move(finished), false);
 }
 void Reader::prepareUsb(std::function<void()> finished) {
@@ -985,7 +997,8 @@ void Reader::closeEvent(QCloseEvent *event) {
         finishExit();
         return;
     }
-    presentation->saveSleepScreen(exitSleepSnapshot);
+    if (!closeWithoutSaving)
+        presentation->saveSleepScreen(exitSleepSnapshot);
     exitSleepSnapshot = {};
     setProperty("reader_exit_clean_pending", true);
     setProperty("reader_preparing_handoff", true);
@@ -998,7 +1011,7 @@ void Reader::closeEvent(QCloseEvent *event) {
     setProperty("reader_preparing_handoff", false);
     QElapsedTimer step;
     step.start();
-    book->releaseNative();
+    book->releaseNative(!closeWithoutSaving);
     closingTimes.add("session", step);
     hideSaving();
     model->updated = {};
@@ -2052,11 +2065,7 @@ void Reader::failExit(quint64 request, const QString &error) {
     setEnabled(true);
     if (closeSaveError)
         return;
-    auto *notice = new ui::ChoiceModal(this,
-        {error.isEmpty() ? strings::get("closing.failed_detail") : error,
-         strings::get("closing.failed"), {}},
-        {strings::get("closing.return"), "rrCloseSaveReturn"},
-        {strings::get("closing.retry"), "rrCloseSaveRetry"});
+    auto *notice = new SaveErrorView(this, error, closeSaveRetried);
     closeSaveError = notice;
     notice->setObjectName("rrCloseSaveError");
     notice->setGeometry(rect());
@@ -2067,6 +2076,7 @@ void Reader::failExit(quint64 request, const QString &error) {
     };
     connect(notice->primaryButton(), &QPushButton::clicked, this, [this, dismiss] {
         dismiss();
+        closeSaveRetried = true;
         bookmarks->retryFailedSave();
         highlights->retryFailedSave();
         finishExit();
@@ -2075,6 +2085,15 @@ void Reader::failExit(quint64 request, const QString &error) {
         dismiss();
         cancelExit();
     });
+    if (notice->quitButton())
+        connect(notice->quitButton(), &QPushButton::clicked, this, [this, dismiss] {
+            dismiss();
+            ++closeRequest;
+            exportRunning = false;
+            closeWithoutSaving = true;
+            closing = true;
+            close();
+        });
     notice->dismissed = [this, dismiss] { dismiss(); cancelExit(); };
     notice->fitCard();
     notice->show();
@@ -2084,6 +2103,7 @@ void Reader::failExit(quint64 request, const QString &error) {
         textRefresh(widget);
 }
 void Reader::cancelExit() {
+    closeSaveRetried = false;
     ++closeRequest;
     exitPending = exportRunning = false;
     finishChoiceResolved = false;

@@ -347,6 +347,23 @@ std::unique_ptr<ReaderOpeningView> createEmbeddedOpening(QWidget *parent, Presen
     preferences["dark_mode"] = ui::darkTheme(parent);
     return std::make_unique<OpeningView>(parent, preferences, std::move(presentation), true);
 }
+SaveErrorView::SaveErrorView(QWidget *parent, const QString &error, bool retried)
+    : ui::ChoiceModal(parent,
+          {strings::get("closing.failed_detail") +
+               (error.isEmpty() ? QString() : "\n\n" + error) +
+               (retried ? "\n\n" + strings::get("closing.quit_warning") : QString()),
+           strings::get("closing.failed"), {}},
+          {strings::get("closing.return"), "rrCloseSaveReturn"},
+          {strings::get("closing.retry"), "rrCloseSaveRetry"}) {
+    setObjectName("rrCloseSaveError");
+    if (retried) {
+        quit = ui::makeModalButton(card(), {strings::get("closing.quit"), "rrCloseSaveQuit"}, false);
+        quit->ensurePolished();
+        quit->setFixedHeight(ui::metrics::chrome::actionHeight);
+        card()->rows()->addWidget(quit);
+    }
+    fitCard();
+}
 SavingView::SavingView(QWidget *parent) : ui::ModalOverlay(parent) {
     setObjectName("rrSaving");
     setProperty("reader_standard_modal", true);
