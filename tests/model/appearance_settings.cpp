@@ -337,8 +337,8 @@ int main() {
     for (const auto density : {212, 227, 265, 300}) {
         readingPpi.store(density);
         require(defaultFontPixels() == halfPointPixels(22), "Default text size is not 11 points");
-        require(minimumFontPixels() == halfPointPixels(14) && maximumFontPixels() == halfPointPixels(96),
-                "Engine size limits do not match the 7 to 48 point controls");
+        require(minimumFontPixels() == halfPointPixels(12) && maximumFontPixels() == halfPointPixels(96),
+                "Engine size limits do not match the 6 to 48 point controls");
     }
     readingPpi.store(300);
     auto inherited = appearance::typographyDefaults();
