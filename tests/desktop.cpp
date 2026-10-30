@@ -1566,7 +1566,7 @@ exit 7
         Fixture fixture;
         QVERIFY(fixture.prepared);
         QCOMPARE(fixture.window.findChild<QComboBox *>("desktopScreenPicker")->currentIndex(), 1);
-        QCOMPARE(fixture.window.findChild<QComboBox *>("desktopResolutionPicker")->currentData().toInt(), 0);
+        QCOMPARE(fixture.window.findChild<QComboBox *>("desktopResolutionPicker")->currentData().toInt(), 300);
         QVERIFY(!fixture.window.readerWindow());
         auto *start = fixture.window.findChild<android::StartScreen *>();
         QVERIFY(start && start->libraryShown());
