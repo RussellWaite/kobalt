@@ -78,21 +78,33 @@ private:
     std::deque<QJsonObject> queue;
 };
 
+// A closed sheet keeps its names until its deferred deletion. Qt 5 runs that
+// only after the player's nested event loops end, so the next sheet of the
+// same kind exists beside it. Prefer a visible widget over a hidden one.
 QWidget *find(const Host &host, const QString &name) {
+    QWidget *hidden = nullptr;
+    const auto search = [&](QWidget *root) -> QWidget * {
+        auto matches = root->findChildren<QWidget *>(name);
+        if (root->objectName() == name)
+            matches.prepend(root);
+        for (auto *widget : matches) {
+            if (widget->isVisible())
+                return widget;
+            if (!hidden)
+                hidden = widget;
+        }
+        return nullptr;
+    };
     if (auto *reader = host.reader ? host.reader() : nullptr) {
-        if (reader->objectName() == name)
-            return reader;
-        if (auto *widget = reader->findChild<QWidget *>(name))
+        if (auto *widget = search(reader))
             return widget;
     }
     // Popups are windows of their own.
     for (auto *window : QApplication::topLevelWidgets()) {
-        if (window->objectName() == name)
-            return window;
-        if (auto *widget = window->findChild<QWidget *>(name))
+        if (auto *widget = search(window))
             return widget;
     }
-    return nullptr;
+    return hidden;
 }
 bool visible(const Host &host, const QString &name) {
     const auto *widget = find(host, name);
