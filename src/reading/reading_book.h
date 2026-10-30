@@ -111,6 +111,8 @@ public:
     void checkpointForClose(std::function<void(bool)> done);
     QJsonObject checkpointState() const;
     bool savesPending() const;
+    // Called after a failed background checkpoint, which is already logged.
+    // The reader does not notify the user; tests observe failures here.
     void onCheckpointFailed(std::function<void()> failed) {
         checkpointFailed = std::move(failed);
     }
@@ -130,7 +132,8 @@ private:
     void finishCloseCheckpoint(const QJsonObject &checkpoint, bool saved, std::function<void(bool)> done);
     bool closeCheckpointPending = false;
     ReadingActivity readingActivity() const;
-    void saveSpeed(bool force = false);
+    // `background` queues the write instead of waiting for it.
+    void saveSpeed(bool force = false, bool background = false);
     std::unique_ptr<ReaderSession> model;
     QString statePath, identity_;
     storage::Paths paths_;

@@ -30,6 +30,14 @@ When adding a UI screen that needs screenshot coverage, include its scenes in th
 
 The root `./start.sh` builds and opens the Qt developer launcher on Linux and Mac. Keep launcher sources and presets under `platforms/launcher/`. Startup checks must explain missing dependencies in the terminal, keep Docker optional for desktop work, and never install tools or pull SDK images automatically. Its actions delegate to the existing platform presets, Kobo build script and autonomous scenario player. Keep visible scenarios separate from the full headless assertion suite. Preserve run-owned process, container and scratch cleanup when changing launcher actions.
 
+## The page turn is sacred
+
+While the user can turn a page or otherwise interact with the reader, the main thread must not write storage or wait for another thread. This includes Nickel's database, profile and preference saves, the diagnostic log, sleep snapshots and synchronous calls to the profile writer thread. Queue such work on a worker thread and report the result back to the main thread. A slow SD card or a busy Nickel database must never delay the next tap.
+
+Block the main thread only where it is absolutely necessary: where no input can arrive before the wait ends, such as sleep, USB export, closing, power-off and a host checkpoint. Mark each such scope with `mainthread::AllowBlocking` and state the reason. Do not use it to silence a violation on a path that runs while the user reads. The current known exceptions are listed in [the main-thread guard](doc/validation.md#main-thread-guard); remove them rather than add to them.
+
+`src/support/main_thread.h` enforces this rule. Every operation that writes storage or waits for another thread must call `mainthread::blocking()`, including a new storage helper or a new firmware call. The native tests run with `KOBALT_STRICT_MAIN_THREAD=1` and abort on a violation. Run them with `KOBALT_STRICT_MAIN_THREAD=trace` to list every violation with its call stack. Kobo logs a `main-thread-blocked` event instead. See [the main-thread guard](doc/validation.md#main-thread-guard).
+
 ## UI integration and verification
 
 Before changing UI, identify the closest existing control or screen. Trace its construction, shared styling, metrics and later presentation adjustments. Reusing its widget class alone is not enough.

@@ -78,7 +78,7 @@ file(GLOB_RECURSE shared CONFIGURE_DEPENDS
 add_library(kobalt-core OBJECT ${shared} display.cpp
     "${source}/assets/assets.cpp" "${source}/assets/bundled_fonts.cpp" "${source}/assets/font_catalog.cpp"
     "${source}/assets/system_fonts.cpp"
-    "${source}/support/diagnostics.cpp"
+    "${source}/support/diagnostics.cpp" "${source}/support/main_thread.cpp"
     "${source}/publication/publication.cpp" "${source}/publication/zip_resource.cpp"
     "${source}/publication/resource_cache.cpp" "${source}/publication/local_resources.cpp"
     "${source}/publication/image_policy.cpp" "${source}/publication/layout_compatibility.cpp"
@@ -401,10 +401,14 @@ if(BUILD_TESTING)
     set_tests_properties(platform.shutdown PROPERTIES ENVIRONMENT "${headless_environment}"
         LABELS "platform;integration" TIMEOUT 125)
     add_executable(kobalt-sleep-persistence-tests "${KOBALT_ROOT}/tests/sleep_persistence.cpp"
-        "${source}/storage/sleep_snapshot.cpp")
-    target_include_directories(kobalt-sleep-persistence-tests PRIVATE "${source}")
+        "${source}/storage/sleep_snapshot.cpp" "${source}/support/main_thread.cpp"
+        "${source}/support/diagnostics.cpp")
+    target_include_directories(kobalt-sleep-persistence-tests PRIVATE "${source}" "${CMAKE_CURRENT_BINARY_DIR}")
     target_link_libraries(kobalt-sleep-persistence-tests PRIVATE Qt6::Core Qt6::Gui)
     target_compile_options(kobalt-sleep-persistence-tests PRIVATE -Wall -Wextra -Werror)
+    if(APPLE)
+        target_compile_definitions(kobalt-sleep-persistence-tests PRIVATE fdatasync=fsync)
+    endif()
     add_dependencies(kobalt-tests kobalt-sleep-persistence-tests)
     add_test(NAME platform.sleep-persistence COMMAND "${CMAKE_COMMAND}"
         "-DTEST_EXECUTABLE=$<TARGET_FILE:kobalt-sleep-persistence-tests>"
@@ -605,7 +609,7 @@ if(BUILD_TESTING)
                 ENVIRONMENT "${headless_environment}" LABELS "${group};${lane}" TIMEOUT ${ctest_timeout})
         endforeach()
     endfunction()
-    kobalt_regressions(model storage_assets android_assets profile_storage record_writer reading_history bookmark_store highlight_store annotation_database appearance_settings header_footer
+    kobalt_regressions(model storage_assets android_assets profile_storage record_writer main_thread reading_history bookmark_store highlight_store annotation_database appearance_settings header_footer
         layout_cache resource_cache layout_compatibility reading_pace reading_speed engine_activity
         local_resources zip_resource diagnostics crash_reports dictionary_store image_damage page_pixels
         logical_word_counter brightness_gesture qt_compat page_refresh_regions screen_refresh plain_archive reading_progress

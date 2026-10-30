@@ -13,7 +13,12 @@ void pauseDiagnostics(bool paused);
 bool diagnosticsActive();
 void initializeDiagnostics(const QString &directory);
 bool diagnosticsRequested(const QString &profile);
+// Queues an event for the log. The file is written on the log's own thread.
 void diagnostic(const char *event, QJsonObject fields = {}, bool durable = true);
+// Waits until queued events are in the log file. False when `milliseconds`
+// pass first; a negative value waits without a limit. For tests and tools
+// that read the file; the reader never needs to wait for its own log.
+bool flushDiagnostics(int milliseconds = -1);
 // Whether durable events sync the log to storage. Performance scenarios turn
 // this off, so their timings leave out those syncs.
 void setDiagnosticsSync(bool enabled);

@@ -1,6 +1,7 @@
 #include "highlight_session.h"
 #include "reader_session.h"
 #include "support/diagnostics.h"
+#include "support/main_thread.h"
 #include "support/qt_compat.h"
 
 #include <QCoreApplication>
@@ -40,6 +41,9 @@ const QVector<Highlight> &HighlightSession::highlights() const {
     return store_ ? store_->highlights() : none;
 }
 bool HighlightSession::excerpts(const QStringList &ids, QVector<HighlightExcerpt> *rows) {
+    // Known exception: annotation lists, the editor and export read saved
+    // rows on the main thread when the user opens them.
+    mainthread::AllowBlocking allow("annotation read");
     if (!store_ || loadFailed_)
         return false;
     QStringList missing;
@@ -76,6 +80,9 @@ bool HighlightSession::excerpts(const QStringList &ids, QVector<HighlightExcerpt
     return true;
 }
 bool HighlightSession::detail(const QString &id, Highlight *row) {
+    // Known exception: annotation lists, the editor and export read saved
+    // rows on the main thread when the user opens them.
+    mainthread::AllowBlocking allow("annotation read");
     if (!store_ || loadFailed_)
         return false;
     for (const auto &h : highlights()) {
@@ -95,6 +102,9 @@ bool HighlightSession::detail(const QString &id, Highlight *row) {
     return true;
 }
 bool HighlightSession::exportDetails(QVector<Highlight> *rows) {
+    // Known exception: annotation lists, the editor and export read saved
+    // rows on the main thread when the user opens them.
+    mainthread::AllowBlocking allow("annotation read");
     if (!store_ || loadFailed_ || !resolved())
         return false;
     QStringList ids;

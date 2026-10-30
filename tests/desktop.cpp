@@ -12,6 +12,7 @@
 #include "platforms/desktop/services.h"
 #include "interfaces/reader/views/opening.h"
 #include "support/diagnostics.h"
+#include "support/main_thread.h"
 #include "platforms/android/start_screen.h"
 #include "platforms/android/canvas.h"
 #include "platforms/android/reader.h"
@@ -6833,6 +6834,18 @@ private slots:
 
 #include "desktop_perf.h"
 
+// The test inspects saved data between events; the reader's own work runs
+// inside event delivery, where the main-thread guard checks it. The test
+// runner calls checkEventsOnly(true) where the test body starts.
+class GuardedApplication final : public QApplication {
+public:
+    using QApplication::QApplication;
+    bool notify(QObject *object, QEvent *event) override {
+        mainthread::EventDelivery delivery;
+        return QApplication::notify(object, event);
+    }
+};
+
 int main(int argc, char **argv) {
     // --watch is the one visible mode, for a person who asked to watch the
     // performance scenarios. Every other mode stays headless.
@@ -6841,7 +6854,7 @@ int main(int argc, char **argv) {
         qputenv("QT_QPA_PLATFORM", "minimal:enable_fonts:freetype");
     FontCopies fontCopies;
     copies = &fontCopies;
-    QApplication app(argc, argv);
+    GuardedApplication app(argc, argv);
     if (QGuiApplication::platformName() != "minimal" && !watching) {
         qCritical() << "This executable only runs headlessly.";
         return 2;
@@ -6988,6 +7001,7 @@ int main(int argc, char **argv) {
         if (!QDir::isAbsolutePath(captureDirectory) || !QDir().mkpath(captureDirectory) ||
             QFileInfo::exists(captureDirectory + "/part.json")) return 2;
         QTimer::singleShot(0, &app, [&] {
+            mainthread::checkEventsOnly(true);
             app.exit(QTest::qExec(&screens, QStringList{arguments.first()} + selectors));
         });
         const int result = app.exec();
@@ -7001,6 +7015,7 @@ int main(int argc, char **argv) {
     } else {
         if (lightTests) arguments = {arguments.first(), "primaryViews"};
         QTimer::singleShot(0, &app, [&] {
+            mainthread::checkEventsOnly(true);
             app.exit(QTest::qExec(lightTests ? static_cast<QObject *>(&screens) : &tests, arguments));
         });
         return app.exec();

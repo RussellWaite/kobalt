@@ -331,6 +331,9 @@ bool NativeLifecycle::interceptShutdown(QObject *manager, Shutdown mode) {
         // Late saves must keep failing afterward.
         sessionStorageAvailable.store(false);
         storage::closeProfile(true);
+        // The event log is written on its own thread. Let it finish the
+        // last events, briefly, before Nickel freezes its threads.
+        flushDiagnostics(1000);
         if (mode == Shutdown::Reboot)
             nativeReboot(guard.data());
         else

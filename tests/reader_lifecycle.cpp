@@ -32,6 +32,7 @@
 #include "reading/reader_session.h"
 #include "reading/kosync.h"
 #include "support/diagnostics.h"
+#include "support/main_thread.h"
 #include <QLocale>
 #include "engine/crengine/engine_activity.h"
 #include "storage/profile_database.h"
@@ -154,6 +155,7 @@ public:
         const auto before = beforeEvent;
         if (before)
             before(object, event);
+        mainthread::EventDelivery delivery;
         const bool handled = QApplication::notify(object, event);
         const auto after = afterEvent;
         if (after)
@@ -756,7 +758,8 @@ private slots:
         qApp->applicationStateChanged(Qt::ApplicationActive);
         QVERIFY(sessionLabel->text().isEmpty());
         QVERIFY(!sessionLabel->isVisible());
-        QCOMPARE(value("SELECT COUNT(*) FROM reading_sessions").toInt(), 2);
+        // The new session's first save is queued, not waited for.
+        QTRY_COMPARE(value("SELECT COUNT(*) FROM reading_sessions").toInt(), 2);
         host.window()->hide();
         QCOMPARE(value("SELECT COUNT(*) FROM reading_sessions WHERE status='completed'").toInt(), 2);
         host.window()->show();
@@ -4242,7 +4245,7 @@ private slots:
         QTest::qWait(300);
         QCOMPARE(stored(), newest);
 
-        // A failed background write is reported and retried by the next save.
+        // A failed background write is logged and retried by the next save.
         int failures = 0;
         host.book()->onCheckpointFailed([&failures] {
             ++failures;
@@ -5050,6 +5053,7 @@ private:
         pauseDiagnostics(false);
         struct PauseDiagnostics { ~PauseDiagnostics() { pauseDiagnostics(true); } } diagnostics;
         const auto events = [&] {
+            flushDiagnostics();
             QFile file(paths.directory + "/diagnostics/events.jsonl");
             if (!file.open(QIODevice::ReadOnly)) return QByteArray();
             return file.readAll();
@@ -5409,7 +5413,12 @@ int main(int argc, char **argv) {
     if (!books.isValid() || !prepareSleepBooks(books.path()))
         return 2;
     ReaderLifecycleTests tests;
-    QTimer::singleShot(0, &app, [&] { app.exit(QTest::qExec(&tests, argc, argv)); });
+    QTimer::singleShot(0, &app, [&] {
+        // The test inspects saved data between events; the reader's own work
+        // runs inside event delivery.
+        mainthread::checkEventsOnly(true);
+        app.exit(QTest::qExec(&tests, argc, argv));
+    });
     return app.exec();
 }
 

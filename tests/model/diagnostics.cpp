@@ -56,6 +56,7 @@ int main(int argc, char **argv) {
     std::thread first(writer), second(writer);
     first.join();
     second.join();
+    kobalt::flushDiagnostics();
     for (const auto &file : {path, path + ".previous"}) {
         const auto bytes = read(file);
         if (bytes.isEmpty() || bytes.size() > 128 * 1024 || !bytes.endsWith('\n'))
@@ -73,14 +74,17 @@ int main(int argc, char **argv) {
     if (kobalt::diagnosticsActive())
         qFatal("Paused diagnostics reported active");
     kobalt::diagnostic("exported-storage");
+    kobalt::flushDiagnostics();
     if (read(path) != before)
         qFatal("Wrote diagnostics during USB export");
     kobalt::pauseDiagnostics(false);
     kobalt::diagnostic("remounted-storage");
+    kobalt::flushDiagnostics();
     if (read(path) == before)
         qFatal("Did not resume diagnostics after USB");
     const auto resumed = read(path);
     kobalt::diagnostic("oversized", {{"value", QString(5000, 'x')}});
+    kobalt::flushDiagnostics();
     if (read(path) != resumed)
         qFatal("Oversized entry accepted");
     QFile::remove(path);
@@ -92,10 +96,12 @@ int main(int argc, char **argv) {
     if (::symlink(QFile::encodeName(target), QFile::encodeName(path)) != 0)
         qFatal("Cannot create test symlink");
     kobalt::diagnostic("must-not-follow");
+    kobalt::flushDiagnostics();
     if (read(target) != "sentinel")
         qFatal("Followed log symlink");
     kobalt::initializeDiagnostics(target + "/not-a-directory");
     kobalt::diagnostic("unavailable");
+    kobalt::flushDiagnostics();
     if (read(target) != "sentinel")
         qFatal("Logging failure damaged file");
     qInfo("PASS: bounded concurrent logs, complete records, errno, oversized entry, symlink and unavailable storage");

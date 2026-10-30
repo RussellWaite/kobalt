@@ -216,10 +216,6 @@ Reader::Reader(std::unique_ptr<kobalt::ReadingBook> openedBook, kobalt::ReaderOr
             showHighlightError();
         });
     };
-    book->onCheckpointFailed([this] {
-        page->notice = strings::get("reader.could_not_save_reading_position");
-        page->refreshContent();
-    });
     bookmarks->changed = [this] {
         if (bookmarkList && bookmarkList->isVisible() && !bookmarkList->annotationsShown()) {
             bookmarkList->showBookmarks(bookmarkRows());
@@ -785,7 +781,7 @@ void Reader::buildOverlays() {
     });
     chapterGraph = new kobalt::ChapterGraph(this);
     chapterGraph->changed = [this] {
-        save();
+        save(false, true);
     };
     chapterGraph->setDense(preferences.value("dense_stats_chart").toBool(false));
     choices = new ChoiceScreen(this);
@@ -853,7 +849,7 @@ void Reader::buildOverlays() {
     choices->changed = [this] {
         if (choosingTypography && choices->isVisible())
             syncNavigation();
-        save();
+        save(false, true);
     };
     choices->back = [this] {
         choices->hide();

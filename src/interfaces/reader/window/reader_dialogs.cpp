@@ -276,7 +276,7 @@ void Reader::buildProgressChoice(const kobalt::ReadingProgress &shown, int direc
             return;
         book->acknowledge(shown, false);
         dismissProgressChoice();
-        save();
+        save(false, true);
         refresh();
         progressTick();
     });
@@ -304,7 +304,7 @@ void Reader::buildProgressChoice(const kobalt::ReadingProgress &shown, int direc
             }
             book->acknowledge(shown, true);
             dismissProgressChoice();
-            save();
+            save(false, true);
         });
     });
     card->fitToWidth(qMin<int>(m::notice::cardWidth, width() - 2 * m::notice::sideClearance));
@@ -418,7 +418,7 @@ void Reader::showFinishChoice() {
         finishChoiceResolved = exitPending || finished;
         exitPending = exitPending || finished;
         updateOrientationBlock();
-        save();
+        save(false, true);
         refresh();
     };
     connect(choice->secondaryButton(), &QPushButton::clicked, this, [choose] {

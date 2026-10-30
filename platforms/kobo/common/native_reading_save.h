@@ -35,17 +35,20 @@ private:
 // GUI-thread queue. An interval is removed only after both operations succeed.
 // The writer retains its own commit state, so retrying verification cannot add
 // the interval twice. Owners must finish the queue before releasing storage.
+// Both operations report through their completion, so on a device neither
+// has to run on the GUI thread: a tap can arrive while they write.
 class NativeReadingSave final : public QObject {
 public:
     using Completion = std::function<void(bool)>;
     using Flush = std::function<void(Completion)>;
+    using Write = std::function<void(Completion)>;
     explicit NativeReadingSave(int retryMilliseconds = 100, int timeoutMilliseconds = 2000)
         : retryMilliseconds(retryMilliseconds), timeoutMilliseconds(timeoutMilliseconds) {
         elapsed.invalidate();
         timer.setSingleShot(true);
         connect(&timer, &QTimer::timeout, this, [this] { advance(); });
     }
-    void append(Flush flush, std::function<bool()> write) {
+    void append(Flush flush, Write write) {
         intervals.push_back({std::move(flush), std::move(write), false});
         if (!elapsed.isValid())
             elapsed.start();
@@ -92,7 +95,7 @@ private:
     }
     struct Interval {
         Flush flush;
-        std::function<bool()> write;
+        Write write;
         bool flushed;
     };
     void advance() {
@@ -114,10 +117,19 @@ private:
             });
             return;
         }
-        if (!intervals.front().write()) {
-            retry();
-            return;
-        }
+        active = true;
+        const QPointer<NativeReadingSave> guard(this);
+        intervals.front().write([guard](bool saved) {
+            if (!guard)
+                return;
+            guard->active = false;
+            if (saved)
+                guard->written();
+            else
+                guard->retry();
+        });
+    }
+    void written() {
         intervals.pop_front();
         if (!intervals.empty()) {
             timer.start(0);

@@ -19,8 +19,16 @@ if(EXISTS "${work}")
 endif()
 file(MAKE_DIRECTORY "${work}")
 # Keep diagnostics capturable with Linux SDKs that otherwise log to the journal.
+# Strict main-thread checks abort a test that blocks the main thread while the
+# reader takes input (see src/support/main_thread.h). Set the variable to
+# `trace` in the environment to list every violation instead.
+set(strict "$ENV{KOBALT_STRICT_MAIN_THREAD}")
+if(strict STREQUAL "")
+    set(strict 1)
+endif()
 execute_process(
-    COMMAND "${CMAKE_COMMAND}" -E env "TMPDIR=${work}" "QT_FORCE_STDERR_LOGGING=1" "${TEST_EXECUTABLE}" ${TEST_ARGUMENTS}
+    COMMAND "${CMAKE_COMMAND}" -E env "TMPDIR=${work}" "QT_FORCE_STDERR_LOGGING=1" "KOBALT_STRICT_MAIN_THREAD=${strict}"
+            "${TEST_EXECUTABLE}" ${TEST_ARGUMENTS}
     WORKING_DIRECTORY "${work}"
     RESULT_VARIABLE result
     TIMEOUT ${TEST_TIMEOUT})

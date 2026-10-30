@@ -34,6 +34,7 @@
 #include "platform/api/reader_host_services.h"
 #include "platform/api/reader_orientation.h"
 #include "ui/screen_refresh.h"
+#include "support/main_thread.h"
 #include <QCheckBox>
 #include <array>
 #include <atomic>
@@ -638,8 +639,13 @@ private:
     int closeSaveProgress = 0;
     std::unique_ptr<SavingView> savingView;
     QPointer<kobalt::ui::ChoiceModal> closeSaveError;
-    std::unique_ptr<storage::RecordWriter> reportWriter;
+    std::unique_ptr<storage::RecordWriter> reportWriter, preferencesWriter;
     void saveSoon();
     void save(bool snapshot = false, bool background = false, bool persist = true);
+    // True while a tap can turn the page. The main thread then must not write
+    // storage or wait for another thread; see support/main_thread.h.
+    bool takesInput() const;
+    // Declared last, so it is unregistered before the members it reads.
+    mainthread::Interaction interaction{[this] { return takesInput(); }};
 };
 }

@@ -85,7 +85,15 @@ Reader::~Reader() {
     kobalt::ui::setHeaderFooterAddedWeight(2);
 }
 
+bool Reader::takesInput() const {
+    return isVisible() && !lifecycleHidden && !closing && !exitPending && !exportRunning && !services.suspended();
+}
+
 void Reader::checkpoint() {
+    // The host asks before sleep, USB or leaving the app, and needs the
+    // position on storage when this returns. Android and desktop also ask
+    // once a book opens, a known exception while the first page is shown.
+    mainthread::AllowBlocking allow("host checkpoint");
     if (exitPending || exportRunning || closing) {
         book->stopReading(true);
         return;
@@ -309,6 +317,8 @@ sleep::Snapshot Reader::captureSleepScreen() {
 }
 
 void Reader::sleepReader() {
+    // The device is going to sleep; no tap can turn the page until it wakes.
+    mainthread::AllowBlocking allow("sleep");
     if (orientation) {
         orientation->freeze();
     }
@@ -451,6 +461,9 @@ void Reader::wakeReader() {
 }
 
 void Reader::saveNativeProgress() {
+    // Known exception: Nickel's Volume API runs on this thread, so the native
+    // progress write at opening and its retries can still delay a tap.
+    mainthread::AllowBlocking allow("native progress");
     if (!book->canWriteNative() || model->image().isNull() || !model->error().isEmpty() || appearanceEdit.panelOpen() ||
         importingProgress || syncDialog) {
         return;
@@ -466,7 +479,7 @@ void Reader::saveNativeProgress() {
         return;
     }
     QJsonObject state;
-    book->checkpoint(&state);
+    book->checkpoint(&state, true);
     const auto result = state.value("native_writeback").toString();
     if (result == "verified" || result == "time-only") {
         savedNativeAnchor = anchor;
@@ -1951,9 +1964,10 @@ void Reader::recordOpening() {
         return;
     recordedOpening = true;
     if (!kosyncStarted) synchronizeKosync();
-    // A newer synced position waits for the reader's choice.
+    // A newer synced position waits for the reader's choice. The first page
+    // is on screen, so the local save is queued, not waited for.
     saveNativeProgress();
-    save(true);
+    save(true, true);
     scheduleNativeOpeningSave();
 }
 
@@ -2294,14 +2308,16 @@ bool Reader::flushBeforeStandby() {
 }
 
 // `snapshot` marks a close, sleep or shutdown. `background` queues the
-// checkpoint on the book's writer thread; a failure shows the same notice.
+// checkpoint on the book's writer thread; a failure is only logged.
 void Reader::save(bool snapshot, bool background, bool persist) {
     localSaveDue = false;
     unsavedSince.invalidate();
     if (idleSaveTimer)
         idleSaveTimer->stop();
     QJsonObject state = book->checkpointState();
-    if (persist && !book->checkpoint(&state, background)) {
+    // Only a save that waits for storage, such as sleep, reports a failure.
+    // Background saves are transient and only log theirs.
+    if (persist && !book->checkpoint(&state, background) && !background) {
         page->notice = strings::get("reader.could_not_save_reading_position");
         page->refreshContent();
     }
@@ -2405,12 +2421,17 @@ void Reader::save(bool snapshot, bool background, bool persist) {
             pages.append(p);
         return pages;
     }();
-    if (!persist) {
-        if (!reportWriter)
-            reportWriter = std::make_unique<storage::RecordWriter>();
-        reportWriter->post([path = book->paths().stateReport, state] { return writeJson(path, state); }, {});
-    } else {
+    // The report is for inspection. A save that waits for storage writes it
+    // in place, after dropping an older queued report; any other save queues
+    // it. Pending storage saves include the queue, so sleep, USB and close
+    // still wait for it.
+    if (!reportWriter)
+        reportWriter = std::make_unique<storage::RecordWriter>();
+    if (persist && !background) {
+        reportWriter->cancel();
         writeJson(book->paths().stateReport, state);
+    } else {
+        reportWriter->post([path = book->paths().stateReport, state] { return writeJson(path, state); }, {});
     }
 }
 

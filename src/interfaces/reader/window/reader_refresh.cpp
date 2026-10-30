@@ -88,8 +88,8 @@ void Reader::refresh() {
     }
     syncAppearanceControls(pickingFont);
     syncReadingControls();
-    // A jump saves at once, but on the book's writer thread: this pass runs
-    // on the tap. A layout change still saves synchronously in checkpoint().
+    // A jump or a layout change saves at once, but on the book's writer
+    // thread: this pass runs on the tap.
     if (afterTurn)
         saveSoon();
     else

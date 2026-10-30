@@ -4,6 +4,7 @@
 #include "native_location.h"
 #include "platforms/kobo/common/native_progress.h"
 #include "support/strings.h"
+#include "support/main_thread.h"
 #include "platforms/kobo/common/native_database_wait.h"
 #include "platforms/kobo/common/native_lifecycle.h"
 #include <QDateTime>
@@ -144,6 +145,10 @@ ReadingProgress NativeProgress::read(QString *error) const {
 }
 bool NativeProgress::write(const ReadingProgress &expected, const QString &position, double percent, bool finished,
                            ReadingProgress *verified, QString *error, const ReadingEstimates *estimates, const ReadingActivity *) {
+    // Nickel's Volume API runs on the GUI thread. Callers save at opening,
+    // sleep, USB, close and power-off; the opening save and its retries are a
+    // known exception to the main-thread rule.
+    kobalt::mainthread::blocking("nickel-progress-write");
     const auto fail = [error](const QString &message) {
         if (error)
             *error = message;

@@ -7,6 +7,7 @@
 #include "storage/reader_storage.h"
 #include "storage/annotation_database.h"
 #include "support/diagnostics.h"
+#include "support/main_thread.h"
 #include "support/qt_compat.h"
 #include <QCoreApplication>
 #include <QDateTime>
@@ -106,8 +107,9 @@ bool ReadingBook::readingSavePending() const {
     return bridge && bridge->readingSavePending();
 }
 void ReadingBook::observeReading(bool learnPace) {
+    // Reading continues around these stops, so none of them waits for storage.
     if (released || (bridge && !bridge->writable())) {
-        stopReading();
+        stopReading(true);
         return;
     }
     if (model->renderProgress().active) {
@@ -116,7 +118,7 @@ void ReadingBook::observeReading(bool learnPace) {
     if (model->busy())
         return;
     if (model->image().isNull() || !model->error().isEmpty()) {
-        stopReading();
+        stopReading(true);
         return;
     }
     if (!activeReading.isValid()) {
@@ -209,24 +211,38 @@ bool ReadingBook::checkpointReadingHistory(bool background) {
         history->update(readingMilliseconds(), model->state().value("position").toString());
     return history->save(background);
 }
-void ReadingBook::saveSpeed(bool force) {
+void ReadingBook::saveSpeed(bool force, bool background) {
     if (!speed || !speed->dirty() || (!force && speedSaved.isValid() && speedSaved.elapsed() < 60000)) {
         return;
     }
     speedSaved.start();
     if (!speedWriter)
         speedWriter = std::make_unique<storage::RecordWriter>();
-    const bool saved = speedWriter->writeNow([directory = paths_.directory, path = paths_.readingSpeed(),
-                                         state = speed->state()] {
+    const auto state = speed->state();
+    const auto write = [directory = paths_.directory, path = paths_.readingSpeed(), state] {
         // Rewritten every minute while reading; a checkpoint syncs it.
         storage::RoutineWrites routine;
         return storage::writeRecord(directory, "reading-speed", path, state);
-    });
-    if (saved) {
-        speed->saved();
-    } else {
-        diagnostic("reading-speed-unsaved", {}, false);
+    };
+    const auto finished = [this, state](bool saved) {
+        // Reading can change the pace while the write runs. Only the written
+        // state is saved.
+        if (saved && speed->state() == state)
+            speed->saved();
+        else if (!saved)
+            diagnostic("reading-speed-unsaved", {}, false);
+    };
+    if (!background) {
+        finished(speedWriter->writeNow(write));
+        return;
     }
+    const std::weak_ptr<ReadingBook *> guard = alive;
+    speedWriter->post(write, [guard, finished](bool saved) {
+        kobalt::qt::invoke(QCoreApplication::instance(), [guard, finished, saved] {
+            if (guard.lock())
+                finished(saved);
+        }, Qt::QueuedConnection);
+    });
 }
 qint64 ReadingBook::readingMilliseconds() const {
     return completedReadingMilliseconds + (activeReading.isValid() ? activeReading.elapsed() : 0);
@@ -327,6 +343,8 @@ ReadingBook::NativeSave ReadingBook::nativeSaveResult() const {
     return NativeSave::Failed;
 }
 bool ReadingBook::saveDictionaryChoice(const QString &id) {
+    // Known exception: like a settings change, the choice waits for its write.
+    mainthread::AllowBlocking allow("settings write");
     const auto previous = dictionaryChoice_;
     dictionaryChoice_ = id;
     QJsonObject snapshot;
@@ -372,7 +390,7 @@ QJsonObject ReadingBook::persistedCheckpoint(const QJsonObject &state) const {
     return checkpoint;
 }
 bool ReadingBook::checkpoint(QJsonObject *snapshot, bool background) {
-    saveSpeed();
+    saveSpeed(false, background);
     const auto state = checkpointState();
     *snapshot = state;
     const auto checkpoint = persistedCheckpoint(state);
@@ -389,10 +407,7 @@ bool ReadingBook::checkpoint(QJsonObject *snapshot, bool background) {
         persisted.remove(key);
     for (const auto *key : appearance::marginKeys)
         persisted.remove(key);
-    // The first write of an opening stays synchronous: it can import legacy
-    // files. A layout or margin change also stays synchronous, because it
-    // updates the global layout memory below. Other checkpoints only change
-    // the position and progress.
+    // A layout or margin change also updates the global layout memory.
     const auto layoutChanged = [&] {
         for (const auto *key : appearance::layoutKeys)
             if (checkpoint.value(key) != savedCheckpoint.value(key))
@@ -402,17 +417,35 @@ bool ReadingBook::checkpoint(QJsonObject *snapshot, bool background) {
                 return true;
         return false;
     };
-    if (background && !savedCheckpoint.isEmpty() && !layoutChanged()) {
+    // A background checkpoint runs while a tap can turn the page, so all of
+    // its storage work runs on the writer thread: the first write of an
+    // opening, which can import legacy files, and the layout memory too.
+    if (background) {
         pendingCheckpoint = checkpoint;
         if (!writer)
             writer = std::make_unique<storage::RecordWriter>();
+        const bool rememberAppearance = layoutChanged() && !model->temporaryTypography();
         const std::weak_ptr<ReadingBook *> guard = alive;
         writer->post(
-            [paths = paths_, identity = identity_, persisted, path = statePath] {
+            [paths = paths_, identity = identity_, persisted, path = statePath, state, rememberAppearance] {
                 // Reading checkpoints follow each other closely. The next synced
                 // commit, sleep, standby or close puts this one on storage.
                 storage::RoutineWrites routine;
-                return storage::writeBookState(paths, identity, persisted, path);
+                if (!storage::writeBookState(paths, identity, persisted, path))
+                    return false;
+                if (!rememberAppearance)
+                    return true;
+                const auto settings = storage::readPreferences(paths.preferences());
+                if (settings.status != storage::ReadStatus::Ok && settings.status != storage::ReadStatus::Missing)
+                    return true;
+                auto next = settings.object;
+                appearance::rememberTextLayout(next, state);
+                appearance::rememberPageMargins(next, state);
+                if (next != settings.object && !storage::writePreferences(paths.preferences(), next)) {
+                    diagnostic("appearance-settings-unsaved", {}, false);
+                    return false;
+                }
+                return true;
             },
             [guard, checkpoint](bool saved) {
                 kobalt::qt::invoke(
@@ -430,27 +463,37 @@ bool ReadingBook::checkpoint(QJsonObject *snapshot, bool background) {
     if (!writer)
         writer = std::make_unique<storage::RecordWriter>();
     pendingCheckpoint = {};
-    const bool saved = writer->writeNow([paths = paths_, identity = identity_, persisted, path = statePath] {
-        return storage::writeBookState(paths, identity, persisted, path);
+    // The layout memory changes preferences.json, which settings changes
+    // and background checkpoints also write. Once a book is open, the reader
+    // runs every such write on the writer thread, one at a time, so none of
+    // them loses another's change. The Android and desktop library still
+    // writes the file on the main thread.
+    bool layoutSaved = true;
+    const bool saved = writer->writeNow([paths = paths_, identity = identity_, persisted, path = statePath, state,
+                                         rememberAppearance = !model->temporaryTypography(), &layoutSaved] {
+        if (!storage::writeBookState(paths, identity, persisted, path))
+            return false;
+        if (!rememberAppearance)
+            return true;
+        const auto settings = storage::readPreferences(paths.preferences());
+        if (settings.status != storage::ReadStatus::Ok && settings.status != storage::ReadStatus::Missing)
+            return true;
+        auto next = settings.object;
+        appearance::rememberTextLayout(next, state);
+        appearance::rememberPageMargins(next, state);
+        layoutSaved = next == settings.object || storage::writePreferences(paths.preferences(), next);
+        return true;
     });
-    if (saved) {
-        if (!model->temporaryTypography()) {
-            const auto settings = storage::readPreferences(paths_.preferences());
-            if (settings.status == storage::ReadStatus::Ok || settings.status == storage::ReadStatus::Missing) {
-                auto next = settings.object;
-                appearance::rememberTextLayout(next, state);
-                appearance::rememberPageMargins(next, state);
-                if (next != settings.object && !kobalt::storage::writePreferences(paths_.preferences(), next)) {
-                    diagnostic("appearance-settings-unsaved", {}, false);
-                    return false;
-                }
-            }
-        }
-        savedCheckpoint = checkpoint;
-    } else {
+    if (!saved) {
         diagnostic("local-save-failed");
+        return false;
     }
-    return saved;
+    if (!layoutSaved) {
+        diagnostic("appearance-settings-unsaved", {}, false);
+        return false;
+    }
+    savedCheckpoint = checkpoint;
+    return true;
 }
 void ReadingBook::checkpointForClose(std::function<void(bool)> done) {
     if (sleepingReading) {
@@ -532,7 +575,9 @@ void ReadingBook::finishBackgroundCheckpoint(const QJsonObject &checkpoint, bool
         savedCheckpoint = checkpoint;
         return;
     }
-    diagnostic("local-save-failed");
+    // A background save is transient: the next save, sleep or close writes
+    // the same state again, and close reports its own failure. Log it only.
+    diagnostic("local-save-failed", {{"background", true}});
     if (checkpointFailed)
         checkpointFailed();
 }

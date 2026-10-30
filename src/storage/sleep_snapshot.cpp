@@ -1,4 +1,5 @@
 #include "sleep_snapshot.h"
+#include "support/main_thread.h"
 #include "support/qt_compat.h"
 #include <QDir>
 #include <QFile>
@@ -129,6 +130,7 @@ bool persistSnapshot(const QString &path, const sleep::Snapshot &snapshot, const
 }
 }
 bool writeSleepSnapshot(const QString &path, const sleep::Snapshot &snapshot, const QString &token) {
+    mainthread::blocking("sleep-snapshot-write");
     return persistSnapshot(path, snapshot, token, nullptr);
 }
 void removeSleepSnapshot(const QString &path) {

@@ -1,17 +1,22 @@
 #include "qt_compat.h"
 #include "diagnostics.h"
+#include "main_thread.h"
 #include "strings.h"
 #include <QDateTime>
 #include <QDir>
+#include <QElapsedTimer>
 #include <QFile>
 #include <QJsonDocument>
 #include <QMutex>
 #include <QMutexLocker>
 #include <QRegularExpression>
+#include <QWaitCondition>
 #include <cerrno>
 #include <cstdio>
+#include <deque>
 #include <fcntl.h>
 #include <sys/stat.h>
+#include <thread>
 #include <time.h>
 #include <unistd.h>
 #ifdef __APPLE__
@@ -27,6 +32,92 @@ bool paused = false;
 bool syncing = true;
 std::function<void(const QJsonObject &)> observer;
 constexpr qint64 limit = 128 * 1024;
+// Events are appended on their own thread, so logging never waits for
+// storage on the thread that reports the event. A crash can lose the events
+// still queued; the crash report is written separately.
+struct Entry {
+    QString path;
+    QByteArray bytes;
+    bool durable;
+};
+// Records are a few hundred bytes. A burst beyond this is dropped.
+constexpr std::size_t queueLimit = 2048;
+// Never destroyed: the writer thread waits on these until the process ends,
+// and destroying a condition that a thread waits on can hang the exit.
+std::deque<Entry> &queue = *new std::deque<Entry>;
+QWaitCondition &wake = *new QWaitCondition, &idle = *new QWaitCondition;
+bool writerStarted = false, writing = false;
+void append(const Entry &entry) {
+    const auto path = QFile::encodeName(entry.path);
+    int fd = ::open(path.constData(), O_WRONLY | O_CREAT | O_APPEND | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC, 0600);
+    struct stat info {};
+    if (fd >= 0 && fstat(fd, &info) == 0 && S_ISREG(info.st_mode)) {
+        if (info.st_size + entry.bytes.size() > limit) {
+            ::close(fd);
+            fd = -1;
+            const auto previous = path + ".previous";
+            if (::rename(path.constData(), previous.constData()) == 0)
+                fd = ::open(path.constData(), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600);
+        }
+        if (fd >= 0) {
+            qint64 written = 0;
+            while (written < entry.bytes.size()) {
+                const auto count = ::write(fd, entry.bytes.constData() + written, entry.bytes.size() - written);
+                if (count < 0 && errno == EINTR)
+                    continue;
+                if (count <= 0)
+                    break;
+                written += count;
+            }
+            // Durable boundaries leave the last operation on storage.
+            if (entry.durable)
+                ::fdatasync(fd);
+        }
+    }
+    if (fd >= 0)
+        ::close(fd);
+}
+// Called with the mutex held.
+void startWriter() {
+    if (writerStarted)
+        return;
+    writerStarted = true;
+    // Never joined: events can be reported until the process ends.
+    std::thread([] {
+        QMutexLocker lock(&mutex);
+        for (;;) {
+            while (queue.empty())
+                wake.wait(&mutex);
+            const auto entry = std::move(queue.front());
+            queue.pop_front();
+            writing = true;
+            lock.unlock();
+            const int savedErrno = errno;
+            append(entry);
+            errno = savedErrno;
+            lock.relock();
+            writing = false;
+            if (queue.empty())
+                idle.wakeAll();
+        }
+    }).detach();
+}
+// Called with the mutex held. False when `milliseconds` pass first; a
+// negative value waits without a limit.
+bool drain(int milliseconds) {
+    QElapsedTimer timer;
+    timer.start();
+    while (!queue.empty() || writing) {
+        if (milliseconds < 0) {
+            idle.wait(&mutex);
+            continue;
+        }
+        const auto left = milliseconds - timer.elapsed();
+        if (left <= 0 || !idle.wait(&mutex, (unsigned long)left))
+            return queue.empty() && !writing;
+    }
+    return true;
+}
 // Resident and peak resident memory in KiB, or -1 where unknown.
 void addMemory(QJsonObject &fields) {
 #ifdef __APPLE__
@@ -94,8 +185,13 @@ QString diagnosticErrorCode(const QString &reason) {
     return QStringLiteral("unknown");
 }
 void pauseDiagnostics(bool value) {
+    // Storage can be exported next. Finish the queued events first.
+    if (value)
+        mainthread::blocking("diagnostic-log-flush");
     QMutexLocker lock(&mutex);
     paused = value;
+    if (value)
+        drain(-1);
 }
 bool diagnosticsActive() {
     QMutexLocker lock(&mutex);
@@ -142,37 +238,11 @@ void diagnostic(const char *event, QJsonObject fields, bool durable) {
     fields["monotonic_ms"] = double(now.tv_sec) * 1000 + now.tv_nsec / 1000000;
     fields["pid"] = int(getpid());
     addMemory(fields);
-    const auto bytes = QJsonDocument(fields).toJson(QJsonDocument::Compact) + '\n';
-    // Durable boundaries leave the last operation on storage, also when a
-    // crash report cannot be written.
-    if (bytes.size() <= 4096) {
-        const auto path = QFile::encodeName(logPath);
-        int fd = ::open(path.constData(), O_WRONLY | O_CREAT | O_APPEND | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC, 0600);
-        struct stat info {};
-        if (fd >= 0 && fstat(fd, &info) == 0 && S_ISREG(info.st_mode)) {
-            if (info.st_size + bytes.size() > limit) {
-                ::close(fd);
-                fd = -1;
-                const auto previous = path + ".previous";
-                if (::rename(path.constData(), previous.constData()) == 0)
-                    fd = ::open(path.constData(), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600);
-            }
-            if (fd >= 0) {
-                qint64 written = 0;
-                while (written < bytes.size()) {
-                    const auto count = ::write(fd, bytes.constData() + written, bytes.size() - written);
-                    if (count < 0 && errno == EINTR)
-                        continue;
-                    if (count <= 0)
-                        break;
-                    written += count;
-                }
-                if (durable && syncing)
-                    ::fdatasync(fd);
-            }
-        }
-        if (fd >= 0)
-            ::close(fd);
+    auto bytes = QJsonDocument(fields).toJson(QJsonDocument::Compact) + '\n';
+    if (bytes.size() <= 4096 && queue.size() < queueLimit) {
+        queue.push_back({logPath, std::move(bytes), durable && syncing});
+        startWriter();
+        wake.wakeAll();
     }
     // Call outside the lock, so the observer may write events itself.
     const auto notify = observer;
@@ -180,5 +250,9 @@ void diagnostic(const char *event, QJsonObject fields, bool durable) {
     if (notify)
         notify(fields);
     errno = savedErrno;
+}
+bool flushDiagnostics(int milliseconds) {
+    QMutexLocker lock(&mutex);
+    return drain(milliseconds);
 }
 }

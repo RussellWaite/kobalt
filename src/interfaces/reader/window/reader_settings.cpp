@@ -474,10 +474,19 @@ void Reader::fitAppearance() {
 }
 
 bool Reader::writePreferences(const QJsonObject &next) {
+    // Known exception: a settings change waits for its write, so each caller
+    // can undo the change when the write fails.
+    mainthread::AllowBlocking allow("settings write");
     auto global = appearance::globalPreferences(next);
     appearance::rememberTextLayout(global, model->state());
     appearance::rememberPageMargins(global, model->state());
-    if (!kobalt::storage::writePreferences(book->paths().preferences(), global)) {
+    // On the writer thread, after any queued layout memory, so neither write
+    // loses the other's change.
+    if (!preferencesWriter)
+        preferencesWriter = std::make_unique<storage::RecordWriter>();
+    if (!preferencesWriter->writeNow([path = book->paths().preferences(), global] {
+            return kobalt::storage::writePreferences(path, global);
+        })) {
         showSettingsWriteError();
         return false;
     }

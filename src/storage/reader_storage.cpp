@@ -1,4 +1,5 @@
 #include "reader_storage.h"
+#include "support/main_thread.h"
 #include "annotation_database.h"
 #include "bookmark_store.h"
 #include "reading/appearance_settings.h"
@@ -56,6 +57,7 @@ QString Paths::bookState(const QString &identity) const {
                                 ".json");
 }
 bool writeJson(const QString &path, const QJsonObject &object) {
+    mainthread::blocking("json-write");
     QSaveFile file(path);
     const auto bytes = QJsonDocument(object).toJson();
     return file.open(QIODevice::WriteOnly) && file.write(bytes) == bytes.size() && file.commit();

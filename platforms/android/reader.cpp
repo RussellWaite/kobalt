@@ -1,5 +1,6 @@
 #include "reading/appearance_settings.h"
 #include "support/strings.h"
+#include "support/main_thread.h"
 #include "reader.h"
 #include "interfaces/reader_interface.h"
 #include "interfaces/opening_message.h"
@@ -53,6 +54,8 @@ bool ReaderController::forgetLastBook() {
     return storage::writeRecord(paths.directory, "last-book", paths.directory + "/last-book.json", {}, 256 * 1024);
 }
 QJsonObject ReaderController::savedState(const QString &path) const {
+    // Known exception: the library reads a book's progress on the main thread.
+    mainthread::AllowBlocking allow("library progress");
     const auto identity = QUrl::fromLocalFile(QFileInfo(path).absoluteFilePath()).toString();
     const auto saved = storage::readBookState(paths, identity).object;
     return saved.value("book").toString() == identity ? saved : QJsonObject();
@@ -82,6 +85,9 @@ void ReaderController::open(const QString &path, QSize pixels, QString sourceKey
     begin(path, pixels);
 }
 void ReaderController::begin(const QString &path, QSize pixels) {
+    // Known exception: opening from the library prepares the profile on the
+    // main thread, also while another book is still open.
+    mainthread::AllowBlocking allow("library opening");
     phase = Phase::Opening;
     openingStarted.start();
     retirementNotified = false;
@@ -154,6 +160,7 @@ void ReaderController::begin(const QString &path, QSize pixels) {
         [guard, identity, statePath, pixels](const OpeningResult &result) {
             if (!guard || guard->phase != Phase::Opening)
                 return;
+            mainthread::AllowBlocking allow("library opening");
             if (!result.ready()) {
                 emit guard->failed(openingMessage(result));
                 guard->retire();
