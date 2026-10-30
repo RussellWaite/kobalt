@@ -175,6 +175,8 @@ void ReaderController::begin(const QString &path, QSize pixels) {
             auto services = guard->services();
             if (services.backButtonLabel.isEmpty())
                 services.backButtonLabel = strings::get("library.exit_to_library");
+            // Read the setting again: it can change while the Library is shown.
+            readerInterface().setLargeText(services.textScale ? services.textScale() : 1);
             const double engine = guard->openingStarted.nsecsElapsed() / 1e6;
             QElapsedTimer creating;
             creating.start();

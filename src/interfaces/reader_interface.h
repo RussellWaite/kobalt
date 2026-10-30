@@ -29,6 +29,9 @@ struct ReaderInterface {
     // Sizes the interface for a screen of this many pixels per inch. Call before
     // creating any view.
     void (*setDensity)(int ppi);
+    // Applies the platform's text size setting, where 1 is standard. Call
+    // before creating any view.
+    void (*setLargeText)(qreal requested);
 };
 const ReaderInterface &readerInterface();
 }

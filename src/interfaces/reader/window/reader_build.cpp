@@ -53,9 +53,12 @@ public:
 
 protected:
     void paintEvent(QPaintEvent *) override {
+        const auto *button = qobject_cast<QPushButton *>(parentWidget());
+        // A large interface scale can leave the button only the arrow's cell.
+        if (button && button->width() <= int(m::chrome::cellWidth))
+            return;
         QPainter painter(this);
         painter.setFont(font());
-        const auto *button = qobject_cast<QPushButton *>(parentWidget());
         const bool pressed = button && button->isEnabled() && button->isDown();
         const auto colors = button ? button->palette() : palette();
         painter.setPen(colors.color(!isEnabled() ? QPalette::Mid : pressed ? QPalette::Window

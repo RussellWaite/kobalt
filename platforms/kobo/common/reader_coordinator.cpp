@@ -26,6 +26,7 @@
 #include "engine_positions.h"
 #include "native_ui.h"
 #include "native_fallback.h"
+#include "native_font_scale.h"
 #include "platform/api/reader_orientation.h"
 #include "orientation.h"
 #include "support/diagnostics.h"
@@ -343,7 +344,13 @@ bool ReaderCoordinator::begin(const RetainOpening &retainOpening) {
     const auto preferences = kobalt::storage::readPreferences(environment_.paths.preferences()).object;
     run.interface = &kobalt::readerInterface();
     run.interface->setDensity(kobalt::currentScreenDensity());
-    run.loading = run.interface->createOpening(background, preferences, readerHostServices().presentation);
+    // Nickel's Large Print enlarges Kobalt's interface text the same way.
+    run.interface->setLargeText(nativeFontScale());
+    {
+        NativeFontScaleScope building;
+        run.loading = run.interface->createOpening(background, preferences, readerHostServices().presentation);
+        ignoreNativeFontScale(run.loading->window());
+    }
     run.openingStage = kobalt::OpeningStage::Content;
     run.openingPercent = -1;
     run.progressPainted = -1000;
@@ -847,7 +854,11 @@ void ReaderCoordinator::showReader() {
     };
     QElapsedTimer creating;
     creating.start();
-    run.reader = run.interface->createWindow(std::move(book), run.orientation.get(), std::move(services));
+    {
+        NativeFontScaleScope building;
+        run.reader = run.interface->createWindow(std::move(book), run.orientation.get(), std::move(services));
+        ignoreNativeFontScale(run.reader);
+    }
     const double created = creating.nsecsElapsed() / 1e6;
     run.reader->finished = [this](std::unique_ptr<kobalt::ReaderSession> retained) {
         auto closing = run.reader ? run.reader->closingTiming() : kobalt::ActionTiming{};
