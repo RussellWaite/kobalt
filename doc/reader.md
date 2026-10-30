@@ -82,14 +82,14 @@ Support files are in `.adds/kobalt/`. Annotation exports are in `Kobalt/Annotati
 | `annotations/.index/paths.json` | Disposable bookmark lookup index, at most 4 MiB; rebuilt from book folders when missing or invalid |
 | `reopen-layout.json` | Up to 20 layout-check results, keyed by archive digest, at most 8 KiB |
 | `.cache/` | Parsed books and their pages, so a book that was opened before opens without parsing. At most 128 MiB; the oldest books are removed first. Kobalt deletes any other file in this folder |
-| `events.jsonl`, `events.jsonl.previous` | Event log, two files of at most 128 KiB each |
+| `diagnostics/events.jsonl`, `diagnostics/events.jsonl.previous` | Event log, two files of at most 128 KiB each |
 | `scenarios/scenarios.json`, `scenarios.jsonl` | Evaluation packages only: the performance scenarios that Kobalt runs after the first book opens, and their results. See [Release evaluation](release-evaluation.md#device-scenarios) |
-| `state.json`, `session.json` | Reader state from the last close, sleep or shutdown, and session status. Create `live-state` to write `state.json` on every save instead |
+| `diagnostics/state.json`, `diagnostics/session.json` | Only when a `diagnostics-enabled` file exists: reader state from the last close, sleep or shutdown, and session status. Create `live-state` to write `state.json` on every save instead |
 | `startup-session`, `startup-removed.txt`, `active-session.json` | Recovery markers, see above |
 | `uninstall`, `uninstall-now` | Removal control, see above |
 | `doc` | Short user instructions |
 
-The event log records startup checks, opening stages, timings, memory and save results. The startup event includes the firmware version and hardware UUID when available. The hardware UUID identifies the model, not an individual device. Startup events also record hook availability, entry and return of Nickel initialization, periodic wait state and book-opening retries. Archive inspection failures include the specific `error_code` in the `native-resource-failed` event with stage `publication-inspection`. It does not record book text, titles, file paths, serials or account data. A position fallback records the name of the chapter file inside the book. `state.json` and `session.json` can contain book identifiers, so keep them private. The log shows the last recorded operation, not a crash stack trace.
+The event log records startup checks, opening stages, timings, memory and save results. The startup event includes the firmware version and hardware UUID when available. The hardware UUID identifies the model, not an individual device. Startup events also record hook availability, entry and return of Nickel initialization, periodic wait state and book-opening retries. Archive inspection failures include the specific `error_code` in the `native-resource-failed` event with stage `publication-inspection`. It does not record book text, titles, file paths, serials or account data. A position fallback records the name of the chapter file inside the book. `state.json` and `session.json` can contain book identifiers, so keep them private. The log is always on. It shows the last recorded operation, not a crash stack trace.
 
 On Kobo models with a physical Home button, pressing it closes Kobalt and returns to Nickel's Home screen. Kobalt saves reading progress before leaving. Any progress or finished-book choice shown during a normal exit still applies. Sleep cancels a pending return to Home and restores any exit choice after wake. In sideload mode, Nickel returns to My Books.
 
@@ -417,7 +417,7 @@ Ordinary page turns reuse chapter pages and the available font list in memory. C
 
 ## Sleep, USB and power
 
-Kobalt checks for Nickel's sleep view after the sleep transition and when a native power view opens. This provides a fallback when another add-on replaces Kobalt's sleep-view hook. The fallback waits for Nickel to report a visible sleep view and does not cover a PIN prompt. With diagnostics enabled, `sleep-view-handoff` records the hook or fallback path, while `sleep-view-unavailable` records a check that could not hand off. These events and `sleep-start` describe the application transition. They do not prove that the hardware entered suspend.
+Kobalt checks for Nickel's sleep view after the sleep transition and when a native power view opens. This provides a fallback when another add-on replaces Kobalt's sleep-view hook. The fallback waits for Nickel to report a visible sleep view and does not cover a PIN prompt. `sleep-view-handoff` records the hook or fallback path, while `sleep-view-unavailable` records a check that could not hand off. These events and `sleep-start` describe the application transition. They do not prove that the hardware entered suspend.
 
 For Nickel Screensaver 1.3.1, Kobalt checks the power-off callback chain before opening its reader. If Screensaver has replaced Kobalt's hook, Kobalt reconnects its save gate through Screensaver's call-through pointer. Both load orders retain Screensaver's image preparation and wait for Kobalt's required saves before Nickel powers off. This also applies to battery-low software shutdown. An unrecognized callback chain leaves Kobalt unavailable for that startup attempt and records `screensaver-power-hook` with `ready=false`. Kobalt does not rename libraries or reinstall another mod.
 

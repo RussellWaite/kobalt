@@ -368,12 +368,7 @@ private:
 };
 
 int initialize() {
-#ifdef KOBALT_READER_HARDWARE
-    if (kobalt::diagnosticsRequested(QString::fromLatin1(configDir)))
-        kobalt::initializeDiagnostics(QString::fromLatin1(configDir) + "/diagnostics");
-#else
     kobalt::initializeDiagnostics(QString::fromLatin1(configDir) + "/diagnostics");
-#endif
     kobalt::diagnostic("startup-hooks",
                        kobalt::qt::object({{"finish_hook_available", bool(nativeFinishInitialization)},
                                            {"finish_next_is_stock",

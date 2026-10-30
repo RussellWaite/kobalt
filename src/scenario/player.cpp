@@ -381,8 +381,8 @@ bool wanted(const QString &id, const QString &filter) {
 
 QVector<QJsonObject> run(const QJsonObject &file, const Host &host, const Options &options) {
     QVector<QJsonObject> results;
-    // Durable diagnostics events would add storage syncs that a reader without
-    // diagnostics never makes.
+    // Durable diagnostics events sync the log. Leave those syncs out of the
+    // timings, as in earlier baselines.
     setDiagnosticsSync(false);
     // Nor may a run reach a sync server: it would measure the network and
     // upload the test books' positions. A Kobo set up for scenarios pauses

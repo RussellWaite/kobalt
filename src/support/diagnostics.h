@@ -15,7 +15,7 @@ void initializeDiagnostics(const QString &directory);
 bool diagnosticsRequested(const QString &profile);
 void diagnostic(const char *event, QJsonObject fields = {}, bool durable = true);
 // Whether durable events sync the log to storage. Performance scenarios turn
-// this off, because a reader without diagnostics never pays for those syncs.
+// this off, so their timings leave out those syncs.
 void setDiagnosticsSync(bool enabled);
 // Receives every event that is written, on the thread that wrote it. An empty
 // function removes the observer.

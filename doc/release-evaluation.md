@@ -98,7 +98,7 @@ The scenarios cover book opening and closing, page turns, a page turn back into 
 
 `sleep_capture_ms` measures the synchronous sleep backdrop capture. `sleep_dispatch_ms` measures handing that backdrop to the platform. Kobo's committed-token lookup and persistence run on a worker and can continue after `book-close`; they are not included in `sync_ms`.
 
-These events do not sync the log to storage, so they do not slow the reader. On Kobo, they are written only when diagnostics are enabled.
+These events do not sync the log to storage, so they do not slow the reader.
 
 ## Device scenarios
 
@@ -107,11 +107,11 @@ A Kobo runs the same scenario file through the same built-in player. `bash platf
 - the scenario player, compiled in;
 - the benchmark book in `kobalt-eval/`, a folder that the library lists;
 - the scenario file in `.adds/kobalt/scenarios/`;
-- `.adds/kobalt/diagnostics-enabled`.
+- `.adds/kobalt/diagnostics-enabled`, which adds the state and session reports.
 
 The release packages never contain these. Only books marked `"package": true` in the scenario file go into the package. The other books are not used on a Kobo, because the player cannot open them there.
 
-When diagnostics are on and the scenario file exists, the player starts two seconds after the first book opens in Kobalt, once per start of the reader. It writes one line per scenario to `.adds/kobalt/diagnostics/scenarios.jsonl`, after a header line with the target, version, firmware and model. That file does not rotate, unlike the event log. A `scenario-run-end` event marks the end.
+When the scenario file exists, the player starts two seconds after the first book opens in Kobalt, once per start of the reader. It writes one line per scenario to `.adds/kobalt/diagnostics/scenarios.jsonl`, after a header line with the target, version, firmware and model. That file does not rotate, unlike the event log. A `scenario-run-end` event marks the end.
 
 On a Kobo, books open from the library. The player can close the first book and open it again from a copy of its opening request, but it cannot open another book. The large-book and footnote scenarios are skipped with that reason. Dictionary scenarios are skipped when no dictionary is installed. The player sends its presses directly to the widget under the point: Kobalt's touch filter on Qt 5 stops translating touch after it sees a synthesized mouse press in its windows.
 
