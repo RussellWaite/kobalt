@@ -143,8 +143,8 @@ void diagnostic(const char *event, QJsonObject fields, bool durable) {
     fields["pid"] = int(getpid());
     addMemory(fields);
     const auto bytes = QJsonDocument(fields).toJson(QJsonDocument::Compact) + '\n';
-    // Keep Nickel's crash handlers. Durable boundaries leave the last operation
-    // on storage without adding a signal handler that could itself fail.
+    // Durable boundaries leave the last operation on storage, also when a
+    // crash report cannot be written.
     if (bytes.size() <= 4096) {
         const auto path = QFile::encodeName(logPath);
         int fd = ::open(path.constData(), O_WRONLY | O_CREAT | O_APPEND | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC, 0600);

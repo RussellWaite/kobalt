@@ -559,6 +559,12 @@ if(BUILD_TESTING)
             if(check STREQUAL "touch_rotation")
                 target_sources(kobalt-${name}-tests PRIVATE "${KOBALT_ROOT}/platforms/kobo/qt5/touch_rotation.cpp")
             endif()
+            if(check STREQUAL "crash_reports")
+                target_sources(kobalt-${name}-tests PRIVATE "${KOBALT_ROOT}/platforms/kobo/common/crash_reports.cpp")
+                target_include_directories(kobalt-${name}-tests PRIVATE "${KOBALT_ROOT}")
+                # dladdr names the crashing test function only when it is exported.
+                set_target_properties(kobalt-${name}-tests PROPERTIES ENABLE_EXPORTS ON)
+            endif()
             if(check STREQUAL "reader")
                 target_sources(kobalt-${name}-tests PRIVATE "${KOBALT_ROOT}/platforms/kobo/common/engine_positions.cpp")
                 target_compile_definitions(kobalt-${name}-tests PRIVATE
@@ -601,7 +607,7 @@ if(BUILD_TESTING)
     endfunction()
     kobalt_regressions(model storage_assets android_assets profile_storage record_writer reading_history bookmark_store highlight_store annotation_database appearance_settings header_footer
         layout_cache resource_cache layout_compatibility reading_pace reading_speed engine_activity
-        local_resources zip_resource diagnostics dictionary_store image_damage page_pixels
+        local_resources zip_resource diagnostics crash_reports dictionary_store image_damage page_pixels
         logical_word_counter brightness_gesture qt_compat page_refresh_regions screen_refresh plain_archive reading_progress
         library kosync)
     kobalt_regressions(model font_axes touch_rotation)

@@ -39,3 +39,6 @@ text or account data. To also write the inspection reports state.json
 and session.json there, create diagnostics-enabled here and restart.
 Those can contain book identifiers; keep them private. Old reports are
 retained under migration-backup/diagnostics/.
+
+When Nickel crashes, Kobalt writes a report in crash-reporting/. It
+keeps the newest 20 reports. They contain no book text.

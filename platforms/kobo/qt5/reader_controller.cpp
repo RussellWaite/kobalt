@@ -10,6 +10,7 @@
 #include "platforms/kobo/common/native_publication.h"
 #include "platforms/kobo/common/native_progress.h"
 #include "platforms/kobo/common/native_ui.h"
+#include "platforms/kobo/common/crash_reports.h"
 #include "support/diagnostics.h"
 #include "platforms/kobo/common/native_startup.h"
 #include "platforms/kobo/common/reader_environment.h"
@@ -356,6 +357,9 @@ private:
 };
 
 int initialize() {
+#ifdef KOBALT_READER_HARDWARE
+    kobalt::installCrashReports(QString::fromLatin1(configDir) + "/crash-reporting", QStringLiteral("/mnt/onboard"));
+#endif
     kobalt::initializeDiagnostics(QString::fromLatin1(configDir) + "/diagnostics");
     kobalt::diagnostic("startup-hooks",
                        kobalt::qt::object({{"finish_hook_available", bool(nativeFinishInitialization)},
