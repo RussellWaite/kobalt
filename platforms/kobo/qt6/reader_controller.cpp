@@ -12,6 +12,7 @@
 #include "platforms/kobo/common/native_startup.h"
 #include "platforms/kobo/common/reader_environment.h"
 #include "platforms/kobo/common/reader_coordinator.h"
+#include "platforms/kobo/common/address_hook.h"
 #include <NickelHook.h>
 #include <QApplication>
 #include <QDir>
@@ -405,6 +406,7 @@ int initialize() {
         kobalt::diagnostic("native-api-unavailable", {}, kobalt::DiagnosticSeverity::Warning);
         return 0;
     }
+    kobalt::nickel::redirectUsbDialog();
 #ifdef KOBALT_READER_HARDWARE
     if (!supportedFirmware()) {
         kobalt::diagnostic("hardware-rejected", {}, kobalt::DiagnosticSeverity::Warning);
