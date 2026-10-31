@@ -111,6 +111,10 @@ static ReaderBookRoute bookRoute(const void *volume, QString *identity, QString 
     const auto id = bookIdentity(volume);
     if (identity)
         *identity = id;
+    // Nickel imports a TXT file by writing its own EPUB beside it, whose
+    // chapter paths CREngine cannot resolve. Nickel's reader opens it.
+    if (id.endsWith(QLatin1String(".txt.epub"), Qt::CaseInsensitive))
+        return Route::Unsupported;
     if (!fields.value("AdobeLocation").toString().isEmpty())
         return Route::Protected;
 #if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
