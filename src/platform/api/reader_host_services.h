@@ -33,6 +33,11 @@ struct WifiStatus {
 // callback except automaticBookOpening, setAutomaticBookOpening,
 // debugProgressAction, observeBattery, observeBluetooth, observeWifi, remoteKeyActivity and syncNetwork is required,
 // including unsupported hosts.
+// A notice in the reader's usual notice card. `name` is the card's object
+// name; its message and button add `Message` and `Confirm`.
+struct ReaderNotice {
+    QString title, message, name;
+};
 struct ReaderHostServices {
     // Human-readable model used for the default sync device name.
     QString deviceName;
@@ -92,7 +97,7 @@ struct ReaderHostServices {
     std::function<bool(const QUrl &, QWidget *)> openBrowser;
     // Optional notice the reader shows once its first page has painted, for
     // example after profile preparation reset unusable saved data.
-    QString startupNotice;
+    ReaderNotice startupNotice;
     bool complete() const {
         return bool(automaticBookOpening) == bool(setAutomaticBookOpening) && clock && battery && pageButtons &&
                reverseLandscapeButtons && pageButtonDirection && fontFamilies && uiFont && suspended &&

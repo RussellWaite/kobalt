@@ -36,6 +36,9 @@
 #include "interfaces/reader_interface.h"
 #include "interfaces/opening_message.h"
 #include "interfaces/recovery_message.h"
+#ifdef KOBALT_SCENARIO_PLAYER
+#include "interfaces/benchmark_message.h"
+#endif
 #include "platforms/kobo/display/screen_density.h"
 #include <NickelHook.h>
 #include <QApplication>
@@ -60,6 +63,12 @@ namespace kobalt::nickel {
 using kobalt::storage::readJson;
 using kobalt::storage::writeJson;
 namespace {
+// A profile path as the user finds it on the Kobo's storage over USB.
+QString usbPath(QString path) {
+    if (path.startsWith(QLatin1String("/mnt/onboard/")))
+        path.remove(0, int(qstrlen("/mnt/onboard/")));
+    return path;
+}
 QPointer<ReaderCoordinator> activeCoordinator;
 #ifdef KOBALT_SCENARIO_PLAYER
 bool benchmarkTypographyEnabled = false;
@@ -446,13 +455,8 @@ void ReaderCoordinator::prepareOpening(kobalt::ReaderBookRoute candidate) {
             fail(strings::get("opening.storage_failed_detail"), kobalt::OpeningFallback::Storage);
             return;
         }
-        if (recovery.recovered()) {
-            // Name the folder as the user sees it over USB.
-            auto folder = environment_.paths.directory + "/backups";
-            if (folder.startsWith(QLatin1String("/mnt/onboard/")))
-                folder.remove(0, int(qstrlen("/mnt/onboard/")));
-            recoveryNotice = kobalt::profileRecoveryMessage(recovery, folder);
-        }
+        if (recovery.recovered())
+            pendingNotice = kobalt::profileRecoveryNotice(recovery, usbPath(environment_.paths.directory + "/backups"));
     }
     if (!historyProfile && kobalt::annotationDatabaseEnabled()) {
         QString error;
@@ -860,7 +864,7 @@ void ReaderCoordinator::showReader() {
             });
     };
     services.coverImagePath = run.nativePublication ? run.nativePublication->coverPath() : QString();
-    services.startupNotice = std::exchange(recoveryNotice, QString());
+    services.startupNotice = std::exchange(pendingNotice, kobalt::ReaderNotice{});
     services.automaticBookOpening = bindings_.automaticBookOpening;
     services.setAutomaticBookOpening = bindings_.setAutomaticBookOpening;
     const auto suspended = services.suspended;
@@ -1080,13 +1084,19 @@ void ReaderCoordinator::runScenarios(const QString &path) {
     }
     // One line per scenario, kept apart from the rotating event log.
     QSaveFile output(environment_.paths.directory + "/diagnostics/scenarios.jsonl");
+    bool saved = false;
     if (output.open(QIODevice::WriteOnly)) {
         output.write(QJsonDocument(header).toJson(QJsonDocument::Compact) + '\n');
         for (const auto &result : results)
             output.write(QJsonDocument(result).toJson(QJsonDocument::Compact) + '\n');
-        output.commit();
+        saved = output.commit();
     }
-    kobalt::diagnostic("scenario-run-end", kobalt::qt::object({{"results", results.size()}}));
+    kobalt::diagnostic("scenario-run-end", kobalt::qt::object({{"results", results.size()}, {"saved", saved}}));
+    // Tell whoever started the run that it ended. When the run lost its
+    // reader, the next opening shows the notice instead.
+    const auto notice = kobalt::benchmarkNotice(results, saved, usbPath(environment_.paths.directory + "/diagnostics"));
+    if (!run.reader || !run.reader->showNotice(notice))
+        pendingNotice = notice;
 }
 #endif
 

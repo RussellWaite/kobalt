@@ -838,6 +838,14 @@
 
 "opening.remembered" = "This book uses the built-in reader.";
 "recovery.title" = "Saved data reset";
+"benchmark.finished" = "Benchmark finished";
+"benchmark.failed" = "Benchmark failed";
+"benchmark.counts" = "Completed: %1. Skipped: %2. Failed: %3.";
+"benchmark.first_failure" = "The first failure was %1.";
+"benchmark.first_failure_reason" = "The first failure was %1: %2.";
+"benchmark.not_saved" = "The results could not be saved.";
+"benchmark.no_scenarios" = "No scenarios ran. Check the scenario file and its filter.";
+"benchmark.connect" = "Connect the Kobo to a computer and open %1 to see the results.";
 "recovery.settings" = "Kobalt's settings could not be used, so the defaults are back in use.";
 "recovery.sync_account" = "The sync account could not be used. Sign in again to keep syncing.";
 "recovery.database" = "Kobalt's reading positions, bookmarks and annotations could not be used. Kobalt started again with empty saved data.";

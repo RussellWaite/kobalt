@@ -65,7 +65,7 @@ private:
     void prepareProfile();
     bool storageFailed = false;
     // Shown by the next reader after saved data was reset.
-    QString recoveryNotice;
+    ReaderNotice recoveryNotice;
     bool retirementNotified = false;
     // When the current opening began, and the stages of the current close.
     QElapsedTimer openingStarted;

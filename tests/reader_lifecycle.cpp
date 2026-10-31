@@ -38,6 +38,7 @@
 #include "storage/profile_database.h"
 #include "storage/reader_storage.h"
 #include "interfaces/recovery_message.h"
+#include "interfaces/benchmark_message.h"
 #include "support/reader_inputs.h"
 #include "support/book_fixtures.h"
 #include "support/engine_fixtures.h"
@@ -4271,8 +4272,9 @@ private slots:
         CloseHost cleanup{host};
         storage::ProfileRecovery recovery;
         recovery.settings = true;
-        const auto message = profileRecoveryMessage(recovery, ".adds/kobalt/backups");
-        host.configureServices = [message](ReaderHostServices &services) { services.startupNotice = message; };
+        const auto startup = profileRecoveryNotice(recovery, ".adds/kobalt/backups");
+        const auto message = startup.message;
+        host.configureServices = [startup](ReaderHostServices &services) { services.startupNotice = startup; };
         QSignalSpy opened(&host, &ReaderFixture::opened);
         host.open(textBook, nativeSize);
         QTRY_COMPARE_WITH_TIMEOUT(opened.count(), 1, 30000);
@@ -4288,6 +4290,49 @@ private slots:
         QVERIFY(confirm);
         confirm->click();
         QTRY_VERIFY(!host.window()->findChild<QWidget *>("rrRecoveryNotice"));
+    }
+
+    void benchmarkNoticeAfterRun() {
+        const auto completed = qt::object({{"id", "page.turn"}, {"status", "completed"}});
+        const auto skipped = qt::object({{"id", "panel.footnote"}, {"status", "skipped"}});
+        const auto failed =
+            qt::object({{"id", "book.close"}, {"status", "failed"}, {"reason", "the reader did not close"}});
+        const QString folder = ".adds/kobalt/diagnostics";
+        const auto finished = benchmarkNotice({completed, skipped}, true, folder);
+        QCOMPARE(finished.title, strings::get("benchmark.finished"));
+        QVERIFY(finished.message.contains(strings::get("benchmark.counts").arg(1).arg(1).arg(0)) &&
+                finished.message.contains(folder));
+        const auto aborted = benchmarkNotice({completed, failed, skipped}, true, folder);
+        QCOMPARE(aborted.title, strings::get("benchmark.failed"));
+        QVERIFY(aborted.message.contains("book.close") && aborted.message.contains("the reader did not close") &&
+                aborted.message.contains(folder));
+        QCOMPARE(benchmarkNotice({completed}, false, folder).title, strings::get("benchmark.failed"));
+        QCOMPARE(benchmarkNotice({}, true, folder).title, strings::get("benchmark.failed"));
+
+        const auto paths = testPaths();
+        ReaderFixture host(paths, testFonts, testPlaceholder);
+        CloseHost cleanup{host};
+        QSignalSpy opened(&host, &ReaderFixture::opened);
+        host.open(textBook, nativeSize);
+        QTRY_COMPARE_WITH_TIMEOUT(opened.count(), 1, 30000);
+        // A hidden window cannot show it, so the host keeps it for later.
+        QVERIFY(!host.window()->showNotice(finished));
+        Canvas canvas(host.window(), nativeSize);
+        canvas.resize(900, 900);
+        canvas.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&canvas));
+        QTRY_VERIFY(!host.session()->busy());
+        QVERIFY(host.window()->showNotice(aborted));
+        auto *notice = host.window()->findChild<QWidget *>("rrBenchmarkNotice");
+        QVERIFY(notice && notice->isVisible());
+        auto *text = host.window()->findChild<QLabel *>("rrBenchmarkNoticeMessage");
+        QVERIFY(text && text->text() == aborted.message);
+        // One notice at a time.
+        QVERIFY(!host.window()->showNotice(finished));
+        auto *confirm = host.window()->findChild<QPushButton *>("rrBenchmarkNoticeConfirm");
+        QVERIFY(confirm);
+        confirm->click();
+        QTRY_VERIFY(!host.window()->findChild<QWidget *>("rrBenchmarkNotice"));
     }
 
     void activityBatchesAndLowBattery() {

@@ -47,7 +47,7 @@ void ReaderController::prepareProfile() {
     storage::prepareProfile(paths, &recovery);
     storageFailed = recovery.storageFailed;
     if (recovery.recovered())
-        recoveryNotice = profileRecoveryMessage(recovery, paths.directory + "/backups");
+        recoveryNotice = profileRecoveryNotice(recovery, paths.directory + "/backups");
 }
 ReaderController::~ReaderController() {
     Q_ASSERT(idle());
@@ -197,7 +197,7 @@ void ReaderController::begin(const QString &path, QSize pixels) {
             auto book = std::make_unique<ReadingBook>(std::move(guard->opening), statePath, guard->paths, identity,
                                                       hash, nullptr, ReadingProgress{}, ReadingProgress{}, guard->currentSourceKey);
             auto services = guard->services();
-            services.startupNotice = std::exchange(guard->recoveryNotice, QString());
+            services.startupNotice = std::exchange(guard->recoveryNotice, ReaderNotice{});
             if (services.backButtonLabel.isEmpty())
                 services.backButtonLabel = strings::get("library.exit_to_library");
             // Read the setting again: it can change while the Library is shown.

@@ -10,6 +10,7 @@ class ReaderSession;
 class ReaderOrientation;
 class ReadingBook;
 struct ReaderHostServices;
+struct ReaderNotice;
 
 // The firmware controller owns opening, authorization and publication lifetime.
 // The window returns a retained engine session only after a normal close.
@@ -30,6 +31,9 @@ public:
         return true;
     }
     virtual bool pendingStorageSave() const { return false; }
+    // Shows a notice over the page. False when the window cannot show one now,
+    // for example while it is hidden or another notice is open.
+    virtual bool showNotice(const ReaderNotice &) { return false; }
     // Cancel revoked native work before hiding can stop the reading interval.
     virtual void revokeNativeReading() {}
     // Revocation drains local data without writing through a revoked native account.

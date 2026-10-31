@@ -600,12 +600,17 @@ void Reader::showHighlightError() {
                         "rrHighlightError");
 }
 
+bool Reader::showNotice(const ReaderNotice &notice) {
+    if (notice.message.isEmpty() || annotationErrorDialog || closing || lifecycleHidden || services.suspended() ||
+        !isVisible())
+        return false;
+    showAnnotationError(notice.message, notice.title, notice.name);
+    return true;
+}
+
 void Reader::showStartupNotice() {
-    if (services.startupNotice.isEmpty() || annotationErrorDialog || closing || lifecycleHidden ||
-        services.suspended() || !isVisible())
-        return;
-    showAnnotationError(std::exchange(services.startupNotice, QString()), strings::get("recovery.title"),
-                        "rrRecoveryNotice");
+    if (showNotice(services.startupNotice))
+        services.startupNotice = {};
 }
 
 // `name` names the notice; its message and button add `Message` and `Confirm`.

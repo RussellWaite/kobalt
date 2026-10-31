@@ -591,6 +591,7 @@ private:
     void showHighlightError();
     void showAnnotationError(const QString &message, const QString &title, const QString &name);
     void showStartupNotice();
+    bool showNotice(const ReaderNotice &notice) override;
     void showFormattingWarning();
     bool flashAfterMenu = false, flashAfterPagePreview = false;
     void requestFlash(const char *reason);
