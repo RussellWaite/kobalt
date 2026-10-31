@@ -35,6 +35,7 @@
 #include "interfaces/reader/ui/style/fonts.h"
 #include "interfaces/reader_interface.h"
 #include "interfaces/opening_message.h"
+#include "interfaces/recovery_message.h"
 #include "platforms/kobo/display/screen_density.h"
 #include <NickelHook.h>
 #include <QApplication>
@@ -436,8 +437,21 @@ void ReaderCoordinator::prepareOpening(kobalt::ReaderBookRoute candidate) {
     // Nickel initializes its own database and imports books during startup.
     // Wait until a reading request, with the loading view already painted,
     // before opening our database or importing the profile's saved files.
-    if (!profilePrepared)
-        profilePrepared = kobalt::storage::prepareProfile(environment_.paths);
+    if (!profilePrepared) {
+        kobalt::storage::ProfileRecovery recovery;
+        profilePrepared = kobalt::storage::prepareProfile(environment_.paths, &recovery);
+        if (recovery.storageFailed) {
+            fail(strings::get("opening.storage_failed_detail"), kobalt::OpeningFallback::Storage);
+            return;
+        }
+        if (recovery.recovered()) {
+            // Name the folder as the user sees it over USB.
+            auto folder = environment_.paths.directory + "/backups";
+            if (folder.startsWith(QLatin1String("/mnt/onboard/")))
+                folder.remove(0, int(qstrlen("/mnt/onboard/")));
+            recoveryNotice = kobalt::profileRecoveryMessage(recovery, folder);
+        }
+    }
     if (!historyProfile && kobalt::annotationDatabaseEnabled()) {
         QString error;
         if (profilePrepared)
@@ -636,7 +650,8 @@ void ReaderCoordinator::cancelOpening() {
 }
 
 void ReaderCoordinator::fail(const QString &reason, kobalt::OpeningFallback state, bool publicationRejected) {
-    const bool automatic = state != kobalt::OpeningFallback::Failure;
+    const bool automatic =
+        state == kobalt::OpeningFallback::Protected || state == kobalt::OpeningFallback::Remembered;
     const bool protectedBook = state == kobalt::OpeningFallback::Protected;
     kobalt::diagnostic(protectedBook ? "opening-protected-handoff"
                        : automatic   ? "opening-remembered-handoff"
@@ -843,6 +858,7 @@ void ReaderCoordinator::showReader() {
             });
     };
     services.coverImagePath = run.nativePublication ? run.nativePublication->coverPath() : QString();
+    services.startupNotice = std::exchange(recoveryNotice, QString());
     services.automaticBookOpening = bindings_.automaticBookOpening;
     services.setAutomaticBookOpening = bindings_.setAutomaticBookOpening;
     const auto suspended = services.suspended;

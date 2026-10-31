@@ -102,6 +102,8 @@ private:
     unsigned generation = 0;
     bool busy = false;
     bool profilePrepared = false;
+    // Shown by the next reader after profile preparation reset saved data.
+    QString recoveryNotice;
     std::shared_ptr<kobalt::ReadingHistory::Profile> historyProfile;
     bool homeAfterClose = false;
     void finishHomeNavigation();

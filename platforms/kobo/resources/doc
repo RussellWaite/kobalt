@@ -20,7 +20,9 @@ reader-settings.json. Book settings, positions, bookmarks and annotations
 are in kobalt.sqlite. Kobalt also saves your position to Nickel when you
 leave a book. Existing saved data is imported after an upgrade. Original
 files are kept in migration-backup/; keep that backup until you have
-checked your books.
+checked your books. If saved data is damaged or comes from a newer
+version, Kobalt moves it to backups/, starts again from the defaults and
+tells you.
 
 To remove Kobalt, delete the file uninstall, or this whole folder, and
 restart the device. Saved positions and settings stay unless you delete

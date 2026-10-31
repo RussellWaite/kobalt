@@ -910,6 +910,7 @@ void Reader::showEvent(QShowEvent *event) {
             reportShown();
             if (!recordedOpening)
                 recordOpening();
+            showStartupNotice();
         });
     }
     // A modal window still lets Nickel repaint its library behind us.

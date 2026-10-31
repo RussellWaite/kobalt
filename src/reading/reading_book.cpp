@@ -14,6 +14,19 @@
 #include <QTimer>
 
 namespace kobalt {
+namespace {
+// The layout memory is a convenience for the next book. Profile preparation
+// moves unusable settings aside. If the file is damaged or replaced by a newer
+// version while a book is open, a close or checkpoint skips the layout memory
+// and still saves the reading position. A read error still fails the save.
+bool skipsLayoutMemory(storage::ReadStatus status) {
+    if (status != storage::ReadStatus::Invalid && status != storage::ReadStatus::Unsupported &&
+        status != storage::ReadStatus::TooLarge)
+        return false;
+    diagnostic("appearance-settings-skipped", {{"status", storage::readStatusName(status)}}, DiagnosticSeverity::Warning);
+    return true;
+}
+}
 ReadingBook::ReadingBook(std::unique_ptr<ReaderSession> session, QString statePath, storage::Paths paths,
                          QString identity, QByteArray digest, std::unique_ptr<ReadingBridge> bridge,
                          ReadingProgress baseline, ReadingProgress diskBaseline, QString sourceKey, ReadingHistory::UtcClock utc)
@@ -662,7 +675,7 @@ bool ReadingBook::checkpoint(QJsonObject *snapshot, bool background) {
             return true;
         const auto settings = storage::readPreferences(paths.preferences());
         if (settings.status != storage::ReadStatus::Ok && settings.status != storage::ReadStatus::Missing) {
-            layoutSaved = false;
+            layoutSaved = skipsLayoutMemory(settings.status);
             return true;
         }
         auto next = settings.object;
@@ -728,7 +741,9 @@ void ReadingBook::checkpointForClose(std::function<void(bool)> done) {
                     appearance::rememberPageMargins(next, state);
                     if (next != settings.object)
                         ok = storage::writePreferences(paths.preferences(), next) && ok;
-                } else ok = false;
+                } else if (!skipsLayoutMemory(settings.status)) {
+                    ok = false;
+                }
             }
             // An unchanged book record can leave an earlier routine save in
             // WAL. Complete its sync before declaring the close saved.

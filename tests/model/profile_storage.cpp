@@ -258,7 +258,75 @@ int main(int argc, char **argv) {
     require(storage::readBookState(storage::Paths{futureDatabase.path()}, "new").status == ReadStatus::DatabaseError &&
             bytes(futureDatabase.path() + "/kobalt.sqlite") == futureDatabaseBytes,
             "Future SQLite schema was changed");
-
+    {
+        // Profile preparation moves unusable saved data into backups/ and
+        // starts again from defaults. The backups keep the original bytes.
+        QTemporaryDir recovery;
+        const storage::Paths recover{recovery.path()};
+        const QString backups = recovery.path() + "/backups/";
+        execute(recovery.path(), "PRAGMA user_version=4");
+        write(recover.preferences(), "{\"schema\":1,");
+        write(recover.syncAccount(), "{\"schema\":2,\"server\":\"https://sync.invented\"}");
+        const auto settingsBytes = bytes(recover.preferences());
+        const auto accountBytes = bytes(recover.syncAccount());
+        const auto databaseBytes = bytes(recover.database());
+        storage::ProfileRecovery result;
+        require(storage::prepareProfile(recover, &result) && result.settings && result.syncAccount && result.database &&
+                    !result.storageFailed && result.backups.size() == 3,
+                "Unusable saved data was not moved aside");
+        require(bytes(backups + "reader-settings.json.corrupted.bak") == settingsBytes &&
+                    bytes(backups + "kosync.json.bak") == accountBytes && bytes(backups + "kobalt.sqlite.bak") == databaseBytes,
+                "A backup changed the original bytes or got the wrong name");
+        require(storage::readJsonFile(recover.preferences()).object == QJsonObject{{"schema", 1}} &&
+                    !QFile::exists(recover.syncAccount()),
+                "Recovery did not start again from defaults");
+        require(storage::writeBookState(recover, "fresh", {{"book", "fresh"}}), "The new database is not usable");
+        result = {};
+        require(storage::prepareProfile(recover, &result) && !result.recovered(), "Usable data was moved aside");
+        // A second failure keeps the first backup. SQLite drops the log of a
+        // file that is not a database when it opens it, so only the main file
+        // reaches the backup; no stale log stays beside the new database.
+        storage::closeProfile();
+        write(recover.preferences(), "[]");
+        write(recover.database(), QByteArray(4096, 'x'));
+        write(recover.database() + "-wal", "log");
+        result = {};
+        require(storage::prepareProfile(recover, &result) && result.settings && result.database &&
+                    bytes(backups + "reader-settings.json.corrupted.bak") == settingsBytes &&
+                    bytes(backups + "reader-settings.json.corrupted.2.bak") == "[]",
+                "A second backup replaced the first");
+        require(bytes(backups + "kobalt.sqlite.corrupted.bak") == QByteArray(4096, 'x') &&
+                    !QFile::exists(recover.database() + "-wal"),
+                "A damaged database was not moved aside");
+        storage::closeProfile();
+        // Settings without a schema are older settings, not damaged ones.
+        write(recover.preferences(), "{\"dark_mode\":true}");
+        result = {};
+        require(storage::prepareProfile(recover, &result) && !result.settings &&
+                    storage::readPreferences(recover.preferences()).object.value("dark_mode") == true,
+                "Older settings were moved aside");
+        storage::closeProfile();
+        // A backup that cannot be written leaves the original in place.
+        QTemporaryDir blocked;
+        const storage::Paths stuck{blocked.path()};
+        write(blocked.path() + "/backups", "not a folder");
+        write(stuck.preferences(), "{");
+        result = {};
+        require(!storage::prepareProfile(stuck, &result) && result.storageFailed && !result.settings &&
+                    bytes(stuck.preferences()) == "{",
+                "A failed backup was not reported, or moved the original");
+        // A file that cannot be read stops preparation without changes.
+        QTemporaryDir unreadable;
+        const storage::Paths locked{unreadable.path()};
+        write(locked.preferences(), "{\"schema\":1}");
+        require(QFile::setPermissions(locked.preferences(), QFileDevice::WriteOwner), "Make settings unreadable");
+        result = {};
+        require(!storage::prepareProfile(locked, &result) && result.storageFailed &&
+                    !QFileInfo::exists(unreadable.path() + "/backups"),
+                "Unreadable settings were not reported, or were moved");
+        QFile::setPermissions(locked.preferences(), QFileDevice::ReadOwner | QFileDevice::WriteOwner);
+        storage::closeProfile();
+    }
 
 #ifndef KOBALT_TEST_NO_LIBRARY
     QTemporaryDir catalogue;

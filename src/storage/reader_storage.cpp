@@ -1,6 +1,7 @@
 #include "reader_storage.h"
 #include "support/main_thread.h"
 #include "annotation_database.h"
+#include "profile_database.h"
 #include "bookmark_store.h"
 #include "reading/appearance_settings.h"
 #include "support/diagnostics.h"
@@ -16,6 +17,9 @@
 #include <QJsonParseError>
 #include <QSaveFile>
 #include <QCryptographicHash>
+#include <cmath>
+#include <fcntl.h>
+#include <unistd.h>
 
 namespace kobalt::storage {
 namespace {
@@ -298,8 +302,124 @@ bool writePreferences(const QString &path, const QJsonObject &object) {
     clean["schema"] = 1;
     return writeJson(path, clean);
 }
-bool prepareProfile(const Paths &paths) {
+namespace {
+enum class Damage { None, Corrupt, Incompatible, Unreadable };
+// Settings without a schema are older settings that reading upgrades. Other
+// versioned files need their schema.
+Damage jsonDamage(const QString &path, bool schemaRequired) {
+    const auto read = readJsonFile(path);
+    switch (read.status) {
+    case ReadStatus::Ok: break;
+    case ReadStatus::Missing: return Damage::None;
+    case ReadStatus::Unreadable: return Damage::Unreadable;
+    default: return Damage::Corrupt;
+    }
+    const auto schema = read.object.value("schema");
+    if (schema.isUndefined() && !schemaRequired) return Damage::None;
+    if (!schema.isDouble()) return Damage::Corrupt;
+    const double version = schema.toDouble();
+    if (version == 1) return Damage::None;
+    return version > 1 && version == std::floor(version) ? Damage::Incompatible : Damage::Corrupt;
+}
+bool syncDirectory(const QString &path) {
+    const int descriptor = ::open(QFile::encodeName(path).constData(), O_RDONLY);
+    if (descriptor < 0) return false;
+    const bool synced = ::fsync(descriptor) == 0;
+    ::close(descriptor);
+    return synced;
+}
+bool present(const QString &path) {
+    const QFileInfo file(path);
+    return file.exists() || file.isSymLink();
+}
+// Moves `name` and any of its companion files, such as SQLite's log, into
+// backups/ under one new name, so the set stays together. A backup never
+// replaces an earlier one. A failed move puts back what it moved. Returns the
+// backup's path relative to `directory`, or an empty string.
+QString moveToBackups(const QString &directory, const QString &name, bool corrupt, const QStringList &companions) {
+    const QDir profile(directory);
+    if (!profile.mkpath("backups")) return {};
+    const QString kind = corrupt ? QStringLiteral(".corrupted") : QString();
+    QString backup;
+    for (int copy = 1; backup.isEmpty(); ++copy) {
+        const auto candidate = "backups/" + name + kind + (copy > 1 ? '.' + QString::number(copy) : QString()) + ".bak";
+        bool taken = present(profile.filePath(candidate));
+        for (const auto &suffix : companions) taken = taken || present(profile.filePath(candidate + suffix));
+        if (!taken) backup = candidate;
+    }
+    QStringList moved;
+    const auto move = [&](const QString &from, const QString &to) {
+        return ::rename(QFile::encodeName(profile.filePath(from)).constData(),
+                        QFile::encodeName(profile.filePath(to)).constData()) == 0;
+    };
+    for (const auto &suffix : QStringList{QString()} + companions) {
+        if (!suffix.isEmpty() && !present(profile.filePath(name + suffix))) continue;
+        if (!move(name + suffix, backup + suffix)) {
+            for (const auto &done : moved) move(backup + done, name + done);
+            return {};
+        }
+        moved.append(suffix);
+    }
+    if (!syncDirectory(profile.filePath("backups")) || !syncDirectory(directory)) return {};
+    return backup;
+}
+// Moves damaged saved data, and data from a newer version, out of the way so
+// Kobalt can start from defaults. False when the storage cannot be used.
+bool recoverSavedData(const Paths &paths, ProfileRecovery *recovery) {
+    const auto failed = [&](const QString &file) {
+        recovery->storageFailed = true;
+        diagnostic("profile-recovery-failed", {{"file", file}}, DiagnosticSeverity::Error);
+        return false;
+    };
+    const auto moveAside = [&](const QString &file, Damage damage, const QStringList &companions = {}) {
+        const auto backup = moveToBackups(paths.directory, file, damage == Damage::Corrupt, companions);
+        if (backup.isEmpty()) return false;
+        recovery->backups.append(backup);
+        diagnostic("profile-recovered", {{"file", file}, {"backup", backup}}, DiagnosticSeverity::Warning);
+        return true;
+    };
+    const auto settings = QFileInfo(paths.preferences()).fileName();
+    switch (const auto damage = jsonDamage(paths.preferences(), false)) {
+    case Damage::None: break;
+    case Damage::Unreadable: return failed(settings);
+    default:
+        if (!moveAside(settings, damage) || !writePreferences(paths.preferences(), {})) return failed(settings);
+        recovery->settings = true;
+    }
+    const auto account = QFileInfo(paths.syncAccount()).fileName();
+    switch (const auto damage = jsonDamage(paths.syncAccount(), true)) {
+    case Damage::None: break;
+    case Damage::Unreadable: return failed(account);
+    default:
+        if (!moveAside(account, damage)) return failed(account);
+        recovery->syncAccount = true;
+    }
+    if (!annotationDatabaseEnabled()) return true;
+    const auto database = QFileInfo(paths.database()).fileName();
+    QString error;
+    switch (const auto state = inspectProfileDatabase(paths.directory, &error)) {
+    case ProfileDatabaseState::Incompatible:
+    case ProfileDatabaseState::Corrupt: {
+        const auto damage = state == ProfileDatabaseState::Incompatible ? Damage::Incompatible : Damage::Corrupt;
+        diagnostic("profile-database-rejected", {{"error_code", error}}, DiagnosticSeverity::Warning);
+        if (!moveAside(database, damage, {"-wal", "-journal", "-shm"})) return failed(database);
+        recovery->database = true;
+        break;
+    }
+    case ProfileDatabaseState::Unavailable:
+        diagnostic("profile-database-unavailable", {{"error_code", error}}, DiagnosticSeverity::Error);
+        return failed(database);
+    default: break;
+    }
+    return true;
+}
+}
+bool prepareProfile(const Paths &paths, ProfileRecovery *recovery) {
     if (paths.directory.isEmpty()) return false;
+    ProfileRecovery recovered;
+    const bool usable = recoverSavedData(paths, &recovered);
+    if (recovery) *recovery = recovered;
+    if (!usable) return false;
     const QDir directory(paths.directory);
     bool ok = true;
     const QRegularExpression bookName("^" + QRegularExpression::escape(paths.bookPrefix) + "[0-9a-f]{64}\\.json$");

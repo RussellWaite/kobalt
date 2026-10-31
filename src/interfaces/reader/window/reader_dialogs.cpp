@@ -17,6 +17,7 @@
 #include "storage/reader_storage.h"
 #include <QDateTime>
 #include <QGridLayout>
+#include <utility>
 
 namespace kobalt::reader {
 namespace strings = kobalt::strings;
@@ -597,6 +598,14 @@ void Reader::showBookmarkError() {
 void Reader::showHighlightError() {
     showAnnotationError(strings::get("annotations.change_not_saved"), strings::get("annotations.title"),
                         "rrHighlightError");
+}
+
+void Reader::showStartupNotice() {
+    if (services.startupNotice.isEmpty() || annotationErrorDialog || closing || lifecycleHidden ||
+        services.suspended() || !isVisible())
+        return;
+    showAnnotationError(std::exchange(services.startupNotice, QString()), strings::get("recovery.title"),
+                        "rrRecoveryNotice");
 }
 
 // `name` names the notice; its message and button add `Message` and `Confirm`.

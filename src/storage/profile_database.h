@@ -1,4 +1,5 @@
 #pragma once
+#include <QString>
 
 namespace kobalt::storage {
 // The profile database stays open on the writer thread while Kobalt runs. See
@@ -10,6 +11,13 @@ namespace kobalt::storage {
 // the device powers off.
 void closeProfile(bool keepClosed = false);
 void reopenProfile();
+// Whether the profile database in `directory` opens. Incompatible is a Kobalt
+// database of a version this build does not know. Corrupt is a damaged, empty
+// or foreign file. Unavailable means the storage failed. InUse means another
+// process holds the file or storage is exported; the file may be fine. A
+// database that opens stays open on the writer thread.
+enum class ProfileDatabaseState { Missing, Ready, Incompatible, Corrupt, InUse, Unavailable };
+ProfileDatabaseState inspectProfileDatabase(const QString &directory, QString *error = nullptr);
 // Syncs recent commits and folds them into the main file, for example before
 // sleep.
 void checkpointProfile();

@@ -8,7 +8,8 @@
 namespace kobalt {
 // The controller owns publication access and loading. Each UI owns the widgets
 // used to show that work, and the viewport it reserves for the book.
-enum class OpeningFallback { Failure, Protected, Remembered };
+// Storage is a failure caused by saved data that cannot be read or moved aside.
+enum class OpeningFallback { Failure, Protected, Remembered, Storage };
 class ReaderOpeningView {
 public:
     virtual ~ReaderOpeningView() = default;

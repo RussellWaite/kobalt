@@ -4,6 +4,7 @@
 #include "reader.h"
 #include "interfaces/reader_interface.h"
 #include "interfaces/opening_message.h"
+#include "interfaces/recovery_message.h"
 #include "reading/reading_book.h"
 #include "storage/annotation_database.h"
 #include "publication/native_resources.h"
@@ -38,7 +39,14 @@ ReaderController::ReaderController(storage::Paths paths, EngineFontInputs fonts,
                                    std::function<void(Qt::ScreenOrientation)> rotate, QObject *parent)
     : QObject(parent), paths(std::move(paths)), fonts(std::move(fonts)), placeholder(std::move(placeholder)),
       services(std::move(services)), orientation(nullptr, std::move(rotate)) {
-    storage::prepareProfile(this->paths);
+    prepareProfile();
+}
+void ReaderController::prepareProfile() {
+    storage::ProfileRecovery recovery;
+    storage::prepareProfile(paths, &recovery);
+    storageFailed = recovery.storageFailed;
+    if (recovery.recovered())
+        recoveryNotice = profileRecoveryMessage(recovery, paths.directory + "/backups");
 }
 ReaderController::~ReaderController() {
     Q_ASSERT(idle());
@@ -91,6 +99,13 @@ void ReaderController::begin(const QString &path, QSize pixels) {
     phase = Phase::Opening;
     openingStarted.start();
     retirementNotified = false;
+    if (storageFailed)
+        prepareProfile();
+    if (storageFailed) {
+        emit failed(strings::get("error.profile_storage_failed"));
+        retire();
+        return;
+    }
     if (!historyProfile && annotationDatabaseEnabled()) {
         QString error;
         historyProfile = ReadingHistory::openProfile(paths.directory, &error);
@@ -180,6 +195,7 @@ void ReaderController::begin(const QString &path, QSize pixels) {
             auto book = std::make_unique<ReadingBook>(std::move(guard->opening), statePath, guard->paths, identity,
                                                       hash, nullptr, ReadingProgress{}, ReadingProgress{}, guard->currentSourceKey);
             auto services = guard->services();
+            services.startupNotice = std::exchange(guard->recoveryNotice, QString());
             if (services.backButtonLabel.isEmpty())
                 services.backButtonLabel = strings::get("library.exit_to_library");
             // Read the setting again: it can change while the Library is shown.

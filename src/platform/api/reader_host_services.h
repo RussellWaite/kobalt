@@ -90,6 +90,9 @@ struct ReaderHostServices {
     std::function<QJsonObject(const QJsonObject &)> debugProgressAction;
     std::function<bool()> browserAvailable;
     std::function<bool(const QUrl &, QWidget *)> openBrowser;
+    // Optional notice the reader shows once its first page has painted, for
+    // example after profile preparation reset unusable saved data.
+    QString startupNotice;
     bool complete() const {
         return bool(automaticBookOpening) == bool(setAutomaticBookOpening) && clock && battery && pageButtons &&
                reverseLandscapeButtons && pageButtonDirection && fontFamilies && uiFont && suspended &&

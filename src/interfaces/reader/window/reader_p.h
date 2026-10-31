@@ -590,6 +590,7 @@ private:
     void showBookmarkError();
     void showHighlightError();
     void showAnnotationError(const QString &message, const QString &title, const QString &name);
+    void showStartupNotice();
     void showFormattingWarning();
     bool flashAfterMenu = false, flashAfterPagePreview = false;
     void requestFlash(const char *reason);

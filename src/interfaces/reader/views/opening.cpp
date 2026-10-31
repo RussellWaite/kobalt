@@ -84,7 +84,8 @@ public:
     }
     void showFallback(OpeningFallback state) {
         fallback = true;
-        automatic = state != OpeningFallback::Failure;
+        automatic = state == OpeningFallback::Protected || state == OpeningFallback::Remembered;
+        storageFailure = state == OpeningFallback::Storage;
         const bool protectedBook = state == OpeningFallback::Protected;
         protectedIcon = protectedBook;
         hintTimer.stop();
@@ -243,7 +244,11 @@ private:
         if (failureDialog)
             return failureDialog;
         failureDialog =
-            new ui::ChoiceModal(this, {strings::get("opening.failed_detail"), strings::get("opening.failed"), {}},
+            new ui::ChoiceModal(this,
+                                {storageFailure ? strings::get("opening.storage_failed_detail")
+                                                : strings::get("opening.failed_detail"),
+                                 storageFailure ? strings::get("opening.storage_failed") : strings::get("opening.failed"),
+                                 {}},
                                 {strings::get("opening.go_back"), "rrOpeningBack"},
                                 {strings::get("opening.try_native"), "rrOpeningNative"});
         failureDialog->setObjectName("rrOpeningFailure");
@@ -270,6 +275,7 @@ private:
     }
     QLabel *brand, *label, *hint, *detail;
     ui::ChoiceModal *failureDialog = nullptr;
+    bool storageFailure = false;
     bool fallback = false, automatic = false, protectedIcon = false;
     std::unique_ptr<WindowPresentation> presentation;
     const bool embedded;

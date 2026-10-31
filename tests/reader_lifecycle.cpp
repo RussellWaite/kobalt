@@ -37,6 +37,7 @@
 #include "engine/crengine/engine_activity.h"
 #include "storage/profile_database.h"
 #include "storage/reader_storage.h"
+#include "interfaces/recovery_message.h"
 #include "support/reader_inputs.h"
 #include "support/book_fixtures.h"
 #include "support/engine_fixtures.h"
@@ -4228,6 +4229,65 @@ private slots:
         QTRY_VERIFY(!host.book()->savesPending());
         QCOMPARE(storage::readPreferences(preferences).object.value(appearance::pageMarginsKey).toObject()
                      .value("top_margin_pixels"), host.book()->checkpointState().value("top_margin_pixels"));
+    }
+
+    void closeWithUnusableSettings() {
+        QTemporaryDir root;
+        auto paths = testPaths();
+        paths.directory = root.path();
+        ReaderFixture host(paths, testFonts, testPlaceholder);
+        CloseHost cleanup{host};
+        QSignalSpy opened(&host, &ReaderFixture::opened);
+        host.open(fixture(), nativeSize);
+        QTRY_COMPARE_WITH_TIMEOUT(opened.count(), 1, 30000);
+        Canvas canvas(host.window(), nativeSize);
+        canvas.resize(900, 900);
+        canvas.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&canvas));
+        QTRY_VERIFY(!host.session()->busy() && !host.book()->savesPending());
+        // Settings that become unusable while a book is open skip the layout
+        // memory. The reading position still saves, and the file is kept.
+        const QByteArray future = "{\"schema\":2}";
+        {
+            QFile settings(paths.preferences());
+            QVERIFY(settings.open(QIODevice::WriteOnly | QIODevice::Truncate) && settings.write(future) == future.size());
+        }
+        QVERIFY(host.session()->setVerticalMargins(readingPixels(40)));
+        QTRY_VERIFY(!host.session()->busy());
+        QJsonObject snapshot;
+        QVERIFY(host.book()->checkpoint(&snapshot));
+        bool done = false, saved = false;
+        host.book()->checkpointForClose([&](bool result) { done = true; saved = result; });
+        QTRY_VERIFY(done);
+        QVERIFY(saved);
+        QFile settings(paths.preferences());
+        QVERIFY(settings.open(QIODevice::ReadOnly));
+        QCOMPARE(settings.readAll(), future);
+    }
+
+    void recoveryNoticeAfterFirstPage() {
+        const auto paths = testPaths();
+        ReaderFixture host(paths, testFonts, testPlaceholder);
+        CloseHost cleanup{host};
+        storage::ProfileRecovery recovery;
+        recovery.settings = true;
+        const auto message = profileRecoveryMessage(recovery, ".adds/kobalt/backups");
+        host.configureServices = [message](ReaderHostServices &services) { services.startupNotice = message; };
+        QSignalSpy opened(&host, &ReaderFixture::opened);
+        host.open(textBook, nativeSize);
+        QTRY_COMPARE_WITH_TIMEOUT(opened.count(), 1, 30000);
+        Canvas canvas(host.window(), nativeSize);
+        canvas.resize(900, 900);
+        canvas.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&canvas));
+        QWidget *notice = nullptr;
+        QTRY_VERIFY((notice = host.window()->findChild<QWidget *>("rrRecoveryNotice")) && notice->isVisible());
+        auto *text = host.window()->findChild<QLabel *>("rrRecoveryNoticeMessage");
+        QVERIFY(text && text->text() == message && message.contains(".adds/kobalt/backups"));
+        auto *confirm = host.window()->findChild<QPushButton *>("rrRecoveryNoticeConfirm");
+        QVERIFY(confirm);
+        confirm->click();
+        QTRY_VERIFY(!host.window()->findChild<QWidget *>("rrRecoveryNotice"));
     }
 
     void activityBatchesAndLowBattery() {

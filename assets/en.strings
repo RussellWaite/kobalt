@@ -309,6 +309,7 @@
 "error.position_has_no_source_chapter" = "Position has no source chapter";
 "error.position_has_no_source_path" = "Position has no source path";
 "error.profile_already_in_use" = "This profile is open in another Kobalt app. Close it there and try again.";
+"error.profile_storage_failed" = "Kobalt couldn't read its saved data or move it to a backup. The storage may be failing. Repair the file system or reset the device.";
 "error.publication_declares_vertical_writing" = "This book uses an unsupported writing mode.";
 "error.publication_exceeds_the_memory_limit" = "Publication exceeds the memory limit";
 "error.publication_layout_inspection_is_incomplete" = "Publication layout inspection is incomplete";
@@ -830,10 +831,17 @@
 "opening.continuing" = "Continuing automatically";
 "opening.failed" = "Couldn't open this book";
 "opening.failed_detail" = "Kobalt couldn't read this EPUB. You can try opening it in Kobo's built-in reader.";
+"opening.storage_failed" = "Kobalt can't use its saved data";
+"opening.storage_failed_detail" = "Kobalt couldn't read its saved data or move it to a backup. The storage may be failing. Repair the file system or reset the device. Kobalt will close now.";
 "opening.try_native" = "Try built-in reader";
 "opening.go_back" = "Go back";
 
 "opening.remembered" = "This book uses the built-in reader.";
+"recovery.title" = "Saved data reset";
+"recovery.settings" = "Kobalt's settings could not be used, so the defaults are back in use.";
+"recovery.sync_account" = "The sync account could not be used. Sign in again to keep syncing.";
+"recovery.database" = "Kobalt's reading positions, bookmarks and annotations could not be used. Kobalt started again with empty saved data.";
+"recovery.backups" = "The original files are in %1.";
 
 "reader.supplemental_fonts" = "Supplemental Fonts";
 
