@@ -285,7 +285,7 @@ inline QByteArray screenshotGallery(const QString &directory, const QJsonArray &
             if (url.startsWith("https://")) credits += "<p><a href=\"" + escape(url) + "\">" + escape(item["title"].toString()) + "</a></p>";
         }
     }
-    const QMap<QString, QString> values{{"SUITE", manifest["suite"] == "light" ? "Light" : "Full"}, {"GROUPS", groups}, {"OPTIONS", options}, {"IMAGES", images},
+    const QMap<QString, QString> values{{"SUITE", manifest["suite"] == "light" ? "Light" : manifest["suite"] == "scenes" ? "Selected scenes" : "Full"}, {"GROUPS", groups}, {"OPTIONS", options}, {"IMAGES", images},
         {"COUNT", QString::number(scenes.size())}, {"CAPTURES", QString::number(captures.size())}, {"BOOKS", credits},
         {"BUILD", escape("Source " + manifest["commit"].toString() + (manifest["modified"].toBool() ? " (modified)" : "") +
                          " · Qt " + manifest["qt"].toString() + " · " + manifest["version"].toString())}};

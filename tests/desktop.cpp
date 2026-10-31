@@ -89,6 +89,8 @@
 #include <QMutex>
 #include <QTemporaryDir>
 #include <QTest>
+#include <cstdio>
+#include <cstdlib>
 #include <tuple>
 #include <QTimer>
 
@@ -110,6 +112,8 @@ const QString book = QStringLiteral(KOBALT_TEST_BOOK);
 QString captureDirectory;
 QJsonArray captures;
 QJsonObject captureBook;
+// Scenes a scene-filtered gallery worker captures; empty captures every scene.
+QStringList captureOnly;
 
 EngineFontInputs fixtureFonts(QString sideloadDirectory = {}) {
     // Bundled assets are immutable fixtures. Only each profile's optional
@@ -634,8 +638,17 @@ bool visibleReturnCaption(const QImage &button, const QLabel *title, const QColo
     return ink > 4;
 }
 
+bool writeCaptureRecord() {
+    QSaveFile record(captureDirectory + "/part.json");
+    const auto json = QJsonDocument(captures).toJson();
+    return record.open(QIODevice::WriteOnly) && record.write(json) == json.size() && record.commit();
+}
+
 bool capture(Fixture &fixture, const QString &name, QWidget *nativeScreen = nullptr) {
     if (captureDirectory.isEmpty()) return true;
+    const auto parts = QRegularExpression("^(fill|six-inch|seven-inch)-(light|dark|large)-(.*)$").match(name);
+    if (!parts.hasMatch()) return false;
+    if (!captureOnly.isEmpty() && !captureOnly.contains(parts.captured(3))) return true;
     // Model state and visibility can settle before queued layouts and proxy
     // cache updates. Deliver those updates before rendering the visible frame.
     QCoreApplication::processEvents();
@@ -677,8 +690,6 @@ bool capture(Fixture &fixture, const QString &name, QWidget *nativeScreen = null
     if (image.isNull() || !file.open(QIODevice::ReadOnly)) {
         return false;
     }
-    const auto parts = QRegularExpression("^(fill|six-inch|seven-inch)-(light|dark|large)-(.*)$").match(name);
-    if (!parts.hasMatch()) return false;
     const auto identity = test::screenshotIdentity(parts.captured(3));
     if (test::screenshotTitle(identity.first, captureBook).isEmpty()) {
         qCritical().noquote() << "Screenshot has no gallery title:" << identity.first;
@@ -697,7 +708,15 @@ bool capture(Fixture &fixture, const QString &name, QWidget *nativeScreen = null
         {"screen", identity.first}, {"capture_page", identity.second},
         {"group", test::screenshotGroup(parts.captured(3))}, {"book", captureBook.isEmpty() ? generalBook : captureBook},
         {"capture", "screen"}, {"ppi", 300},
-        {"sha256", QString::fromLatin1(QCryptographicHash::hash(file.readAll(), QCryptographicHash::Sha256).toHex())}});
+        {"sha256", QString::fromLatin1(QCryptographicHash::hash(file.readAll(), QCryptographicHash::Sha256).toHex())},
+        // The case lets a scene-filtered run find this scene without running the whole tour.
+        {"case", QString::fromLatin1(QTest::currentTestFunction()) + ':' + QString::fromLatin1(QTest::currentDataTag())}});
+    if (!captureOnly.isEmpty() && captures.size() == captureOnly.size()) {
+        // Every selected scene of this case is saved. The rest of the case
+        // only leads to scenes that were not selected, so the worker ends here.
+        std::fflush(nullptr);
+        std::_Exit(writeCaptureRecord() ? 0 : 2);
+    }
     return true;
 }
 
@@ -1400,6 +1419,38 @@ exit 7
         qputenv("KOBALT_GALLERY_JOBS", "0");
         QTest::ignoreMessage(QtCriticalMsg, "KOBALT_GALLERY_JOBS must be between 1 and 32");
         QVERIFY(!test::screenshotJobs(script, directory.path(), directory.path(), false, images));
+    }
+    void gallerySceneSelection() {
+        QTemporaryDir directory(QDir::tempPath() + "/gallery scenes-XXXXXX");
+        QVERIFY(directory.isValid());
+        const auto script = directory.path() + "/worker.sh";
+        QFile file(script);
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        const QByteArray source = R"SH(#!/bin/sh
+if [ "$3" = "-datatags" ]; then
+    printf 'ScreenshotTests fixture 1-light\nScreenshotTests fixture 1-dark\n'
+    exit 0
+fi
+: > "$2/$3.png"
+printf '[{"file":"%s.png","scene":"%s"}]' "$3" "$KOBALT_GALLERY_CAPTURE" > "$2/part.json"
+)SH";
+        QCOMPARE(file.write(source), source.size());
+        file.close();
+        QVERIFY(file.setPermissions(QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner));
+        const auto destination = directory.path() + "/images";
+        QVERIFY(QDir().mkpath(destination));
+        QJsonArray images;
+        QVERIFY(test::screenshotJobs(script, directory.path(), destination, false, images,
+                                     {{"fixture:1-dark", {"about", "license"}}}));
+        // Only the selected case ran, in its own worker, with its scenes.
+        QCOMPARE(images.size(), 1);
+        QCOMPARE(images.first().toObject()["file"].toString(), QString("fixture:1-dark.png"));
+        QCOMPARE(images.first().toObject()["scene"].toString(), QString("about,license"));
+        QVERIFY(!QFileInfo::exists(directory.path() + "/worker-1"));
+        images = {};
+        QTest::ignoreMessage(QtCriticalMsg, QRegularExpression("Screenshot case no longer exists: fixture:2-light.*"));
+        QVERIFY(!test::screenshotJobs(script, directory.path(), destination, false, images, {{"fixture:2-light", {"about"}}}));
+        QVERIFY(images.isEmpty());
     }
     void galleryIntegrity() {
         QTemporaryDir directory;
@@ -6969,12 +7020,46 @@ int main(int argc, char **argv) {
     QElapsedTimer galleryTimer;
     galleryTimer.start();
     std::unique_ptr<QTemporaryDir> staging;
+    // KOBALT_GALLERY_SCENE names gallery cards, separated by commas. The last
+    // full gallery's manifest tells which cases capture them.
+    const auto selectedScenes = qEnvironmentVariable("KOBALT_GALLERY_SCENE").split(',', Qt::SkipEmptyParts);
+    QMap<QString, QStringList> selection;
+    int expectedScreenshots = lightGallery ? 84 : 1232;
     if (screenshots) {
         if ((arguments.size() != 3 && !lightGallery) || !QDir::isAbsolutePath(arguments.at(2))) {
             qCritical() << "Usage: kobalt-desktop-tests --screenshots ABSOLUTE_DIRECTORY [--light]";
             return 2;
         }
         output = QDir::cleanPath(arguments.at(2));
+        if (!selectedScenes.isEmpty()) {
+            if (lightGallery) {
+                qCritical() << "KOBALT_GALLERY_SCENE selects scenes from the full gallery";
+                return 2;
+            }
+            QFile index(output + "/manifest.json");
+            const auto images = index.open(QIODevice::ReadOnly)
+                ? QJsonDocument::fromJson(index.readAll()).object().value("images").toArray() : QJsonArray{};
+            QSet<QString> found;
+            expectedScreenshots = 0;
+            for (const auto &value : images) {
+                const auto image = value.toObject();
+                if (!selectedScenes.contains(image["screen"].toString())) continue;
+                if (image["case"].toString().isEmpty()) {
+                    qCritical().noquote() << "The full gallery in" << output << "has no case index. Run it once without KOBALT_GALLERY_SCENE.";
+                    return 2;
+                }
+                selection[image["case"].toString()].append(image["scene"].toString());
+                found.insert(image["screen"].toString());
+                ++expectedScreenshots;
+            }
+            for (const auto &scene : selectedScenes) {
+                if (!found.contains(scene)) {
+                    qCritical().noquote() << "No gallery scene" << scene << "in" << output + "/manifest.json";
+                    return 2;
+                }
+            }
+            output += "-scenes";
+        }
         if (QFileInfo::exists(output)) {
             QFile previous(output + "/manifest.json");
             if (!previous.open(QIODevice::ReadOnly) ||
@@ -7000,6 +7085,7 @@ int main(int argc, char **argv) {
     if (worker) {
         const auto selectors = arguments.mid(3);
         captureDirectory = arguments.at(2);
+        captureOnly = qEnvironmentVariable("KOBALT_GALLERY_CAPTURE").split(',', Qt::SkipEmptyParts);
         if (!QDir::isAbsolutePath(captureDirectory) || !QDir().mkpath(captureDirectory) ||
             QFileInfo::exists(captureDirectory + "/part.json")) return 2;
         QTimer::singleShot(0, &app, [&] {
@@ -7008,12 +7094,11 @@ int main(int argc, char **argv) {
         });
         const int result = app.exec();
         if (result || selectors == QStringList{"-datatags"}) return result;
-        QSaveFile record(captureDirectory + "/part.json");
-        const auto json = QJsonDocument(captures).toJson();
-        return record.open(QIODevice::WriteOnly) && record.write(json) == json.size() && record.commit() ? 0 : 2;
+        return writeCaptureRecord() ? 0 : 2;
     }
     if (screenshots) {
-        if (!test::screenshotJobs(QCoreApplication::applicationFilePath(), staging->path(), captureDirectory, lightGallery, captures)) return 2;
+        if (!test::screenshotJobs(QCoreApplication::applicationFilePath(), staging->path(), captureDirectory, lightGallery,
+                                  captures, selection)) return 2;
     } else {
         if (lightTests) arguments = {arguments.first(), "primaryViews"};
         QTimer::singleShot(0, &app, [&] {
@@ -7023,7 +7108,6 @@ int main(int argc, char **argv) {
         return app.exec();
     }
     QFile fixture(book);
-    const int expectedScreenshots = lightGallery ? 84 : 1232;
     if (captures.size() != expectedScreenshots)
         qCritical() << "Expected" << expectedScreenshots << "screenshots, captured" << captures.size();
     if (!fixture.open(QIODevice::ReadOnly) || captures.size() != expectedScreenshots) {
@@ -7033,7 +7117,7 @@ int main(int argc, char **argv) {
                                {"commit", kobaltCommit}, {"modified", bool(KOBALT_COMMIT_MODIFIED)},
                                {"book", "Trevelyan's Type Tester v1.2 with chapter-heading CSS fix"}, {"book_file", QFileInfo(book).fileName()},
                                {"book_sha256", QString::fromLatin1(QCryptographicHash::hash(fixture.readAll(), QCryptographicHash::Sha256).toHex())},
-                               {"suite", lightGallery ? "light" : "full"}, {"images", captures}};
+                               {"suite", !selection.isEmpty() ? "scenes" : lightGallery ? "light" : "full"}, {"images", captures}};
     QSaveFile record(captureDirectory + "/manifest.json");
     const auto json = QJsonDocument(manifest).toJson();
     if (!record.open(QIODevice::WriteOnly) || record.write(json) != json.size() || !record.commit()) {
