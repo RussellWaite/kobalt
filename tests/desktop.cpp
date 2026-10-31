@@ -50,6 +50,7 @@
 #include "interfaces/reader/panels/search_panel.h"
 #include "interfaces/reader/panels/chapter_graph.h"
 #include "interfaces/reader/settings/header_footer_panel.h"
+#include "interfaces/reader/settings/settings_panel.h"
 #include "interfaces/reader/settings/acknowledgments.h"
 #include "interfaces/reader/ui/controls/paged_text.h"
 #include <lvtinydom.h>
@@ -881,9 +882,14 @@ void verticalJustificationTour(Fixture &fixture, const QString &name, bool scree
         if (config) QVERIFY(scene("settings"));
         QVERIFY(fixture.press("rrVerticalSpacing"));
         QTRY_VERIFY(fixture.visible("rrVerticalSpacing_off"));
-        // Wait for the rendered sample before capturing the sheet.
         QTRY_VERIFY_WITH_TIMEOUT(fixture.widget("rrStylingPreview")->property("sample_ready").toBool(), 10000);
-        if (config) QVERIFY(scene("choices"));
+        if (config) {
+            QVERIFY(scene("choices"));
+            QVERIFY(fixture.press("rrVerticalSpacing_center"));
+            QVERIFY(scene("choices-center"));
+            QVERIFY(fixture.press("rrVerticalSpacing_expand"));
+            QVERIFY(scene("choices-expand"));
+        }
         QVERIFY(fixture.press(qPrintable("rrVerticalSpacing_" + mode)));
         QVERIFY(fixture.visible("rrVerticalSpacingPopup"));
         QVERIFY(fixture.press("rrVerticalSpacingClose"));
@@ -897,6 +903,11 @@ void verticalJustificationTour(Fixture &fixture, const QString &name, bool scree
             QTRY_VERIFY_WITH_TIMEOUT(fixture.widget("rrStylingPreview")->property("sample_ready").toBool(), 10000);
             QVERIFY(fixture.press(protection ? "rrVerticalSpacingScope_protection" : "rrVerticalSpacingScope_all"));
             if (config) QVERIFY(scene("scope"));
+            if (config) {
+                QVERIFY(fixture.press("rrVerticalSpacingScope_protection"));
+                QVERIFY(scene("scope-protection"));
+                QVERIFY(fixture.press(protection ? "rrVerticalSpacingScope_protection" : "rrVerticalSpacingScope_all"));
+            }
             QVERIFY(fixture.press("rrVerticalSpacingScopeClose"));
             QTRY_VERIFY(!fixture.visible("rrVerticalSpacingScopePopup"));
         }
@@ -1121,6 +1132,13 @@ void tour(Fixture &fixture, const QString &name, bool screenshots) {
             QTRY_VERIFY(fixture.visible(popup));
             QTRY_VERIFY_WITH_TIMEOUT(fixture.widget("rrStylingPreview")->property("sample_ready").toBool(), 10000);
             QVERIFY(scene(suffix));
+            if (QString(row) == "rrWidowsOrphans") {
+                QVERIFY(fixture.press("rrWidowsOrphans_avoid"));
+                QVERIFY(scene("styling-widows-avoid"));
+                QVERIFY(fixture.press("rrWidowsOrphans_allow"));
+                QVERIFY(scene("styling-widows-allow"));
+                QVERIFY(fixture.press("rrWidowsOrphans_publisher"));
+            }
             QVERIFY(fixture.press(qPrintable(QString(popup).replace("Popup", "Close"))));
             QTRY_VERIFY(!fixture.visible(popup));
         }
@@ -4602,9 +4620,18 @@ printf '[{"file":"%s.png","scene":"%s"}]' "$3" "$KOBALT_GALLERY_CAPTURE" > "$2/p
         QVERIFY(fixture.press("rrPage"));
         QTRY_VERIFY(fixture.visible("rrSettings"));
         QVERIFY(fixture.press("rrSettings"));
-        // A scenario must not settle while sample renders are queued behind
-        // other engine work, even though the book itself is idle.
+        // Entering Styling must not request samples. Opening a sheet requests
+        // only that feature, and reopening it reuses the prepared choices.
         {
+            auto *panel = static_cast<reader::SettingsPanel *>(fixture.widget("rrGeneralSettings"));
+            QVERIFY(panel);
+            const auto prepare = panel->stylingRequested;
+            QVector<reader::SettingsPanel::AdvancedText> requested;
+            panel->stylingRequested = [&](reader::SettingsPanel::AdvancedText feature) {
+                requested.append(feature);
+                prepare(feature);
+            };
+            auto restorePrepare = qScopeGuard([&] { panel->stylingRequested = prepare; });
             struct Gate {
                 QSemaphore release;
                 std::atomic_bool entered{false};
@@ -4618,7 +4645,26 @@ printf '[{"file":"%s.png","scene":"%s"}]' "$3" "$KOBALT_GALLERY_CAPTURE" > "$2/p
             }, Qt::QueuedConnection);
             QTRY_VERIFY(gate->entered.load());
             QVERIFY(fixture.press("rrSettingsStyling"));
-            QVERIFY(fixture.window.readerWindow()->busy());
+            QVERIFY(requested.isEmpty());
+            QVERIFY(!fixture.window.readerWindow()->busy());
+            // Opening a page illustration must not wait for the engine.
+            for (const auto *row : {"rrWidowsOrphans", "rrVerticalSpacing"}) {
+                for (int page = 0; page < 4 && !fixture.widget(row)->visibleRegion().contains(fixture.widget(row)->rect().center()); ++page)
+                    QVERIFY(fixture.press("rrSettingsOptionsNext"));
+                QVERIFY(fixture.press(row));
+                QCOMPARE(requested.size(), QString(row) == "rrWidowsOrphans" ? 1 : 2);
+                QVERIFY(fixture.widget("rrStylingPreview")->property("sample_ready").toBool());
+                const QPointer<QWidget> closedSheet = fixture.widget(qPrintable(QString(row) + "Popup"));
+                QVERIFY(fixture.press(qPrintable(QString(row) + "Close")));
+                QTRY_VERIFY(closedSheet.isNull());
+                const int prepared = requested.size();
+                QVERIFY(fixture.press(row));
+                QCOMPARE(requested.size(), prepared);
+                QVERIFY(fixture.widget("rrStylingPreview")->property("sample_ready").toBool());
+                QVERIFY(fixture.press(qPrintable(QString(row) + "Close")));
+            }
+            for (int page = 0; page < 4 && fixture.visible("rrSettingsOptionsPrevious") && fixture.widget("rrSettingsOptionsPrevious")->isEnabled(); ++page)
+                QVERIFY(fixture.press("rrSettingsOptionsPrevious"));
             gate->release.release();
             QTRY_VERIFY_WITH_TIMEOUT(!fixture.window.readerWindow()->busy(), 10000);
         }
@@ -4732,7 +4778,7 @@ printf '[{"file":"%s.png","scene":"%s"}]' "$3" "$KOBALT_GALLERY_CAPTURE" > "$2/p
         auto *sheet = fixture.widget("rrWidowsOrphansPopup");
         auto *samplePages = fixture.widget("rrStylingPreview");
         QVERIFY(sheet && samplePages && samplePages->visibleRegion().contains(samplePages->rect()));
-        // The sample is long enough that keeping lines together moves a break.
+        // Keeping lines together changes the native page-break illustration.
         compareOptions("rrWidowsOrphansPopup", {"rrWidowsOrphans_allow", "rrWidowsOrphans_avoid"});
         QVERIFY(!fixture.visible("rrStylingSameNote"));
         QVERIFY(fixture.press("rrWidowsOrphansClose"));
@@ -7080,7 +7126,7 @@ int main(int argc, char **argv) {
     // full gallery's manifest tells which cases capture them.
     const auto selectedScenes = qEnvironmentVariable("KOBALT_GALLERY_SCENE").split(',', Qt::SkipEmptyParts);
     QMap<QString, QStringList> selection;
-    int expectedScreenshots = lightGallery ? 84 : 1232;
+    int expectedScreenshots = lightGallery ? 84 : 1262;
     if (screenshots) {
         if ((arguments.size() != 3 && !lightGallery) || !QDir::isAbsolutePath(arguments.at(2))) {
             qCritical() << "Usage: kobalt-desktop-tests --screenshots ABSOLUTE_DIRECTORY [--light]";

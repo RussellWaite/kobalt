@@ -1454,6 +1454,8 @@ void SettingsPanel::showStylingChoices(AdvancedText feature, int current, std::f
     fontDialog->raise();
     fontDialog->setFocus();
     showStylingPreview();
+    if (!stylingSamples.value(int(feature)).valid() && stylingRequested)
+        stylingRequested(feature);
 }
 void SettingsPanel::showStylingPreview() {
     auto *preview = static_cast<StylingPreview *>(stylingPreview.data());
@@ -1480,6 +1482,17 @@ void SettingsPanel::setStylingSample(AdvancedText feature, const StyleSample &sa
     stylingSamples[int(feature)] = sample;
     if (stylingPreview && stylingFeature == feature)
         showStylingPreview();
+}
+void SettingsPanel::invalidateStylingSamples(int unchanged) {
+    const auto kept = stylingSamples.value(unchanged);
+    stylingSamples.clear();
+    if (kept.valid())
+        stylingSamples.insert(unchanged, kept);
+    if (stylingPreview && int(stylingFeature) != unchanged) {
+        showStylingPreview();
+        if (stylingRequested)
+            stylingRequested(stylingFeature);
+    }
 }
 void SettingsPanel::clearStylingSamples() {
     stylingSamples.clear();
