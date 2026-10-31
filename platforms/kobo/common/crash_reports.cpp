@@ -391,7 +391,7 @@ void writeReport(int signal, siginfo_t *info, void *context) {
     path[0] = 0;
     if (!append(path, sizeof(path), used, directory) || !append(path, sizeof(path), used, "/crash-") ||
         !append(path, sizeof(path), used, stamp) || !append(path, sizeof(path), used, "-") ||
-        !append(path, sizeof(path), used, pidEnd) || !append(path, sizeof(path), used, ".txt"))
+        !append(path, sizeof(path), used, pidEnd) || !append(path, sizeof(path), used, ".log"))
         return;
     const int fd = ::open(path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600);
     if (fd < 0)
@@ -542,7 +542,10 @@ void addHeader(const char *key, const QByteArray &value) {
 // Keeps room for one new report: the handler removes the oldest of a full set.
 void prune(const QString &path) {
     oldest[0] = 0;
-    auto names = QDir(path).entryList({QStringLiteral("crash-*.txt")}, QDir::Files | QDir::NoSymLinks, QDir::Name);
+    // Reports end in .log, so Nickel does not import them as TXT books. Earlier
+    // builds wrote .txt; the same names sort by time, so both count here.
+    auto names = QDir(path).entryList({QStringLiteral("crash-*.log"), QStringLiteral("crash-*.txt")},
+                                      QDir::Files | QDir::NoSymLinks, QDir::Name);
     while (names.size() > crashReportLimit)
         QFile::remove(path + '/' + names.takeFirst());
     if (names.size() == crashReportLimit && !copy(path + '/' + names.first(), oldest, sizeof(oldest)))

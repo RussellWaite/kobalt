@@ -47,7 +47,8 @@ int crashChild(const QString &directory, const QString &mount, const char *kind)
     return WIFEXITED(status) ? WEXITSTATUS(status) : -WTERMSIG(status);
 }
 QStringList reports(const QString &directory) {
-    return QDir(directory).entryList({QStringLiteral("crash-*.txt")}, QDir::Files, QDir::Name);
+    return QDir(directory).entryList({QStringLiteral("crash-*.log"), QStringLiteral("crash-*.txt")}, QDir::Files,
+                                     QDir::Name);
 }
 QByteArray read(const QString &path) {
     QFile file(path);
