@@ -36,7 +36,7 @@ The `resource.resource-provider` check identifies fonts from their decoded bytes
 
 `lifecycle.progressPercentagesAgree` compares the reading footer, progress bar, Stats, sleep snapshot and saved Library percentage at the first, intermediate and last pages. The progress model checks rounding, unknown and single-page lengths, out-of-range positions and large page counts.
 
-The bookmark and highlight session checks run their shared editing, reflow and reopening cases in separate JSON and SQLite processes. SQLite write-abort fixtures check failed add, removal, merge, appearance and passage edits, rollback to saved records, and retry. Malformed rows must block session edits without being discarded. Close checks reload the final queued edit and its payload from a new connection. The database crash fixture retains bookmarks, annotations and reading positions in the write-ahead log, including Unicode and embedded NUL text.
+The bookmark and highlight session checks run their shared editing, reflow and reopening cases in separate JSON and SQLite processes. The highlight overlap check covers sequential edits both without an explicit storage wait and after queued writes and their detail-cache updates finish. It compares creation times at the stores’ UTC ISO second precision and keeps passage content and endpoint metadata exact. SQLite write-abort fixtures check failed add, removal, merge, appearance and passage edits, rollback to saved records, and retry. Malformed rows must block session edits without being discarded. Close checks reload the final queued edit and its payload from a new connection. The database crash fixture retains bookmarks, annotations and reading positions in the write-ahead log, including Unicode and embedded NUL text.
 
 ## KOsync
 
