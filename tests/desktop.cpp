@@ -5071,6 +5071,8 @@ exit 7
         first.open(book, QSize(600, 800), "first-window");
         QTRY_COMPARE_WITH_TIMEOUT(firstOpened.count(), 1, 10000);
         QTRY_VERIFY(first.window()->readyForPresentation());
+        // Put an active interval on disk before testing recovery ownership.
+        first.window()->checkpoint();
         second.open(book, QSize(600, 800), "second-window");
         QTRY_COMPARE_WITH_TIMEOUT(secondOpened.count(), 1, 10000);
         QTRY_VERIFY(second.window()->readyForPresentation());

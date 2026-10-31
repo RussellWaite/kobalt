@@ -1,6 +1,7 @@
 #include "highlight_session.h"
 #include "reader_session.h"
 #include "support/diagnostics.h"
+#include "storage/profile_database.h"
 #include "support/main_thread.h"
 #include "support/qt_compat.h"
 
@@ -22,7 +23,7 @@ HighlightSession::HighlightSession(ReaderSession &model, std::function<QString()
     }
     loadFailed_ = !store_->loadCompact(&error_);
     if (loadFailed_) {
-        diagnostic("highlights-load", {{"error", error_}}, false);
+        diagnostic("highlights-load", {{"error", error_}}, DiagnosticSeverity::Error);
     }
     saved_ = store_->highlights();
 }
@@ -208,7 +209,7 @@ bool HighlightSession::persist(QVector<Highlight> highlights) {
     if (highlights.size() > HighlightStore::maxHighlights) {
         error_ = QStringLiteral("storage-limit");
         ++errors_;
-        diagnostic("highlights-save", {{"error", error_}}, false);
+        diagnostic("highlights-save", {{"error", error_}}, DiagnosticSeverity::Error);
         if (failed)
             failed();
         return false;
@@ -223,6 +224,7 @@ bool HighlightSession::persist(QVector<Highlight> highlights) {
     auto error = std::make_shared<QString>();
     writer_->post(
         [copy, highlights, error] {
+            storage::RoutineWrites routine;
             copy->setHighlights(highlights);
             return copy->save(error.get());
         },
@@ -244,7 +246,7 @@ void HighlightSession::finishSave(quint64 id, bool ok, const QString &error, qui
     if (ok)
         saved_ = highlights;
     else
-        diagnostic("highlights-save", {{"error", error}}, false);
+        diagnostic("highlights-save", {{"error", error}}, DiagnosticSeverity::Error);
     // A newer save writes the whole list again, so only its result counts.
     if (id != posted_)
         return;

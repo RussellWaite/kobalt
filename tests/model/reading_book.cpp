@@ -463,16 +463,16 @@ int main(int argc, char **argv) {
         }), "History write audit fixture");
         tick();
         require(local.checkpoint(&unchangedCheckpoint) &&
-                historyValue("SELECT COUNT(*) FROM history_write_audit").toInt() == 0,
-                "Unchanged checkpoint rewrote reading history");
+                historyValue("SELECT COUNT(*) FROM history_write_audit").toInt() == 1,
+                "Lifecycle checkpoint must save time even without a position change");
         require(local.session()->turn(1), "Cannot turn before routine checkpoint");
         waitUntil([&] { return !local.session()->busy(); });
         require(local.checkpoint(&unchangedCheckpoint, true), "Cannot queue routine position checkpoint");
         storage::drainWriterThread();
-        require(historyValue("SELECT COUNT(*) FROM history_write_audit").toInt() == 0,
+        require(historyValue("SELECT COUNT(*) FROM history_write_audit").toInt() == 1,
                 "Routine position checkpoint added a synced history write");
         require(local.checkpointReadingHistory() &&
-                historyValue("SELECT COUNT(*) FROM history_write_audit").toInt() == 1,
+                historyValue("SELECT COUNT(*) FROM history_write_audit").toInt() == 2,
                 "Periodic checkpoint skipped time without a page turn");
         require(AnnotationDatabase::transaction(paths.directory, [](QSqlDatabase &db) {
             QSqlQuery query(db);
@@ -485,7 +485,7 @@ int main(int argc, char **argv) {
         }), "History failure fixture");
         require(!local.checkpointReadingHistory(), "Blocked history update succeeded");
         QJsonObject independentCheckpoint;
-        require(local.checkpoint(&independentCheckpoint), "History failure blocked independent progress save");
+        require(!local.checkpoint(&independentCheckpoint), "A lifecycle checkpoint must report history failure");
         require(AnnotationDatabase::transaction(paths.directory, [](QSqlDatabase &db) {
             QSqlQuery query(db); return query.exec("DROP TRIGGER fail_history");
         }) && local.checkpointReadingHistory(), "History update retry failed");
@@ -648,6 +648,129 @@ int main(int argc, char **argv) {
         require(historyValue("SELECT COUNT(*) FROM reading_sessions WHERE identity='sleep-history' AND status='completed'").toInt() == 1,
                 "Closing while sleeping did not finish the retained session");
     }
+    for (const bool closing : {false, true}) {
+        for (const auto *outcome : {"success", "failure", "cancel", "destroy", "close-destroys"}) {
+            const bool closeDestroys = QString(outcome) == "close-destroys";
+            if (closeDestroys && !closing) continue;
+            const QString identity = QString("activity-continuation-%1-%2").arg(closing).arg(outcome);
+            auto session = open();
+            const auto hash = session->sourceHash();
+            auto book = std::make_unique<ReadingBook>(std::move(session), paths.bookState(identity), paths,
+                                                       identity, hash, nullptr, ReadingProgress(), ReadingProgress());
+            book->observeReading();
+            QJsonObject snapshot;
+            require(book->checkpoint(&snapshot), "Seed continuation history");
+            const bool failure = QString(outcome) == "failure";
+            if (failure)
+                require(AnnotationDatabase::transaction(paths.directory, [](QSqlDatabase &db) {
+                    QSqlQuery query(db);
+                    return query.exec("CREATE TRIGGER refuse_activity_history BEFORE UPDATE ON reading_sessions "
+                                      "BEGIN SELECT RAISE(ABORT,'test'); END");
+                }), "Refuse activity history");
+            std::atomic_bool entered{false}, released{false};
+            storage::RecordWriter blocker;
+            struct Release { std::atomic_bool &released; ~Release() { released = true; } } release{released};
+            blocker.post([&] {
+                entered = true;
+                while (!released) QThread::msleep(1);
+                return true;
+            }, {});
+            waitUntil([&] { return entered.load(); });
+            book->saveReadingActivity();
+            require(book->session()->turn(1), "Turn while activity is blocked");
+            waitUntil([&] { return !book->session()->busy(); });
+            const auto newest = book->checkpointState().value("position");
+            int completed = 0;
+            bool saved = false;
+            if (closing) {
+                book->stopReading(true);
+                book->checkpointForClose([&](bool ok) {
+                    ++completed; saved = ok;
+                    if (closeDestroys) {
+                        book->discardPendingSaves();
+                        book.reset();
+                    }
+                });
+                book->checkpointForClose([&](bool ok) { ++completed; saved = ok; });
+            } else {
+                require(book->checkpoint(&snapshot, true), "Queue checkpoint behind activity");
+            }
+            tick(30);
+            require(completed == 0 && book->savesPending(), "Continuation ran before activity completed");
+            released = true;
+            if (QString(outcome) == "cancel")
+                require(book->checkpoint(&snapshot), "Synchronous checkpoint cancels activity");
+            if (QString(outcome) == "destroy") {
+                book->discardPendingSaves();
+                book.reset();
+                tick();
+                require(completed == 0, "Destroyed owner received an activity continuation");
+            } else if (closeDestroys) {
+                waitUntil([&] { return !book; });
+                tick();
+                require(completed == 1 && saved, "Close continued callbacks after owner destruction");
+            } else {
+                waitUntil([&] { return !book->savesPending() && (!closing || completed == 2); });
+                if (closing)
+                    require(completed == 2 && saved == !failure, "Waiting close lost its completion or save outcome");
+                if (!closing || !failure)
+                    require(storage::readBookState(paths, identity).object.value("position") == newest,
+                            "Activity completion lost the newer checkpoint");
+            }
+            if (failure)
+                require(AnnotationDatabase::transaction(paths.directory, [](QSqlDatabase &db) {
+                    QSqlQuery query(db); return query.exec("DROP TRIGGER refuse_activity_history");
+                }), "Release activity history");
+        }
+    }
+    {
+        auto session = open();
+        const auto hash = session->sourceHash();
+        ReadingBook book(std::move(session), paths.bookState("appearance-retry"), paths, "appearance-retry", hash,
+                         nullptr, {}, {});
+        require(book.session()->setVerticalMargins(readingPixels(40)), "Set appearance retry margin");
+        waitUntil([&] { return !book.session()->busy(); });
+        const auto preferences = paths.preferences(), backup = preferences + ".retry-test";
+        require(QFile::rename(preferences, backup) && QDir().mkpath(preferences), "Obstruct appearance write");
+        book.rememberAppearance();
+        storage::drainWriterThread();
+        tick(); // Deliver the failure, then repair storage before the next attempt.
+        require(QDir().rmdir(preferences) && QFile::rename(backup, preferences), "Restore appearance file");
+        require(book.session()->setVerticalMargins(readingPixels(48)), "Change model after failed appearance snapshot");
+        waitUntil([&] { return !book.session()->busy(); });
+        waitUntil([&] { return !book.savesPending(); });
+        require(storage::readJson(preferences).value(appearance::pageMarginsKey).toObject()
+                    .value("top_margin_pixels").toInt() == 40, "Appearance retry rebuilt or lost the failed snapshot");
+        book.rememberAppearance();
+        waitUntil([&] { return !book.savesPending(); });
+        require(storage::readJson(preferences).value(appearance::pageMarginsKey).toObject()
+                    .value("top_margin_pixels").toInt() == 48, "New appearance did not replace the retried snapshot");
+
+        require(QFile::rename(preferences, backup) && QDir().mkpath(preferences), "Obstruct appearance before checkpoint");
+        require(book.session()->setVerticalMargins(readingPixels(56)), "Set appearance before checkpoint");
+        waitUntil([&] { return !book.session()->busy(); });
+        book.rememberAppearance();
+        storage::drainWriterThread();
+        tick();
+        require(QDir().rmdir(preferences) && QFile::rename(backup, preferences), "Restore appearance before checkpoint");
+        require(book.session()->setVerticalMargins(readingPixels(64)), "Change appearance for explicit checkpoint");
+        waitUntil([&] { return !book.session()->busy(); });
+        QJsonObject snapshot;
+        require(book.checkpoint(&snapshot), "Checkpoint supersedes appearance retry");
+        tick(350);
+        require(storage::readJson(preferences).value(appearance::pageMarginsKey).toObject()
+                    .value("top_margin_pixels").toInt() == 64, "Cancelled appearance retry overwrote checkpoint");
+
+        require(QFile::rename(preferences, backup) && QDir().mkpath(preferences), "Obstruct appearance before close");
+        require(book.session()->setVerticalMargins(readingPixels(72)), "Set appearance before close");
+        waitUntil([&] { return !book.session()->busy(); });
+        book.rememberAppearance();
+        bool closed = false, saved = true;
+        book.checkpointForClose([&](bool ok) { closed = true; saved = ok; });
+        waitUntil([&] { return closed; });
+        require(!saved && !book.savesPending(), "Failed appearance retry stranded close or hid its failure");
+        require(QDir().rmdir(preferences) && QFile::rename(backup, preferences), "Restore appearance after close");
+    }
     {
         Calls calls;
         auto session = open();
@@ -691,7 +814,7 @@ int main(int argc, char **argv) {
         waitUntil([&] { return entered.load(); });
         book.stopReading(true);
         const auto duration = book.readingMilliseconds();
-        require(book.savesPending(), "Final native history snapshot was not queued");
+        require(!book.savesPending(), "Stopping activity should retain its interval until a commit point");
         require(calls.stopped == 1, "History delayed native session stop behind the local writer");
         bool closed = false, saved = false;
         book.checkpointForClose([&](bool ok) { closed = true; saved = ok; });
@@ -737,6 +860,33 @@ int main(int argc, char **argv) {
         book.releaseNative(false);
     }
     {
+        auto session = open();
+        const auto hash = session->sourceHash();
+        ReadingBook book(std::move(session), paths.bookState("save-order"), paths, "save-order", hash, nullptr, {}, {});
+        std::atomic_bool entered{false}, released{false};
+        storage::RecordWriter blocker;
+        struct Release { std::atomic_bool &released; ~Release() { released = true; } } release{released};
+        blocker.post([&] {
+            entered = true;
+            while (!released) QThread::msleep(1);
+            return true;
+        }, {});
+        waitUntil([&] { return entered.load(); });
+        QJsonObject snapshot;
+        require(book.checkpoint(&snapshot, true), "Queue an older explicit checkpoint");
+        require(book.session()->turn(1), "First save-order turn");
+        waitUntil([&] { return !book.session()->busy(); });
+        book.saveReadingActivity();
+        require(book.session()->turn(1), "Second save-order turn");
+        waitUntil([&] { return !book.session()->busy(); });
+        const auto newest = book.session()->state().value("position").toString();
+        require(book.checkpoint(&snapshot, true), "Queue a newer explicit choice behind activity");
+        released = true;
+        waitUntil([&] { return !book.savesPending(); });
+        require(storage::readBookState(paths, "save-order").object.value("position").toString() == newest,
+                "An older activity snapshot replaced a newer explicit choice");
+    }
+    {
         Calls calls;
         auto session = open();
         const auto hash = session->sourceHash();
@@ -746,6 +896,8 @@ int main(int argc, char **argv) {
         book.observeReading();
         require(calls.observed == 1, "Platform activity was not recorded");
         require(book.tracksReadingHistory(), "Native bridge excluded Kobalt session history");
+        book.saveReadingActivity();
+        waitUntil([&] { return !book.savesPending(); });
         storage::drainWriterThread();
         require(historyValue("SELECT COUNT(*) FROM reading_sessions WHERE identity='store-id'").toInt() == 1,
                 "Native bridge did not record Kobalt session history");

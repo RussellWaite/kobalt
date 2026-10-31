@@ -77,6 +77,10 @@ int main(int argc, char **argv) {
         require(!result && saves.pending() && flushes == 1, "Timeout discarded the pending interval");
         writable = true;
         completed = false;
+        const int exhaustedWrites = writes;
+        saves.finish([&](bool saved) { require(!saved, "Finish renewed a failed job"); });
+        require(writes == exhaustedWrites && saves.failed(), "Outer caller restarted an exhausted save");
+        saves.retryFailed();
         saves.finish([&](bool saved) { result = saved; completed = true; });
         waitFor([&] { return completed; });
         require(result && !saves.pending() && flushes == 1 && writes > 1,
@@ -87,13 +91,36 @@ int main(int argc, char **argv) {
         bool writable = false;
         int attempts = 0;
         saves.append([](auto done) { done(true); }, [&](auto done) { ++attempts; done(writable); });
-        waitFor([&] { return attempts > 1; });
+        waitFor([&] { return saves.failed(); });
+        const int exhaustedAttempts = attempts;
         QElapsedTimer timeout;
         timeout.start();
         waitFor([&] { return timeout.elapsed() > 30; });
         require(saves.pending(), "Failed sleeping interval disappeared");
         writable = true;
+        QCoreApplication::processEvents();
+        require(saves.failed() && attempts == exhaustedAttempts && attempts <= 3,
+                "Failed sleeping interval retried autonomously");
+        saves.retryFailed();
         waitFor([&] { return !saves.pending(); });
+    }
+    {
+        NativeReadingSave saves(1, 100, 30);
+        int attempts = 0;
+        bool writable = false;
+        saves.append([](auto done) { done(true); }, [&](auto done) { ++attempts; done(writable); });
+        waitFor([&] { return saves.failed(); });
+        require(attempts == 3, "Failed native job did not stop after three attempts");
+        saves.retryIfDue();
+        QCoreApplication::processEvents();
+        require(attempts == 3, "Activity renewed the retry budget before cooldown");
+        QElapsedTimer cooldown;
+        cooldown.start();
+        waitFor([&] { return cooldown.elapsed() >= 40; });
+        writable = true;
+        saves.retryIfDue();
+        waitFor([&] { return !saves.pending(); });
+        require(attempts == 4, "Activity did not recover retained data after cooldown");
     }
     {
         auto saves = std::make_unique<NativeReadingSave>(1, 10);

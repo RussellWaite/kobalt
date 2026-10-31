@@ -30,6 +30,8 @@ public:
     virtual bool takeChange() = 0;
     virtual bool write(const ReadingProgress &expected, const QString &location, double percent, bool finished,
                        const ReadingActivity &activity, ReadingProgress *verified, QString *error) = 0;
+    // Called once under the loading view, without position or estimate writes.
+    virtual bool markReading() { return true; }
     virtual void observeReading(const ReadingActivity &activity) = 0;
     // No platform estimator means the reader uses its local session pace.
     virtual bool estimates(const ReadingActivity &, ReadingEstimates *) {
@@ -44,6 +46,7 @@ public:
     virtual bool readingSavePending() const {
         return false;
     }
+    virtual void retryFailedReadingSave() {}
     // Called on the GUI thread when a background pace refresh changes estimates.
     std::function<void()> estimatesChanged;
 };

@@ -1,6 +1,8 @@
 #pragma once
 #include <QJsonObject>
 #include <QString>
+#include <functional>
+class QSqlDatabase;
 
 namespace kobalt::storage {
 // Hosts choose the directories. Filenames and identity hashing are shared so
@@ -44,6 +46,11 @@ bool writeRecord(const QString &directory, const QString &name, const QString &l
                  const QJsonObject &value, qint64 maxBytes = maxJsonBytes);
 JsonRead readBookState(const Paths &, const QString &identity, const QString &legacy = {});
 bool writeBookState(const Paths &, const QString &identity, const QJsonObject &, const QString &legacy = {});
+// Commit one immutable reading snapshot. Roll back all members and legacy
+// imports together if any member fails.
+bool writeReadingActivity(const Paths &, const QString &identity, const QJsonObject &book,
+                          const QJsonObject &speed, const std::function<bool(QSqlDatabase &)> &history,
+                          const QString &legacy = {});
 JsonRead readPreferences(const QString &path);
 bool writePreferences(const QString &path, const QJsonObject &);
 // Imports recognized durable files and tidies known transient files. Unknown

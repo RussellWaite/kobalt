@@ -251,7 +251,7 @@ public:
                 retry.stop();
                 environment().reportSession(
                           kobalt::qt::object({{"status", "stock"}, {"reason", "Native initialization not observed"}}));
-                kobalt::diagnostic("startup-failed", kobalt::qt::object({{"reason", "native-initialization"}}));
+                kobalt::diagnostic("startup-failed", kobalt::qt::object({{"reason", "native-initialization"}}), kobalt::DiagnosticSeverity::Error);
                 return;
             }
             waiting("native-initialization");
@@ -290,7 +290,7 @@ public:
         if (!kobalt_startup_begin(startupPath)) {
             rejected = true;
             retry.stop();
-            kobalt::diagnostic("startup-arm-failed");
+            kobalt::diagnostic("startup-arm-failed", {}, kobalt::DiagnosticSeverity::Error);
             return;
         }
 #endif
@@ -301,7 +301,7 @@ public:
             if (deferred && !kobalt_startup_recovered(startupPath, KOBALT_CONFIG_DIR "/startup-removed.txt")) {
                 rejected = true;
                 retry.stop();
-                kobalt::diagnostic("startup-disarm-failed");
+                kobalt::diagnostic("startup-disarm-failed", {}, kobalt::DiagnosticSeverity::Error);
             }
 #endif
             initializing = false;
@@ -372,7 +372,8 @@ int initialize() {
 #ifdef KOBALT_READER_HARDWARE
     kobalt::installCrashReports(QString::fromLatin1(configDir) + "/crash-reporting", QStringLiteral("/mnt/onboard"));
 #endif
-    kobalt::initializeDiagnostics(QString::fromLatin1(configDir) + "/diagnostics");
+    kobalt::initializeDiagnostics(QString::fromLatin1(configDir) + "/diagnostics",
+                                  kobalt::diagnosticsRequested(QString::fromLatin1(configDir)));
     kobalt::diagnostic("startup-hooks",
                        kobalt::qt::object({{"finish_hook_available", bool(nativeFinishInitialization)},
                                            {"finish_next_is_stock",
@@ -382,7 +383,7 @@ int initialize() {
                                            {"application_available", bool(qApp)}}));
 #ifdef KOBALT_READER_TEMPORARY
     if (!armFlag(KOBALT_CONFIG_DIR "/uninstall-now", "Temporary reader: remove on the next Nickel start.\n")) {
-        kobalt::diagnostic("removal-arm-failed");
+        kobalt::diagnostic("removal-arm-failed", {}, kobalt::DiagnosticSeverity::Error);
         nh_log("reader: cannot arm removal; disabling library");
         nh_delete_file("/usr/local/Kobo/libkobalt.so.failsafe");
         return 0;
@@ -393,7 +394,7 @@ int initialize() {
         return 0;
     }
     if (!firmwareSupported()) {
-        kobalt::diagnostic("firmware-rejected");
+        kobalt::diagnostic("firmware-rejected", {}, kobalt::DiagnosticSeverity::Warning);
         return 0;
     }
     prerenderManager = symbol<decltype(prerenderManager)>("_ZN26IPrerenderToPersistManager8instanceEv");
@@ -401,12 +402,12 @@ int initialize() {
     if (!kobalt::NativeOpening::available() || !kobalt::NativePublication::available() ||
         !kobalt::NativeProgress::available() || !kobalt::NativeLifecycle::powerAvailable() || !prerenderManager ||
         !stopPrerendering) {
-        kobalt::diagnostic("native-api-unavailable");
+        kobalt::diagnostic("native-api-unavailable", {}, kobalt::DiagnosticSeverity::Warning);
         return 0;
     }
 #ifdef KOBALT_READER_HARDWARE
     if (!supportedFirmware()) {
-        kobalt::diagnostic("hardware-rejected");
+        kobalt::diagnostic("hardware-rejected", {}, kobalt::DiagnosticSeverity::Warning);
         environment().reportSession({{"status", "stock"}, {"reason", "Requires firmware 5.18 or later 5.x, or 6.x"}});
         return 0;
     }

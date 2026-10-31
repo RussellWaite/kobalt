@@ -143,7 +143,7 @@ void HomeSleepScreen::finishSave() {
         rememberedToken = saved.token;
     } else {
         remembered = {};
-        diagnostic("sleep-snapshot-save-failed");
+        diagnostic("sleep-snapshot-save-failed", {}, kobalt::DiagnosticSeverity::Error);
     }
 }
 void HomeSleepScreen::forget() {

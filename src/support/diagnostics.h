@@ -9,18 +9,28 @@ namespace kobalt {
 QJsonObject diagnosticDeviceFields(const QByteArray &version);
 QString diagnosticErrorCode(const QString &reason);
 void pauseDiagnostics(bool paused);
-// True when events are being written, so callers can skip work that only feeds diagnostics.
+// True only for detailed diagnostics or an evaluation observer. Callers must
+// check before collecting timings, memory statistics or per-page details.
 bool diagnosticsActive();
-void initializeDiagnostics(const QString &directory);
+void initializeDiagnostics(const QString &directory, bool detailed = true);
 bool diagnosticsRequested(const QString &profile);
-// Queues an event for the log. The file is written on the log's own thread.
+enum class DiagnosticSeverity { Activity, Warning, Error };
+// Normal activity is written in unsynced batches. Warnings, errors and
+// explicit lifecycle flushes sync the batch. Formatting runs on the worker.
+void diagnostic(const char *event, QJsonObject fields, DiagnosticSeverity severity);
+// Compatibility for callers that selected per-event durability. Storage now
+// syncs whole batches; this flag does not imply severity.
 void diagnostic(const char *event, QJsonObject fields = {}, bool durable = true);
+// Defers a pending batch until input is quiet, with a five-second maximum.
+void diagnosticInput();
+// Explicit performance sample, collected and delivered on the logging worker.
+void sampleDiagnosticMemory(std::function<void(QJsonObject)> done);
 // Waits until queued events are in the log file. False when `milliseconds`
 // pass first; a negative value waits without a limit. For tests and tools
-// that read the file; the reader never needs to wait for its own log.
+// that read the file and lifecycle boundaries where input is blocked.
 bool flushDiagnostics(int milliseconds = -1);
-// Whether durable events sync the log to storage. Performance scenarios turn
-// this off, so their timings leave out those syncs.
+// Whether warning, error and lifecycle batches sync storage. Normal
+// evaluation uses the same policy as reading. Legacy baselines may opt out.
 void setDiagnosticsSync(bool enabled);
 // Receives every event that is written, on the thread that wrote it. An empty
 // function removes the observer.
@@ -29,6 +39,9 @@ void setDiagnosticObserver(std::function<void(const QJsonObject &)> observer);
 // Qt 5.2 cannot build a QJsonObject from a braced list of fields.
 inline void diagnostic(const char *event, std::initializer_list<qt::JsonField> fields, bool durable = true) {
     diagnostic(event, qt::object(fields), durable);
+}
+inline void diagnostic(const char *event, std::initializer_list<qt::JsonField> fields, DiagnosticSeverity severity) {
+    diagnostic(event, qt::object(fields), severity);
 }
 #endif
 }

@@ -21,7 +21,7 @@ bool problem(QString *error, const char *text) {
     return false;
 }
 bool write(const QString &path, const QByteArray &bytes) {
-    mainthread::blocking("highlight-write");
+    mainthread::BlockingOperation blockingOperation("highlight-write");
     QSaveFile file(path);
     return file.open(QIODevice::WriteOnly) && file.write(bytes) == bytes.size() && file.commit();
 }

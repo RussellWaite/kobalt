@@ -34,7 +34,8 @@ private:
 };
 // GUI-thread queue. An interval is removed only after both operations succeed.
 // The writer retains its own commit state, so retrying verification cannot add
-// the interval twice. Owners must finish the queue before releasing storage.
+// the interval twice. Owners must drain active calls before releasing storage;
+// retained failures require an explicit lifecycle policy or user choice.
 // Both operations report through their completion, so on a device neither
 // has to run on the GUI thread: a tap can arrive while they write.
 class NativeReadingSave final : public QObject {
@@ -42,8 +43,9 @@ public:
     using Completion = std::function<void(bool)>;
     using Flush = std::function<void(Completion)>;
     using Write = std::function<void(Completion)>;
-    explicit NativeReadingSave(int retryMilliseconds = 100, int timeoutMilliseconds = 2000)
-        : retryMilliseconds(retryMilliseconds), timeoutMilliseconds(timeoutMilliseconds) {
+    explicit NativeReadingSave(int retryMilliseconds = 100, int timeoutMilliseconds = 2000, int cooldownMilliseconds = 300000)
+        : retryMilliseconds(retryMilliseconds), timeoutMilliseconds(timeoutMilliseconds),
+          cooldownMilliseconds(cooldownMilliseconds) {
         elapsed.invalidate();
         timer.setSingleShot(true);
         connect(&timer, &QTimer::timeout, this, [this] { advance(); });
@@ -52,7 +54,7 @@ public:
         intervals.push_back({std::move(flush), std::move(write), false});
         if (!elapsed.isValid())
             elapsed.start();
-        if (!active && !timer.isActive())
+        if (!failed_ && !active && !timer.isActive())
             timer.start(0);
     }
     bool pending() const {
@@ -61,29 +63,45 @@ public:
     bool inFlight() const {
         return active;
     }
+    bool failed() const { return failed_; }
+    // Activity retries only after cooldown. A distinct lifecycle boundary or
+    // explicit user retry may start sooner; finish itself never renews a job.
+    void retryFailed() {
+        if (!failed_)
+            return;
+        failed_ = false;
+        failures = 0;
+        elapsed.start();
+        timer.start(0);
+    }
+    void retryIfDue() {
+        if (failed_ && failedSince.isValid() && failedSince.elapsed() >= cooldownMilliseconds)
+            retryFailed();
+    }
     void finish(Completion done) {
+        if (failed_) {
+            done(false);
+            return;
+        }
         if (!pending()) {
             done(true);
             return;
         }
         completions.push_back(std::move(done));
         if (!active) {
-            elapsed.start();
             timer.start(0);
         }
     }
 
 private:
     void retry() {
-        if (elapsed.elapsed() < timeoutMilliseconds) {
+        if (++failures < 3 && elapsed.elapsed() < timeoutMilliseconds) {
             timer.start(retryMilliseconds);
             return;
         }
-        elapsed.start();
-        // Sleep has no Retry button. Keep retrying retained data at a slower
-        // rate so a transient failure cannot prevent suspend forever after
-        // storage recovers. Close callers still receive the failed attempt.
-        timer.start(1000);
+        failed_ = true;
+        failedSince.start();
+        timer.stop();
         const auto ready = std::exchange(completions, {});
         // Keep the interval and its commit phase for the next attempt.
         const QPointer<NativeReadingSave> guard(this);
@@ -99,7 +117,7 @@ private:
         bool flushed;
     };
     void advance() {
-        if (active || intervals.empty())
+        if (failed_ || active || intervals.empty())
             return;
         if (!intervals.front().flushed) {
             active = true;
@@ -131,7 +149,9 @@ private:
     }
     void written() {
         intervals.pop_front();
+        failures = 0;
         if (!intervals.empty()) {
+            elapsed.start();
             timer.start(0);
             return;
         }
@@ -147,10 +167,14 @@ private:
     }
     const int retryMilliseconds;
     const int timeoutMilliseconds;
+    const int cooldownMilliseconds;
+    QElapsedTimer failedSince;
     QTimer timer;
     QElapsedTimer elapsed;
     std::deque<Interval> intervals;
     std::vector<Completion> completions;
     bool active = false;
+    bool failed_ = false;
+    int failures = 0;
 };
 }

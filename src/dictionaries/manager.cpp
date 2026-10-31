@@ -438,7 +438,7 @@ bool DictionaryManager::installArchive(const QString &directory, const DownloadD
                 continue;
             return fail(error, "Dictionary archive is missing required files.");
         }
-        mainthread::blocking("dictionary-install-write");
+        mainthread::BlockingOperation blockingOperation("dictionary-install-write");
         QFile output(folder(stage.path(), name));
         if (!output.open(QIODevice::WriteOnly))
             return fail(error, "Cannot save dictionary files.");

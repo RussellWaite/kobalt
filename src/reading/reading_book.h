@@ -25,6 +25,7 @@ public:
                 QByteArray digest, std::unique_ptr<ReadingBridge> bridge, ReadingProgress baseline,
                 ReadingProgress diskBaseline, QString sourceKey = {}, ReadingHistory::UtcClock utc = {});
     ~ReadingBook();
+    void discardPendingSaves() { discardSaves = true; }
     ReaderSession *session() const {
         return model.get();
     }
@@ -55,7 +56,13 @@ public:
     void sleepReading(const QJsonObject &preferences);
     void finishReading(std::function<void(bool)> done);
     bool readingSavePending() const;
+    void retryFailedReadingSave();
     bool checkpointReadingHistory(bool background = false);
+    bool activitySaveDue(int intervalMilliseconds = 300000) const;
+    bool activitySaveCoolingDown() const;
+    void saveReadingActivity(bool durable = false);
+    void rememberAppearance();
+    void retryAppearanceSave();
     bool tracksReadingHistory() const { return bool(history); }
     bool usesLocalPace() const {
         return bool(speed);
@@ -96,6 +103,7 @@ public:
         return reconciliation.candidate();
     }
     void acknowledge(const ReadingProgress &shown, bool moved);
+    void markNativeReading();
     // False leaves a sync conflict pending for the window to resolve.
     bool writeNative(const QString &location, const QString &mappingError);
     enum class NativeSave { Saved, LocalOnly, Conflict, Failed };
@@ -125,6 +133,20 @@ public:
     bool saveDictionaryChoice(const QString &id);
 
 private:
+    struct ActivitySave;
+    void writeActivity(std::shared_ptr<ActivitySave>, int attempt);
+    void resumeActivityCheckpoints();
+    QElapsedTimer activitySaved, activityFailed;
+    bool activityPending = false, checkpointAfterActivity = false;
+    QVector<std::function<void(bool)>> closesAfterActivity;
+    quint64 activityGeneration = 0;
+    std::unique_ptr<storage::RecordWriter> activityWriter, appearanceWriter;
+    QJsonObject rememberedAppearance;
+    bool appearanceDirty = false, appearancePending = false;
+    QElapsedTimer appearanceFailed;
+    quint64 appearanceGeneration = 0;
+    void writeAppearance(int attempt);
+    void appearanceCheckpointSaved(const QJsonObject &state);
     void finishNativeReading(quint64 generation, bool saved);
     quint64 nativeFinishGeneration = 0;
     QVector<std::function<void(bool)>> nativeFinishCallbacks;
@@ -140,7 +162,7 @@ private:
     QByteArray digest;
     std::unique_ptr<ReadingBridge> bridge;
     const bool nativeCloudSync;
-    bool released = false;
+    bool released = false, openingStatusAttempted = false, discardSaves = false;
     ReadingProgress baseline;
     ProgressReconciler reconciliation;
     QElapsedTimer progressPoll;

@@ -162,7 +162,7 @@ ReaderCoordinator::ReaderCoordinator(ReaderEnvironment &environment, Coordinator
             else if (!allowed && (run.reader || run.model) && !lifecycle->draining) {
                 // A deferred or unavailable check must not leave an invisible
                 // reader holding Nickel's backing store indefinitely.
-                kobalt::diagnostic("resume-authorization-unavailable");
+                kobalt::diagnostic("resume-authorization-unavailable", {}, kobalt::DiagnosticSeverity::Warning);
                 disposeForTransition([this] {
                     status("authorization-unavailable");
                 });
@@ -209,7 +209,7 @@ ReaderCoordinator::ReaderCoordinator(ReaderEnvironment &environment, Coordinator
             run.reader->prepareShutdown([this] {
                 homeSleep->persistPowerOff(run.identity);
                 disposeForTransition([] {});
-            });
+            }, lifecycle->batteryLowShutdown());
         else
             disposeForTransition([] {});
     };
@@ -323,7 +323,7 @@ bool ReaderCoordinator::begin(const RetainOpening &retainOpening) {
     run.identity = nextIdentity;
     run.filePath = nextPath;
     if (!writeJson(activePath, kobalt::qt::object({{"book", run.identity}}))) {
-        kobalt::diagnostic("session-arm-failed");
+        kobalt::diagnostic("session-arm-failed", {}, kobalt::DiagnosticSeverity::Error);
         return false;
     }
     if (!authorization->begin(run.identity)) {
@@ -385,7 +385,7 @@ bool ReaderCoordinator::missingAssetsBeforeOpening(bool assetsReady) {
         kobalt::diagnostic("asset-filesystem-recovery");
     run.fallbackAlert = kobalt::showMissingAssetsAlert(QStringLiteral(KOBALT_VERSION), filesystemRecovery);
     if (!run.fallbackAlert) {
-        kobalt::diagnostic("assets-alert-unavailable");
+        kobalt::diagnostic("assets-alert-unavailable", {}, kobalt::DiagnosticSeverity::Warning);
         return false;
     }
     busy = true;
@@ -412,7 +412,7 @@ void ReaderCoordinator::missingAssets(bool assetsReady) {
     release();
     run.fallbackAlert = kobalt::showMissingAssetsAlert(QStringLiteral(KOBALT_VERSION), filesystemRecovery);
     if (!run.fallbackAlert) {
-        kobalt::diagnostic("assets-alert-unavailable");
+        kobalt::diagnostic("assets-alert-unavailable", {}, kobalt::DiagnosticSeverity::Warning);
         status("stock");
         if (fallback && !lifecycle->blocked() && !lifecycle->draining && !kobalt::NativeLifecycle::suspended()) {
             fallback->openStock();
@@ -560,13 +560,10 @@ void ReaderCoordinator::finishDisposal(const QString &finalStatus, bool nativeAl
         run.reader->finishStorageSave([guard, finalStatus, nativeAllowed](bool saved) {
             if (!guard || !NativeLifecycle::nativeSessionSaveAllowed())
                 return;
-            if (!saved) {
-                QTimer::singleShot(100, guard, [guard, finalStatus, nativeAllowed] {
-                    if (guard)
-                        guard->finishDisposal(finalStatus, nativeAllowed);
-                });
-                return;
-            }
+            // Reader completion means every in-flight write has ended, even
+            // when the bounded save job failed. Do not renew its budget here.
+            if (!saved)
+                kobalt::diagnostic("reader-disposed-unsaved", {}, kobalt::DiagnosticSeverity::Error);
             delete guard->run.reader.data();
             guard->run.reader.clear();
             guard->finishDisposal(finalStatus, nativeAllowed);

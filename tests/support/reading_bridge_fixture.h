@@ -12,14 +12,14 @@ struct HostProgress {
     bool hasEstimates = false;
     std::function<void()> notifyEstimates;
     bool changed = false, failWrite = false, writeBlocked = false;
-    int writes = 0, writeAttempts = 0;
+    int writes = 0, writeAttempts = 0, openingAttempts = 0;
     bool holdFinish = false, failFinish = false, finishPending = false;
     bool rejectWriteWhileFinishing = false;
     int finishAttempts = 0;
     int stopAttempts = 0, destroyed = 0;
     std::function<void(bool)> finishDone;
     void completeFinish(bool saved) {
-        finishPending = !saved;
+        finishPending = false;
         auto done = std::move(finishDone);
         finishDone = {};
         if (done) done(saved);
@@ -86,6 +86,12 @@ public:
         progress->current.valid = true;
         if (verified)
             *verified = progress->current;
+        return true;
+    }
+    bool markReading() override {
+        ++progress->openingAttempts;
+        if (progress->failWrite) return false;
+        progress->current.status = 1;
         return true;
     }
     void observeReading(const ReadingActivity &) override {}

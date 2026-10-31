@@ -123,7 +123,7 @@ void flushStart(std::function<void()> done) {
 // A successful commit consumes the delta even when independent readback is
 // temporarily unavailable. Further attempts only verify that same write.
 bool addTime(const QString &book, int seconds, nickel::NativeReadingTime &write) {
-    kobalt::mainthread::blocking("nickel-reading-time");
+    kobalt::mainthread::BlockingOperation blockingOperation("nickel-reading-time");
     if (seconds <= 0 || seconds >= 86400)
         return seconds == 0;
     const auto &a = api();
@@ -210,7 +210,8 @@ void flushLater(const std::weak_ptr<NativeReadingSession *> &guard, std::functio
                     api().saveEvents(engine);
                     saved = api().flushEvents(QString());
                 }
-                diagnostic("reading-session-flush", kobalt::qt::object({{"saved", saved}, {"milliseconds", timer.elapsed()}}));
+                diagnostic("reading-session-flush", kobalt::qt::object({{"saved", saved}, {"milliseconds", timer.elapsed()}}),
+                           saved ? DiagnosticSeverity::Activity : DiagnosticSeverity::Error);
             }
             kobalt::qt::invoke(qApp, [completion, saved] { (*completion)(saved); }, Qt::QueuedConnection);
         }, Qt::QueuedConnection))
@@ -235,7 +236,8 @@ void writeLater(const std::weak_ptr<NativeReadingSession *> &guard, const QStrin
                 saved = addTime(book, seconds, *write);
                 diagnostic("reading-session-end", kobalt::qt::object({{"seconds", seconds},
                             {"persisted", saved}, {"events_saved", true}, {"time_saved", saved},
-                            {"time_committed", write->committed}, {"milliseconds", timer.elapsed()}}));
+                            {"time_committed", write->committed}, {"milliseconds", timer.elapsed()}}),
+                           saved ? DiagnosticSeverity::Activity : DiagnosticSeverity::Error);
             }
             kobalt::qt::invoke(qApp, [completion, saved] { (*completion)(saved); }, Qt::QueuedConnection);
         }, Qt::QueuedConnection))
@@ -254,12 +256,13 @@ NativeReadingSession::~NativeReadingSession() {
     // member destruction, including paths that are forced to abandon a save.
     alive.reset();
     if (running || ending || saves.pending())
-        diagnostic("reading-session-disposed-unsaved");
+        diagnostic("reading-session-disposed-unsaved", {}, DiagnosticSeverity::Error);
 }
 bool NativeReadingSession::available() {
     return api().ready();
 }
 void NativeReadingSession::start(const ReadingActivity &activity) {
+    saves.retryIfDue();
     if (running || ending || !available() || !api().open() || !workerReady() || api().tolino(api().device()))
         return;
     auto *engine = api().engine();
@@ -330,6 +333,7 @@ void NativeReadingSession::stop() {
     if (!running && !ending)
         return;
     if (running) {
+        saves.retryFailed();
         running = false;
         ending = true;
     }

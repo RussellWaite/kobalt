@@ -1,6 +1,8 @@
 #include "storage/reader_storage.h"
 #include "storage/annotation_database.h"
 #include "storage/profile_database.h"
+#include "storage/record_writer.h"
+#include "storage/reading_history.h"
 #include "storage/bookmark_store.h"
 #ifndef KOBALT_TEST_NO_LIBRARY
 #include "library/library_index.h"
@@ -57,6 +59,50 @@ int main(int argc, char **argv) {
     using storage::ReadStatus;
     QTemporaryDir root;
     require(root.isValid(), "Temporary profile");
+    {
+        QTemporaryDir batchRoot;
+        const storage::Paths batch{batchRoot.path()};
+        const QJsonObject oldBook{{"schema", 1}, {"book", "batch-book"}, {"position", "old"}};
+        const QJsonObject newBook{{"schema", 1}, {"book", "batch-book"}, {"position", "new"}};
+        const QJsonObject oldSpeed{{"schema", 1}, {"samples", 1}};
+        const QJsonObject newSpeed{{"schema", 1}, {"samples", 2}};
+        require(storage::writeBookState(batch, "batch-book", oldBook) &&
+                storage::writeRecord(batch.directory, "reading-speed", batch.readingSpeed(), oldSpeed), "Batch baseline");
+        ReadingHistory history(batch.directory, "batch-book", {}, {}, "Batch", "Author", [] { return 1000; });
+        history.start(0, "old");
+        history.update(100, "new");
+        auto snapshot = history.snapshot();
+        bool saved = true;
+        const auto writeBatch = [&](bool fail) {
+            storage::runOnWriterThread([&] {
+                storage::RoutineWrites routine;
+                saved = storage::writeReadingActivity(batch, "batch-book", newBook, newSpeed, [&](QSqlDatabase &db) {
+                    QSqlQuery query(db);
+                    require(query.exec("PRAGMA synchronous") && query.next() && query.value(0).toInt() == 1,
+                            "Reading batch must use WAL NORMAL");
+                    return snapshot.write(db) && !fail;
+                });
+                snapshot.complete(saved);
+            });
+        };
+        writeBatch(true);
+        require(!saved && !history.savesSucceeded(), "Failed activity must retain its history");
+        require(storage::readBookState(batch, "batch-book").object == oldBook &&
+                storage::readRecord(batch.directory, "reading-speed", batch.readingSpeed()).object == oldSpeed,
+                "History failure must roll back position and speed");
+        require(AnnotationDatabase::transaction(batch.directory, [](QSqlDatabase &db) {
+            QSqlQuery query(db);
+            return query.exec("SELECT count(*) FROM reading_sessions") && query.next() && query.value(0).toInt() == 0;
+        }), "Failed activity must roll back history too");
+        writeBatch(false);
+        require(saved && history.savesSucceeded() && storage::profileHasUnsyncedWrites(), "Retry commits the complete unsynced batch");
+        require(storage::readBookState(batch, "batch-book").object == newBook &&
+                storage::readRecord(batch.directory, "reading-speed", batch.readingSpeed()).object == newSpeed,
+                "Successful activity commits both records");
+        storage::checkpointProfile();
+        require(!storage::profileHasUnsyncedWrites(), "Lifecycle checkpoint syncs prior NORMAL commits");
+        storage::closeProfile();
+    }
     const storage::Paths paths{root.path()};
     const QString identity = "file:///books/invented.epub";
     QJsonObject state;

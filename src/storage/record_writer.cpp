@@ -74,7 +74,7 @@ public:
             operation();
             return;
         }
-        mainthread::blocking("profile-database");
+        mainthread::BlockingOperation blockingOperation("profile-database");
         Call request{operation};
         std::unique_lock<std::mutex> lock(mutex);
         calls.push_back(&request);
@@ -86,7 +86,7 @@ public:
             std::rethrow_exception(request.error);
     }
     void drain() {
-        mainthread::blocking("profile-database-drain");
+        mainthread::BlockingOperation blockingOperation("profile-database-drain");
         std::unique_lock<std::mutex> lock(mutex);
         assertNotRunner();
         finished.wait(lock, [this] { return queue.empty() && calls.empty() && !busy; });
@@ -220,20 +220,18 @@ private:
 
 RecordWriter::RecordWriter() = default;
 RecordWriter::~RecordWriter() {
-    if (!idle())
-        mainthread::blocking("record-writer-close");
+    mainthread::BlockingOperation operation("record-writer-close", !idle());
     WriterThread::instance().remove(this);
 }
 void RecordWriter::post(Write write, Done done) {
     WriterThread::instance().post(this, std::move(write), std::move(done));
 }
 void RecordWriter::cancel() {
-    if (!idle())
-        mainthread::blocking("record-writer-cancel");
+    mainthread::BlockingOperation operation("record-writer-cancel", !idle());
     WriterThread::instance().cancel(this);
 }
 bool RecordWriter::writeNow(Write write) {
-    mainthread::blocking("record-writer-write");
+    mainthread::BlockingOperation blockingOperation("record-writer-write");
     bool saved = false;
     WriterThread::instance().post(this, std::move(write), [&saved](bool result) {
         saved = result;
@@ -242,8 +240,7 @@ bool RecordWriter::writeNow(Write write) {
     return saved;
 }
 bool RecordWriter::flush(int milliseconds) {
-    if (milliseconds != 0 && !idle())
-        mainthread::blocking("record-writer-flush");
+    mainthread::BlockingOperation operation("record-writer-flush", milliseconds != 0 && !idle());
     return WriterThread::instance().flush(this, milliseconds);
 }
 bool RecordWriter::idle() const {

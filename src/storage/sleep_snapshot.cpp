@@ -130,7 +130,7 @@ bool persistSnapshot(const QString &path, const sleep::Snapshot &snapshot, const
 }
 }
 bool writeSleepSnapshot(const QString &path, const sleep::Snapshot &snapshot, const QString &token) {
-    mainthread::blocking("sleep-snapshot-write");
+    mainthread::BlockingOperation blockingOperation("sleep-snapshot-write");
     return persistSnapshot(path, snapshot, token, nullptr);
 }
 void removeSleepSnapshot(const QString &path) {

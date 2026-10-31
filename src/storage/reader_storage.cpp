@@ -57,7 +57,7 @@ QString Paths::bookState(const QString &identity) const {
                                 ".json");
 }
 bool writeJson(const QString &path, const QJsonObject &object) {
-    mainthread::blocking("json-write");
+    mainthread::BlockingOperation blockingOperation("json-write");
     QSaveFile file(path);
     const auto bytes = QJsonDocument(object).toJson();
     return file.open(QIODevice::WriteOnly) && file.write(bytes) == bytes.size() && file.commit();
@@ -151,13 +151,13 @@ void archiveSource(const QString &directory, const QString &source, const QByteA
     }
 }
 bool recordTransaction(const QString &directory, const QString &name, const QString &legacy,
-                       qint64 maxBytes, JsonRead *read, const QJsonObject *replacement) {
+                       qint64 maxBytes, JsonRead *read, const QJsonObject *replacement, QSqlDatabase *database = nullptr) {
     if (directory.isEmpty() || name.isEmpty() || maxBytes < 0) {
         read->status = ReadStatus::Invalid;
         return false;
     }
     QByteArray importedDigest;
-    const bool ok = AnnotationDatabase::transaction(directory, [&](QSqlDatabase &db) {
+    const auto operation = [&](QSqlDatabase &db) {
         const bool book = name.startsWith("book:");
         const QString table = book ? "book_state" : "profile_state";
         const QString column = book ? "identity" : "name";
@@ -218,9 +218,10 @@ bool recordTransaction(const QString &directory, const QString &name, const QStr
         read->object = replacement ? *replacement : object;
         read->status = exists || replacement || !importedDigest.isEmpty() ? ReadStatus::Ok : ReadStatus::Missing;
         return true;
-    });
-    if (ok) archiveSource(directory, legacy, importedDigest);
-    else {
+    };
+    const bool ok = database ? operation(*database) : AnnotationDatabase::transaction(directory, operation);
+    if (ok && !database) archiveSource(directory, legacy, importedDigest);
+    if (!ok) {
         read->object = {};
         if (read->status == ReadStatus::Ok || read->status == ReadStatus::Missing) read->status = ReadStatus::DatabaseError;
     }
@@ -261,6 +262,23 @@ bool writeBookState(const Paths &paths, const QString &identity, const QJsonObje
     return value.value("book").toString() == identity &&
            writeRecord(paths.directory, "book:" + identity, legacy.isEmpty() ? paths.bookState(identity) : legacy, value);
 }
+bool writeReadingActivity(const Paths &paths, const QString &identity, const QJsonObject &book,
+                          const QJsonObject &speed, const std::function<bool(QSqlDatabase &)> &history, const QString &legacy) {
+    if ((book.contains("schema") && book.value("schema").toDouble(-1) != 1) ||
+        (speed.contains("schema") && speed.value("schema").toDouble(-1) != 1) ||
+        book.value("book").toString() != identity ||
+        QJsonDocument(book).toJson(QJsonDocument::Compact).size() > maxJsonBytes ||
+        QJsonDocument(speed).toJson(QJsonDocument::Compact).size() > maxJsonBytes)
+        return false;
+    return AnnotationDatabase::transaction(paths.directory, [&](QSqlDatabase &db) {
+        JsonRead result;
+        if (!recordTransaction(paths.directory, "book:" + identity, legacy.isEmpty() ? paths.bookState(identity) : legacy, maxJsonBytes,
+                               &result, &book, &db)) return false;
+        if (!speed.isEmpty() && !recordTransaction(paths.directory, "reading-speed", paths.readingSpeed(), maxJsonBytes,
+                                                  &result, &speed, &db)) return false;
+        return !history || history(db);
+    });
+}
 JsonRead readPreferences(const QString &path) {
     auto read = readJsonFile(path);
     if (read.status != ReadStatus::Ok) return read;
@@ -268,7 +286,7 @@ JsonRead readPreferences(const QString &path) {
         return {{}, ReadStatus::Unsupported};
     auto clean = appearance::cleanPreferences(read.object);
     clean["schema"] = 1;
-    if (clean != read.object && !writeJson(path, clean)) diagnostic("settings-cleanup-unsaved", {}, false);
+    if (clean != read.object && !writeJson(path, clean)) diagnostic("settings-cleanup-unsaved", {}, DiagnosticSeverity::Error);
     return {clean, ReadStatus::Ok};
 }
 bool writePreferences(const QString &path, const QJsonObject &object) {

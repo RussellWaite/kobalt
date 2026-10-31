@@ -253,6 +253,7 @@ bool Client::save(const QUrl &server, const QString &username, const QByteArray 
     automatic_ = automatic;
     manualExplanation_ = manualExplanation;
     lastSync_ = lastSync;
+    syncTimeDirty_ = false;
     deviceName_ = deviceName;
     filenameMatching_ = filenameMatching;
     storageError_.clear();
@@ -280,16 +281,38 @@ bool Client::logout() {
 }
 bool Client::recordSyncSuccess() {
     if (!signedIn() || !writable_) return false;
-    // A sync can finish while the user reads, including the automatic one.
-    // The time is queued, and a failed write is only logged: the next sync
-    // records a newer time.
     lastSync_ = QDateTime::currentDateTimeUtc();
-    const Account account{server_, username_, deviceId_, deviceName_, key_, automatic_, filenameMatching_, manualExplanation_, lastSync_};
-    accountWriter().post([path = accountPath_, account] { return writeAccount(path, account); }, [](bool saved) {
-        if (!saved) diagnostic("kosync-sync-time-unsaved", {}, false);
-    });
+    syncTimeDirty_ = true;
     return true;
 }
+bool Client::persistSyncTime() {
+    if (!syncTimeDirty_) return true;
+    const bool saved = accountWriter().writeNow([path = accountPath_, server = server_, username = username_,
+                                                key = key_, device = deviceId_, stamp = lastSync_, filenameMatching = filenameMatching_] {
+        const auto read = storage::readJsonFile(path);
+        if (read.status != storage::ReadStatus::Ok) return false;
+        auto object = read.object;
+        // Another client may have changed or removed the account. Never
+        // restore old credentials or overwrite its settings just for a date.
+        if (object.value("schema").toInt() != 1 || object.value("server").toString() != server.toString() ||
+            object.value("username").toString() != username || object.value("key").toString().toLatin1() != key ||
+            object.value("device_id").toString() != device ||
+            object.value("match_method").toString("binary") != (filenameMatching ? "filename" : "binary"))
+            return false;
+        const auto existing = QDateTime::fromString(object.value("last_sync").toString(), Qt::ISODate);
+        if (existing.isValid() && existing >= stamp) return true;
+        object["last_sync"] = stamp.toUTC().toString(Qt::ISODate);
+        QSaveFile file(path);
+        if (!file.open(QIODevice::WriteOnly)) return false;
+        file.setPermissions(QFile::ReadOwner | QFile::WriteOwner);
+        const auto bytes = QJsonDocument(object).toJson();
+        return file.write(bytes) == bytes.size() && file.commit();
+    });
+    if (saved) syncTimeDirty_ = false;
+    else diagnostic("kosync-sync-time-unsaved", {}, DiagnosticSeverity::Warning);
+    return saved;
+}
+
 void Client::request(const QByteArray &method, const QString &path, const QUrl &server,
                      const QString &username, const QByteArray &key, const QJsonObject &body, Response done, bool retryTransient) {
     if (busy()) { done(0, {}, message("kosync.busy")); return; }
@@ -366,7 +389,7 @@ void Client::sendRequest(const QByteArray &method, const QString &path, const QU
     connect(reply, &QNetworkReply::sslErrors, this, [](const QList<QSslError> &errors) {
         QJsonArray codes;
         for (const auto &error : errors) codes.append(int(error.error()));
-        diagnostic("kosync-tls-errors", qt::object({{"codes", codes}}));
+        diagnostic("kosync-tls-errors", qt::object({{"codes", codes}}), kobalt::DiagnosticSeverity::Error);
     });
     auto *timeout = new QTimer(reply);
     timeout->setSingleShot(true);

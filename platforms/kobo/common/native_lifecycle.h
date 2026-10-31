@@ -38,6 +38,7 @@ public:
     bool blocked() const {
         return asleep || usbPending || exported || poweringOff || removalPending;
     }
+    bool batteryLowShutdown() const { return poweringOff && batteryLow_; }
     bool shuttingDown() const {
         return poweringOff;
     }
@@ -83,6 +84,7 @@ private:
     QTimer sleepViewCheck;
     bool expectingUsbPrompt = false;
     bool savingBeforeSleep = false;
+    bool batteryLow_ = false;
     bool connected_ = false, asleep = false, usbPending = false, exported = false, poweringOff = false;
     bool storageReady = false, remounting = false;
     QPointer<QObject> pendingGadget, pendingWorkflow;

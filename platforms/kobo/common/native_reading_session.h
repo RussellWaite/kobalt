@@ -20,8 +20,11 @@ public:
     }
     void stop();
     void finish(std::function<void(bool)> done);
+    void retryFailedSave() { saves.retryFailed(); }
     bool savePending() const {
-        return ending || startFlushes > 0 || saves.pending();
+        // `ending` can retain a failed synchronous stop. It is not a worker
+        // using storage and must not keep a terminal handoff pending forever.
+        return startFlushes > 0 || (saves.pending() && !saves.failed());
     }
     std::function<void()> estimatesChanged;
 #ifndef KOBALT_READER_HARDWARE

@@ -261,7 +261,7 @@ public:
             profileCheckpointFailed = monotonicMilliseconds();
         }
         diagnostic("profile-checkpoint", {{"truncate", truncate}, {"ok", done}, {"elapsed_ms", double(timer.elapsed())}},
-                   !done);
+                   done ? DiagnosticSeverity::Activity : DiagnosticSeverity::Warning);
         return done;
     }
     void close() {
@@ -284,7 +284,8 @@ public:
         release();
         // A close that leaves the log is kept in the durable log: the file then
         // needs its -wal next to it, for example on an exported partition.
-        diagnostic("profile-close", {{"rollback_journal", journal}, {"elapsed_ms", double(timer.elapsed())}}, !journal);
+        diagnostic("profile-close", {{"rollback_journal", journal}, {"elapsed_ms", double(timer.elapsed())}},
+                   journal ? DiagnosticSeverity::Activity : DiagnosticSeverity::Error);
     }
     static thread_local bool routineWrite;
 
@@ -1044,10 +1045,10 @@ void checkpointProfile() {
 bool profileHasUnsyncedWrites() {
     return profileUnsynced;
 }
-bool profileCheckpointDue() {
+bool profileCheckpointDue(bool urgent) {
     const auto now = monotonicMilliseconds();
     const qint64 failed = profileCheckpointFailed;
-    return profileUnsynced && now - profileSynced >= checkpointInterval && (failed < 0 || now - failed >= checkpointRetry);
+    return profileUnsynced && (urgent || now - profileSynced >= checkpointInterval) && (failed < 0 || now - failed >= checkpointRetry);
 }
 void requestProfileCheckpoint() {
     if (profileCheckpointRunning.exchange(true))

@@ -184,12 +184,30 @@ ReadingProgress NativeProgress::read(QString *error) const {
         *error = strings::get("error.nickel_reading_position_could_not_be_decoded");
     return value;
 }
+bool NativeProgress::markReading() {
+    mainthread::BlockingOperation operation("nickel-opening-status");
+    if (!available() || !NativeLifecycle::nativeProgressSaveAllowed() || deviceTransition())
+        return false;
+    const auto &native = api();
+    const auto db = native.dbName(native.device());
+    NativeDatabaseWait wait(native.connection(db, true), true);
+    if (!wait.ready() || !native.begin(db)) return false;
+    // Firmware 4.46 and 6.0 updateReadingStatus sets these fields, without DateLastRead.
+    // Keep positions, percentages and estimates untouched. No Volume crosses threads.
+    const QVariantMap fields{{"ReadStatus", 1}, {"FirstTimeReading", false},
+                             {"ReadStateSynced", false}, {"HideFromHomePage", false}};
+    const bool saved = native.update(book, fields, {{"ContentID", book}}, db);
+    if (!saved || !native.end(db, true)) {
+        native.end(db, false);
+        return false;
+    }
+    native.refresh(db);
+    return true;
+}
 bool NativeProgress::write(const ReadingProgress &expected, const QString &position, double percent, bool finished,
                            ReadingProgress *verified, QString *error, const ReadingEstimates *estimates, const ReadingActivity *activity) {
-    // Nickel's Volume API runs on the GUI thread. Callers save at opening,
-    // sleep, USB, close and power-off; the opening save and its retries are a
-    // known exception to the main-thread rule.
-    kobalt::mainthread::blocking("nickel-progress-write");
+    // Nickel's Volume API runs on the GUI thread at lifecycle boundaries.
+    kobalt::mainthread::BlockingOperation blockingOperation("nickel-progress-write");
     const auto fail = [error](const QString &message) {
         if (error)
             *error = message;

@@ -106,10 +106,33 @@ void blocking(const char *operation) {
     // The diagnostic log is written on its own thread.
     if (!reported.contains(operation)) {
         reported.insert(operation);
-        diagnostic("main-thread-blocked", {{"operation", QString::fromLatin1(operation)}}, false);
+        diagnostic("main-thread-blocked", {{"operation", QString::fromLatin1(operation)}}, DiagnosticSeverity::Warning);
     }
 }
 void setViolationHandler(std::function<void(const char *)> value) {
     handler = std::move(value);
+}
+BlockingOperation::BlockingOperation(const char *name, bool enabled)
+    : operation(name), reason(allowed), observe(enabled && mainThread() &&
+        (!eventsOnly || delivering > baseline)) {
+    if (enabled)
+        blocking(name);
+    if (observe)
+        elapsed.start();
+}
+BlockingOperation::~BlockingOperation() {
+    if (!observe)
+        return;
+    const auto milliseconds = elapsed.nsecsElapsed() / 1e6;
+    if (milliseconds < 50 && !diagnosticsActive() && mode() != "trace")
+        return;
+    const auto fields = qt::object({{"operation", QString::fromLatin1(operation)},
+        {"allowance", QString::fromLatin1(reason ? reason : "")},
+        {"elapsed_ms", milliseconds}});
+    diagnostic("main-thread-wait", fields, milliseconds >= 50
+        ? DiagnosticSeverity::Warning : DiagnosticSeverity::Activity);
+    if (mode() == "trace")
+        qWarning("main-thread-wait %s allowance=%s elapsed_ms=%.3f", operation,
+                 reason ? reason : "none", milliseconds);
 }
 }

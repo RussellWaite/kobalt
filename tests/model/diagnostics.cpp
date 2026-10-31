@@ -6,10 +6,22 @@
 #include <QFileInfo>
 #include <QJsonDocument>
 #include <QTemporaryDir>
+#include <QElapsedTimer>
+#include <QThread>
 #include <thread>
+#include <atomic>
+#include <dlfcn.h>
 #include <cerrno>
 #include <unistd.h>
 
+// Count actual sync requests, while still performing the filesystem sync.
+static std::atomic<int> syncCalls{0};
+extern "C" int fdatasync(int descriptor) {
+    ++syncCalls;
+    static const auto sync = reinterpret_cast<int (*)(int)>(dlsym(RTLD_NEXT, "fsync"));
+    if (!sync) qFatal("Cannot resolve the filesystem sync for the log test");
+    return sync(descriptor);
+}
 static QByteArray read(const QString &path) {
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly))
@@ -46,8 +58,8 @@ int main(int argc, char **argv) {
     auto writer = [] {
         for (int i = 0; i < 600; ++i) {
             errno = EDOM;
-            // Linux adds memory fields to each record, other hosts do not. The
-            // padding makes 1,200 records pass the 128 KiB rotation limit on both.
+            // Padding makes the concurrent records pass the rotation limit
+            // independently of optional memory samples.
             kobalt::diagnostic("render", {{"sequence", i}, {"padding", QString(64, 'p')}}, false);
             if (errno != EDOM)
                 qFatal("Logging changed errno");
@@ -104,5 +116,71 @@ int main(int argc, char **argv) {
     kobalt::flushDiagnostics();
     if (read(target) != "sentinel")
         qFatal("Logging failure damaged file");
-    qInfo("PASS: bounded concurrent logs, complete records, errno, oversized entry, symlink and unavailable storage");
+    const int beforeNormal = syncCalls.load();
+    QTemporaryDir quiet;
+    kobalt::initializeDiagnostics(quiet.path(), false);
+    const auto quietPath = quiet.path() + "/events.jsonl";
+    if (kobalt::diagnosticsActive())
+        qFatal("Quiet logging enabled expensive instrumentation");
+    for (int i = 0; i < 20; ++i)
+        kobalt::diagnostic("turn", {{"sequence", i}});
+    // Ordinary activity must reach disk without a warning or explicit flush.
+    QElapsedTimer normalWait;
+    normalWait.start();
+    while (!QFile::exists(quietPath) && normalWait.elapsed() < 3000)
+        QThread::msleep(10);
+    if (!QFile::exists(quietPath))
+        qFatal("Normal activity was kept only in memory");
+    QThread::msleep(50);
+    if (syncCalls.load() != beforeNormal) qFatal("Normal activity requested a storage sync");
+    QJsonObject observed;
+    kobalt::setDiagnosticObserver([&](const QJsonObject &entry) { observed = entry; });
+    if (!kobalt::diagnosticsActive())
+        qFatal("Normal disk policy disabled the evaluation observer");
+    kobalt::diagnostic("observed", {{"measurement", 42}});
+    if (observed.value("measurement").toInt() != 42 || observed.contains("rss_kib"))
+        qFatal("Observer lost fields or sampled memory on the caller");
+    kobalt::setDiagnosticObserver({});
+    QJsonObject sampledMemory;
+    std::atomic<bool> sampled{false};
+    kobalt::sampleDiagnosticMemory([&](QJsonObject fields) {
+        if (QThread::currentThread() == app.thread()) qFatal("Memory sampled on the main thread");
+        sampledMemory = std::move(fields);
+        sampled.store(true);
+    });
+    QElapsedTimer sampleWait;
+    sampleWait.start();
+    while (!sampled.load() && sampleWait.elapsed() < 3000) QThread::msleep(10);
+    if (!sampled.load() || !sampledMemory.value("rss_kib").isDouble() ||
+        !sampledMemory.value("peak_rss_kib").isDouble()) qFatal("Explicit performance memory sample was lost");
+    if (syncCalls.load() != beforeNormal) qFatal("Memory sampling requested a storage sync");
+    kobalt::diagnostic("save", {{"ok", false}}, kobalt::DiagnosticSeverity::Error);
+    QElapsedTimer syncWait;
+    syncWait.start();
+    while (syncCalls.load() == beforeNormal && syncWait.elapsed() < 3000) QThread::msleep(10);
+    if (syncCalls.load() == beforeNormal) qFatal("Error batch did not request a sync");
+    kobalt::flushDiagnostics();
+    const int beforeBoundary = syncCalls.load();
+    kobalt::flushDiagnostics();
+    if (syncCalls.load() <= beforeBoundary) qFatal("Empty lifecycle flush did not sync prior batches");
+    const auto quietBytes = read(quietPath);
+    if (quietBytes.count("\"event\":\"turn\"") != 20 ||
+        !quietBytes.contains("\"sequence\":19") || !quietBytes.contains("\"severity\":\"error\"") ||
+        quietBytes.contains("rss_kib"))
+        qFatal("Normal log lost activity fields or collected detailed memory data");
+    QTemporaryDir deadline;
+    kobalt::initializeDiagnostics(deadline.path(), false);
+    const auto deadlinePath = deadline.path() + "/events.jsonl";
+    kobalt::diagnosticInput();
+    kobalt::diagnostic("deadline", {}, kobalt::DiagnosticSeverity::Warning);
+    QElapsedTimer elapsed;
+    elapsed.start();
+    while (!QFile::exists(deadlinePath) && elapsed.elapsed() < 6000) {
+        kobalt::diagnosticInput();
+        QThread::msleep(20);
+    }
+    if (!QFile::exists(deadlinePath) || elapsed.elapsed() < 900)
+        qFatal("Input did not defer diagnostics or prevented the maximum-delay flush");
+    kobalt::pauseDiagnostics(true);
+    qInfo("PASS: bounded concurrent logs, normal activity, error batches, observers, batching and safe files");
 }

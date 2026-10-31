@@ -161,7 +161,7 @@ static ReaderBookRoute bookRoute(const void *volume, QString *identity, QString 
         return Route::Failed;
     if (!publication.inspect(file, &error)) {
         diagnostic("native-resource-failed",
-                   {{"stage", "publication-inspection"}, {"error_code", diagnosticErrorCode(error)}});
+                   {{"stage", "publication-inspection"}, {"error_code", diagnosticErrorCode(error)}}, kobalt::DiagnosticSeverity::Error);
         if (publication.protectedBook()) {
             rememberNativeBook(id, filename, true);
             return Route::Protected;

@@ -1851,12 +1851,13 @@ void ReaderSession::loadImages() {
             ReaderFrame result;
             bool loaded = false;
             if (latest->load() == job) {
+                const bool timing = diagnosticsActive();
                 QElapsedTimer timer;
-                timer.start();
+                if (timing) timer.start();
                 loaded = engine->loadNextImage();
                 if (loaded && latest->load() == job)
                     result = capture(*engine, positions, false, markup, markupGeneration);
-                if (loaded)
+                if (loaded && timing)
                     diagnostic("image-load-end",
                                {{"elapsed_ms", double(timer.elapsed())},
                                 {"current", latest->load() == job},
@@ -1924,12 +1925,13 @@ void ReaderSession::resumeIdleWork(int direction, quint64 job) {
         engineWorker(),
         [engine, latest, direction, job, guard, lease, neighbours] {
             EngineJob activity;
+            const bool timing = diagnosticsActive();
             QElapsedTimer timer;
-            timer.start();
+            if (timing) timer.start();
             prepareNeighbours(*engine, direction, [latest, job] {
                 return latest->load() == job;
             });
-            diagnostic("neighbours-end",
+            if (timing) diagnostic("neighbours-end",
                        {{"elapsed_ms", double(timer.elapsed())}, {"completed", latest->load() == job}}, false);
             // Drawing a neighbour can discover deferred images. Publish them now
             // so they load before that page is requested.
@@ -2045,9 +2047,10 @@ void ReaderSession::dispatch(bool pageTurn) {
         [guard, engine, requested, size, anchor, delta, target, job, lease, progress, positions, markup,
          markupGeneration] {
             EngineJob activity;
+            const bool timing = diagnosticsActive();
             QElapsedTimer timer;
-            timer.start();
-            diagnostic("render-start", {{"page_turn", delta != 0}, {"jump", !anchor.isEmpty() || target >= 0}},
+            if (timing) timer.start();
+            if (timing) diagnostic("render-start", {{"page_turn", delta != 0}, {"jump", !anchor.isEmpty() || target >= 0}},
                        delta == 0);
             const auto before = engine->state();
             const auto oldSize = engine->viewport();
@@ -2084,8 +2087,12 @@ void ReaderSession::dispatch(bool pageTurn) {
             if (result.turnDirection && oldImage &&
                 engine->preparedDamage(oldImage, result.image.cacheKey(), &result.damage))
                 result.damageFrom = oldImage;
-            diagnostic("render-end", {{"elapsed_ms", double(timer.elapsed())}, {"failed", !result.error.isEmpty()}},
-                       false);
+            if (timing)
+                diagnostic("render-end", {{"elapsed_ms", double(timer.elapsed())}, {"failed", !result.error.isEmpty()}},
+                           result.error.isEmpty() ? DiagnosticSeverity::Activity : DiagnosticSeverity::Error);
+            else
+                diagnostic("render-end", {{"failed", !result.error.isEmpty()}},
+                           result.error.isEmpty() ? DiagnosticSeverity::Activity : DiagnosticSeverity::Error);
             const bool failed = !result.error.isEmpty();
             kobalt::qt::invoke(
                 qApp,

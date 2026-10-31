@@ -243,7 +243,7 @@ bool writeAnnotationExport(const QUrl &destination, const QByteArray &archive) {
     if (archive.isEmpty() || !destination.isValid()) return false;
     // Known exception: the user waits for the exported file.
     mainthread::AllowBlocking allow("annotation export");
-    mainthread::blocking("annotation-export-write");
+    mainthread::BlockingOperation blockingOperation("annotation-export-write");
     if (destination.isLocalFile()) {
         QSaveFile file(destination.toLocalFile());
         return file.open(QIODevice::WriteOnly) && file.write(archive) == archive.size() && file.commit();

@@ -288,8 +288,8 @@ void NativeLifecycle::finishWake() {
     }
 }
 bool NativeLifecycle::canSuspend() {
-    // Standby stops the reader's timers. Run pending position saves now,
-    // while the device is idle, instead of after the tap that wakes it.
+    // Active storage work must finish before standby. Only low battery
+    // requests a new reading save here; ordinary activity can stay in memory.
     return !active ||
            (!active->sleepViewCheck.isActive() && !active->draining && !active->usbPending && !active->poweringOff &&
             engineActivity().quiescent() &&
@@ -304,6 +304,7 @@ bool NativeLifecycle::interceptShutdown(QObject *manager, Shutdown mode) {
     if (!active->storageBlocked() && active->preparePowerScreen)
         active->preparePowerScreen(mode);
     active->poweringOff = true;
+    active->batteryLow_ = mode == Shutdown::BatteryLow;
     // USB export has already released the book. Do not touch exported storage.
     if (active->exported)
         return false;
@@ -324,8 +325,8 @@ bool NativeLifecycle::interceptShutdown(QObject *manager, Shutdown mode) {
         *completed = true;
         // Nickel stops EventEngine and closes its databases in powerOff().
         // Every software shutdown, including battery-low shutdown, waits for
-        // required saves and the worker drain. A deadline cannot make an
-        // unsaved interval safe to discard. Physical power loss is separate.
+        // save outcome and the worker drain. Battery-low may waive completed
+        // failures, never active storage calls. Physical power loss is separate.
         diagnostic("shutdown-release-complete");
         // Close and block the profile before Nickel freezes its threads.
         // Late saves must keep failing afterward.

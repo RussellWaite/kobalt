@@ -34,6 +34,7 @@ public:
         return progress_->write(expected, location, percent, finished, verified, error,
                                 available ? &estimates : nullptr, &activity);
     }
+    bool markReading() override { return progress_->markReading(); }
     void observeReading(const ReadingActivity &activity) override {
         reading_.start(activity);
         reading_.page(activity);
@@ -49,6 +50,9 @@ public:
     }
     bool readingSavePending() const override {
         return reading_.savePending();
+    }
+    void retryFailedReadingSave() override {
+        reading_.retryFailedSave();
     }
 
 private:

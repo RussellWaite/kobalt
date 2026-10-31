@@ -6,6 +6,8 @@
 #include <memory>
 #include "record_writer.h"
 
+class QSqlDatabase;
+
 namespace kobalt {
 // Durable intervals use the reader's cumulative active clock for duration and
 // UTC only for chronology. A clock adjustment must not change reading time.
@@ -25,6 +27,12 @@ public:
     // Periodic checkpoints queue an immutable snapshot. Lifecycle boundaries
     // wait for the latest snapshot; replacing a queued one preserves intervals.
     bool save(bool background = false);
+    struct Snapshot {
+        std::function<bool(QSqlDatabase &)> write;
+        std::function<void(bool)> complete;
+    };
+    // Capture on the owner thread. Complete only after the enclosing transaction.
+    Snapshot snapshot();
     bool saving() const;
     // Acknowledge completed background work without waiting or starting a write.
     bool savesSucceeded();

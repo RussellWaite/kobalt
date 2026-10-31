@@ -39,7 +39,7 @@ public:
     }
     // Limit the native-position wait to two seconds before file release.
     virtual void prepareUsb(std::function<void()> finished) = 0;
-    virtual void prepareShutdown(std::function<void()> finished) = 0;
+    virtual void prepareShutdown(std::function<void()> finished, bool allowFailedSave = false) = 0;
     virtual sleep::Snapshot powerScreenSnapshot() { return {}; }
     virtual void sleepReader() = 0;
     // A bounded final upload can briefly keep the CPU awake after the sleep view appears.

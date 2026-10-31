@@ -10,6 +10,7 @@ namespace kobalt {
 void setDiagnosticsSync(bool) {}
 void setDiagnosticObserver(std::function<void(const QJsonObject &)>) {}
 void diagnostic(const char *, QJsonObject, bool) {}
+void sampleDiagnosticMemory(std::function<void(QJsonObject)> done) { done({}); }
 namespace kosync {
 static bool paused = false;
 bool automaticPaused() { return paused; }

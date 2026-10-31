@@ -16,6 +16,7 @@
 #include <QWidget>
 #include <QWindow>
 #include <deque>
+#include <memory>
 
 namespace kobalt::scenario {
 namespace {
@@ -317,13 +318,16 @@ public:
     }
     // The sample for one repetition, and its stages.
     bool sample(const QJsonObject &spec, double &value, QJsonObject &stages) {
-        // Every diagnostics event carries the process's memory use.
+        // Request memory explicitly; normal events do not sample the process.
         if (spec.contains("memory")) {
-            diagnostic("scenario-memory", QJsonObject(), false);
+            auto sample = std::make_shared<QJsonObject>();
+            sampleDiagnosticMemory([sample](QJsonObject fields) {
+                qt::invoke(qApp, [sample, fields] { *sample = fields; }, Qt::QueuedConnection);
+            });
+            if (!waitUntil([sample] { return !sample->isEmpty(); }, 5000)) return false;
             const auto field = spec.value("memory").toString();
-            const auto event = events.next("scenario-memory", {}, 5000);
-            value = event.value(field).toDouble();
-            return event.value(field).isDouble();
+            value = sample->value(field).toDouble();
+            return sample->value(field).isDouble();
         }
         if (spec.contains("timer")) {
             if (!mark.isValid())
@@ -381,9 +385,8 @@ bool wanted(const QString &id, const QString &filter) {
 
 QVector<QJsonObject> run(const QJsonObject &file, const Host &host, const Options &options) {
     QVector<QJsonObject> results;
-    // Durable diagnostics events sync the log. Leave those syncs out of the
-    // timings, as in earlier baselines.
-    setDiagnosticsSync(false);
+    // Keep normal warning/error and lifecycle syncs in the measurements.
+    // Older baselines that disabled them are not directly comparable.
     // Nor may a run reach a sync server: it would measure the network and
     // upload the test books' positions. A Kobo set up for scenarios pauses
     // syncs for its whole session, so keep a pause that was already there.
@@ -392,7 +395,6 @@ QVector<QJsonObject> run(const QJsonObject &file, const Host &host, const Option
     struct Restore {
         bool syncPaused;
         ~Restore() {
-            setDiagnosticsSync(true);
             kosync::pauseAutomatic(syncPaused);
         }
     } restore{syncPaused};

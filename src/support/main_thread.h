@@ -1,5 +1,6 @@
 #pragma once
 #include <functional>
+#include <QElapsedTimer>
 
 // The page turn is sacred. While a screen takes input, the main thread must
 // not write storage or wait for another thread: a slow SD card or a busy
@@ -58,6 +59,20 @@ public:
 void checkEventsOnly(bool enabled);
 // Reports an operation that writes storage or waits for another thread.
 void blocking(const char *operation);
+// Times the actual guarded operation, including deliberate waits. Declare
+// beside the work so destruction records its completion, not its admission.
+class BlockingOperation {
+public:
+    explicit BlockingOperation(const char *operation, bool enabled = true);
+    ~BlockingOperation();
+    BlockingOperation(const BlockingOperation &) = delete;
+    BlockingOperation &operator=(const BlockingOperation &) = delete;
+private:
+    const char *operation;
+    const char *reason;
+    QElapsedTimer elapsed;
+    bool observe;
+};
 // True on the main thread while a registered screen takes input and no
 // AllowBlocking scope is open.
 bool interactive();
