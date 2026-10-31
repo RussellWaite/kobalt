@@ -12,6 +12,8 @@ Use a prepared native Qt 6.11 or newer Qt 6 SDK. Configure once as described in 
 
 ## Everyday commands
 
+`ui.pagedListSwipes` drives chapter-list swipes through the production canvas at both interface densities and in both themes. It checks forward, backward and wrapped paging, the existing arrows and ordinary row taps without selecting a chapter during a swipe. `ui.pagedSwipesRespectControls` checks nested paging, disabled arrows, small and vertical movement, held rows, cancellation and controls that own their gestures. `ui.pagedFontSwipesKeepHolds` checks font-cell swipes, default-font holds and delayed held drags without selecting a font during a swipe. These headless checks do not establish physical Kobo or Android touch behavior.
+
 | Task | Build | Run or output |
 | --- | --- | --- |
 | Light app checks | `cmake --build --preset mac-light-tests` | `ctest --preset mac-light` |
