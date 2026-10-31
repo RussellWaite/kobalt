@@ -13,6 +13,7 @@
 #include <QWaitCondition>
 #include <cerrno>
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <deque>
@@ -193,7 +194,10 @@ bool drain(int milliseconds) {
     forceFlush = false;
     return true;
 }
-// Resident and peak resident memory in KiB, or -1 where unknown.
+// Resident memory when the first book began to open, in KiB, or -1.
+std::atomic<qint64> memoryBase{-1};
+// Resident and peak resident memory in KiB, or -1 where unknown, and the
+// part above the base once it is known.
 void addMemory(QJsonObject &fields) {
 #ifdef __APPLE__
     mach_task_basic_info_data_t info{};
@@ -216,6 +220,13 @@ void addMemory(QJsonObject &fields) {
         }
     }
 #endif
+    const qint64 base = memoryBase;
+    if (base < 0)
+        return;
+    if (fields.value("rss_kib").isDouble())
+        fields["kobalt_rss_kib"] = fields.value("rss_kib").toDouble() - double(base);
+    if (fields.value("peak_rss_kib").isDouble())
+        fields["kobalt_peak_kib"] = fields.value("peak_rss_kib").toDouble() - double(base);
 }
 }
 void setDiagnosticsSync(bool enabled) {
@@ -310,6 +321,21 @@ void sampleDiagnosticMemory(std::function<void(QJsonObject)> done) {
     queue.push_front({{}, {}, {}, DiagnosticSeverity::Activity, 0, 0, std::move(done)});
     startWriter();
     wake.wakeAll();
+}
+void markMemoryBase() {
+    static std::atomic_bool marked{false};
+    if (marked.exchange(true))
+        return;
+    sampleDiagnosticMemory([](QJsonObject fields) {
+        const auto rss = fields.value("rss_kib");
+        if (!rss.isDouble())
+            return;
+        memoryBase = qint64(rss.toDouble());
+        // Not `rss_kib`: a detailed log adds its own sample under that name.
+        QJsonObject base;
+        base["base_rss_kib"] = rss;
+        diagnostic("memory-base", base, DiagnosticSeverity::Activity);
+    });
 }
 void diagnostic(const char *event, QJsonObject fields, bool) {
     diagnostic(event, std::move(fields), DiagnosticSeverity::Activity);

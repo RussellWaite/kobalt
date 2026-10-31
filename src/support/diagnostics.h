@@ -24,7 +24,14 @@ void diagnostic(const char *event, QJsonObject fields = {}, bool durable = true)
 // Defers a pending batch until input is quiet, with a five-second maximum.
 void diagnosticInput();
 // Explicit performance sample, collected and delivered on the logging worker.
+// Once the base is known, it also has `kobalt_rss_kib` and `kobalt_peak_kib`:
+// resident and peak memory above that base.
 void sampleDiagnosticMemory(std::function<void(QJsonObject)> done);
+// Records the process's resident memory as the base for Kobalt's own share,
+// once per process. Call it just before the first book opens. On Kobo the
+// base is Nickel with Kobalt loaded but not yet reading, so the share leaves
+// out the host. Logs a `memory-base` event.
+void markMemoryBase();
 // Waits until queued events are in the log file. False when `milliseconds`
 // pass first; a negative value waits without a limit. For tests and tools
 // that read the file and lifecycle boundaries where input is blocked.

@@ -312,6 +312,8 @@ bool ReaderCoordinator::begin(const RetainOpening &retainOpening) {
     const auto route = kobalt::readerBookCandidateRoute(request->volume(), &nextIdentity, &nextPath);
     if (route == kobalt::ReaderBookRoute::Unsupported)
         return false;
+    // Nickel is settled and Kobalt has built nothing for reading yet.
+    kobalt::markMemoryBase();
     // The loading view draws in the interface faces. Check only those files
     // now and leave the whole bundle for after its first paint. When they
     // cannot be read, check everything now so recovery can show its alert.

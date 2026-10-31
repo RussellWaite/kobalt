@@ -8,6 +8,7 @@
 #include <QTemporaryDir>
 #include <QElapsedTimer>
 #include <QThread>
+#include <vector>
 #include <thread>
 #include <atomic>
 #include <dlfcn.h>
@@ -168,6 +169,23 @@ int main(int argc, char **argv) {
         !quietBytes.contains("\"sequence\":19") || !quietBytes.contains("\"severity\":\"error\"") ||
         quietBytes.contains("rss_kib"))
         qFatal("Normal log lost activity fields or collected detailed memory data");
+    if (sampledMemory.contains("kobalt_rss_kib") || sampledMemory.contains("kobalt_peak_kib"))
+        qFatal("Kobalt's memory share was reported before its base");
+    // The base is taken once; later samples report memory above it.
+    kobalt::markMemoryBase();
+    kobalt::markMemoryBase();
+    kobalt::flushDiagnostics();
+    std::vector<char> grown(8 * 1024 * 1024, 1);
+    sampled.store(false);
+    kobalt::sampleDiagnosticMemory([&](QJsonObject fields) {
+        sampledMemory = std::move(fields);
+        sampled.store(true);
+    });
+    sampleWait.restart();
+    while (!sampled.load() && sampleWait.elapsed() < 3000) QThread::msleep(10);
+    if (!sampled.load() || sampledMemory.value("kobalt_rss_kib").toDouble() < 4096 ||
+        sampledMemory.value("kobalt_peak_kib").toDouble() < 4096 || grown.back() != 1)
+        qFatal("Kobalt's memory share did not follow its base");
     QTemporaryDir deadline;
     kobalt::initializeDiagnostics(deadline.path(), false);
     const auto deadlinePath = deadline.path() + "/events.jsonl";

@@ -166,6 +166,15 @@
       "sample": {"memory": "rss_kib"}
     },
     {
+      "id": "memory.kobalt.reading",
+      "kind": "memory",
+      "unit": "KiB",
+      "paths": ["src/", "dependencies/"],
+      "book": "benchmark",
+      "repeat": 1,
+      "sample": {"memory": "kobalt_rss_kib"}
+    },
+    {
       "id": "panel.settings",
       "kind": "e2e",
       "paths": ["src/interfaces/reader/settings/", "src/interfaces/reader/ui/", "src/interfaces/reader/window/reader_settings.cpp"],
@@ -321,6 +330,14 @@
       "paths": ["src/", "dependencies/"],
       "repeat": 1,
       "sample": {"memory": "peak_rss_kib"}
+    },
+    {
+      "id": "memory.kobalt.peak",
+      "kind": "memory",
+      "unit": "KiB",
+      "paths": ["src/", "dependencies/"],
+      "repeat": 1,
+      "sample": {"memory": "kobalt_peak_kib"}
     },
     {
       "id": "sleep.close.stock",

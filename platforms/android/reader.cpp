@@ -1,6 +1,7 @@
 #include "reading/appearance_settings.h"
 #include "support/strings.h"
 #include "support/main_thread.h"
+#include "support/diagnostics.h"
 #include "reader.h"
 #include "interfaces/reader_interface.h"
 #include "interfaces/opening_message.h"
@@ -98,6 +99,7 @@ void ReaderController::begin(const QString &path, QSize pixels) {
     mainthread::AllowBlocking allow("library opening");
     phase = Phase::Opening;
     openingStarted.start();
+    markMemoryBase();
     retirementNotified = false;
     if (storageFailed)
         prepareProfile();
