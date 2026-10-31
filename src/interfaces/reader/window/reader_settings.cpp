@@ -73,7 +73,8 @@ bool Reader::chromeTicks() const {
     using kobalt::headerfooter::Field;
     for (const auto field : page->chrome.slotFields)
         if (field == Field::Time || field == Field::Battery || field == Field::BatteryPercent ||
-            field == Field::BatteryWarning || field == Field::ChapterTimeLeft || field == Field::BookTimeLeft)
+            field == Field::BatteryPercentOnly || field == Field::BatteryWarning || field == Field::ChapterTimeLeft ||
+            field == Field::BookTimeLeft)
             return true;
     return false;
 }

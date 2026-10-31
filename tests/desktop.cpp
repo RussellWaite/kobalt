@@ -3307,6 +3307,62 @@ printf '[{"file":"%s.png","scene":"%s"}]' "$3" "$KOBALT_GALLERY_CAPTURE" > "$2/p
         QFETCH(bool, dark);
         checkHeaderFooterSizes(preset, dark);
     }
+    void batteryPercentageOnly_data() { bookmarks_data(); }
+    void batteryPercentageOnly() {
+        using namespace headerfooter;
+        QFETCH(bool, dark);
+        Fixture fixture(dark);
+        QVERIFY(fixture.prepared);
+        QSignalSpy opened(&fixture.window, &desktop::Window::bookOpened);
+        fixture.window.openBook(book);
+        QTRY_COMPARE_WITH_TIMEOUT(opened.count(), 1, 10000);
+        QTRY_VERIFY(!fixture.state().value("busy").toBool());
+        openPrologueBody(fixture);
+        QVERIFY(fixture.press("rrPage"));
+        QVERIFY(fixture.press("rrNavLayout"));
+        QVERIFY(fixture.press("rrHeaderFooter"));
+        QTRY_VERIFY(fixture.visible("rrHeaderFooterView"));
+        QVERIFY(fixture.press("rrHeaderFooterSlot2"));
+        QTRY_VERIFY(fixture.visible("rrHeaderFooterChooser"));
+        for (int turns = 0; !fixture.visible("rrHeaderFooterField_battery_percent_only") && turns < 10; ++turns) {
+            QVERIFY(fixture.press("rrHeaderFooterFieldsNext"));
+        }
+        QVERIFY(fixture.visible("rrHeaderFooterField_battery_percent_only"));
+        auto *choice = qobject_cast<QCheckBox *>(fixture.widget("rrHeaderFooterField_battery_percent_only"));
+        QVERIFY(choice);
+        QCOMPARE(choice->text(), strings::get("header_footer.field.battery_percent_only"));
+        auto *page = static_cast<ReadingPage *>(fixture.widget("rrPage"));
+        const auto saveCapture = [&](const QString &name) {
+            const auto output = qEnvironmentVariable("KOBALT_TEST_CAPTURE_DIR");
+            if (output.isEmpty()) return true;
+            QCoreApplication::processEvents();
+            auto *surface = fixture.window.readerWindow();
+            QImage pixels(surface->size(), QImage::Format_ARGB32_Premultiplied);
+            pixels.fill(Qt::transparent);
+            surface->render(&pixels);
+            return QDir().mkpath(output) && pixels.save(output + '/' + name + (dark ? "-dark.png" : "-light.png"));
+        };
+        QVERIFY(saveCapture("battery-percentage-chooser"));
+        QVERIFY(fixture.press("rrHeaderFooterField_battery_percent_only"));
+        QTRY_VERIFY(!fixture.visible("rrHeaderFooterChooser"));
+        QTRY_COMPARE(page->chrome.slotFields[2], Field::BatteryPercentOnly);
+        QTRY_COMPARE(storage::readJson(fixture.paths.preferences()).value(customKey).toObject()
+                         .value("top_right").toString(), QString("battery_percent_only"));
+        QVERIFY(saveCapture("battery-percentage-layout"));
+        QVERIFY(fixture.press("rrHeaderFooterClose"));
+        QVERIFY(fixture.press("rrPage"));
+        QTRY_VERIFY(!fixture.state().value("busy").toBool());
+        QTRY_COMPARE(page->slotContents[2].text, strings::get("common.percent").arg(100));
+        QVERIFY(!page->slotContents[2].batteryIcon);
+        QVERIFY(saveCapture("battery-percentage-reading"));
+        fixture.window.readerWindow()->close();
+        QTRY_VERIFY_WITH_TIMEOUT(fixture.window.idle(), 30000);
+        fixture.window.openBook(book);
+        QTRY_COMPARE_WITH_TIMEOUT(opened.count(), 2, 10000);
+        QTRY_VERIFY(!fixture.state().value("busy").toBool());
+        page = static_cast<ReadingPage *>(fixture.widget("rrPage"));
+        QCOMPARE(page->chrome.slotFields[2], Field::BatteryPercentOnly);
+    }
     void headerFooterDismissal_data() { bookmarks_data(); }
     void headerFooterDismissal() {
         QFETCH(bool, dark);
