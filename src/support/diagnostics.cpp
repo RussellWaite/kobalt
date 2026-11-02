@@ -18,6 +18,9 @@
 #include <cstdio>
 #include <deque>
 #include <fcntl.h>
+#ifdef _WIN32
+#include <io.h>
+#endif
 #include <sys/stat.h>
 #include <thread>
 #include <time.h>
@@ -67,7 +70,17 @@ QJsonObject record(const Entry &entry) {
 }
 void append(const QString &name, const QByteArray &bytes, bool sync) {
     const auto path = QFile::encodeName(name);
-    int fd = ::open(path.constData(), O_WRONLY | O_CREAT | O_APPEND | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC, 0600);
+    int openFlags = O_WRONLY | O_CREAT | O_APPEND;
+#ifdef O_NOFOLLOW
+    openFlags |= O_NOFOLLOW;
+#endif
+#ifdef O_NONBLOCK
+    openFlags |= O_NONBLOCK;
+#endif
+#ifdef O_CLOEXEC
+    openFlags |= O_CLOEXEC;
+#endif
+    int fd = ::open(path.constData(), openFlags, 0600);
     struct stat info {};
     if (fd >= 0 && fstat(fd, &info) == 0 && S_ISREG(info.st_mode)) {
         if (info.st_size + bytes.size() > limit) {
@@ -75,7 +88,14 @@ void append(const QString &name, const QByteArray &bytes, bool sync) {
             fd = -1;
             const auto previous = path + ".previous";
             if (::rename(path.constData(), previous.constData()) == 0)
-                fd = ::open(path.constData(), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600);
+                fd = ::open(path.constData(), O_WRONLY | O_CREAT | O_EXCL
+#ifdef O_NOFOLLOW
+                            | O_NOFOLLOW
+#endif
+#ifdef O_CLOEXEC
+                            | O_CLOEXEC
+#endif
+                            , 0600);
         }
         if (fd >= 0) {
             qint64 written = 0;
@@ -88,7 +108,11 @@ void append(const QString &name, const QByteArray &bytes, bool sync) {
                 written += count;
             }
             if (sync)
+#ifdef _WIN32
+                ::_commit(fd);
+#else
                 ::fdatasync(fd);
+#endif
         }
     }
     if (fd >= 0)

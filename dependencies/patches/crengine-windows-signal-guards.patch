@@ -1,0 +1,30 @@
+diff --git a/crengine/src/lvmemman.cpp b/crengine/src/lvmemman.cpp
+index c991fa3..f37f034 100644
+--- a/crengine/src/lvmemman.cpp
++++ b/crengine/src/lvmemman.cpp
+@@ -17,7 +17,7 @@
+ #include "../include/lvref.h"
+ #include "../include/lvtinydom.h"
+ 
+-#ifdef _LINUX
++#if defined(_LINUX) && !defined(_WIN32)
+ #ifndef _XOPEN_SOURCE
+ #define _XOPEN_SOURCE
+ #endif
+@@ -31,7 +31,7 @@ void crSetFileToRemoveOnFatalError(const char * filename) {
+ 	strcpy(file_to_remove_on_crash, filename == NULL ? "" : filename); // NOLINT
+ }
+ 
+-#ifdef _LINUX
++#if defined(_LINUX) && !defined(_WIN32)
+ static struct sigaction old_sa[NSIG];
+ 
+ void cr_sigaction(int signal, siginfo_t *info, void *reserved)
+@@ -46,7 +46,7 @@ static bool signals_are_set = false;
+ void crSetSignalHandler()
+ {
+-#ifdef _LINUX
++#if defined(_LINUX) && !defined(_WIN32)
+ 	if (signals_are_set)
+ 		return;
+ 	signals_are_set = true;

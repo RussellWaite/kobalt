@@ -20,6 +20,12 @@ To validate the launcher without opening a window, run `cmake --preset linux`, `
 
 Use an installed native Qt 6.11 or newer Qt 6 SDK with Core, Gui, Widgets, Network, Test, GuiPrivate, Sql and its bundled libpng headers and archive. CMake 3.22 or later, Ninja, the Xcode command-line tools, make, patch and pkg-config must be available. The headless tests also use the system `zip` executable to create an offline EPUB fixture. The desktop project supports macOS and Linux.
 
+The Windows desktop bring-up lives under `platforms/windows/` with its own CMake presets.
+
+Install a native Qt 6.11+ SDK before configuring Windows desktop builds. For the current bring-up lane, use `mingw_64` and run `platforms/windows/build-windows.ps1` from the repository root or from `platforms/windows/`. The wrapper defaults to the `windows-mingw` presets, runs `cmake --preset windows-mingw` then `cmake --build --preset windows-mingw`, stages the runtime asset bundle under `build/desktop-windows-*/assets/runtime/`, and runs `windeployqt` on `Kobalt.exe` so the required Qt runtime DLLs are staged beside the executable.
+
+Use `-Toolchain msvc -ConfigurePreset windows-msvc -BuildPreset windows-msvc` to run the MSVC lane. If Qt is not in a standard location, pass `-QtPrefixPath D:\Qt\6.11.3\mingw_64` (or `...msvc2022_64`) or set `KOBALT_QT_PREFIX`. Pass `-SkipQtDeploy` only when you want to skip runtime deployment explicitly.
+
 Run these commands from `platforms/desktop/`:
 
 ```sh

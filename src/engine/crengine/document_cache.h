@@ -3,9 +3,9 @@
 #include <QCryptographicHash>
 #include <QFile>
 #include <QFileInfo>
+#include <QStorageInfo>
 #include <QString>
 #include <lvtinydom.h>
-#include <sys/statvfs.h>
 
 namespace kobalt {
 // CREngine's document cache is process-wide, like its font manager. Kobalt
@@ -21,10 +21,9 @@ public:
     explicit DocumentCacheScope(const QString &directory) {
         if (directory.isEmpty())
             return;
-        struct statvfs storage {};
-        const auto parent = QFile::encodeName(QFileInfo(directory).absolutePath());
-        if (statvfs(parent.constData(), &storage) != 0 || (storage.f_flag & ST_RDONLY) ||
-            (unsigned long long)storage.f_bavail * storage.f_frsize < minimumFreeBytes)
+        const QStorageInfo storage(QFileInfo(directory).absolutePath());
+        if (!storage.isValid() || !storage.isReady() || storage.isReadOnly() ||
+            static_cast<unsigned long long>(storage.bytesAvailable()) < minimumFreeBytes)
             return;
         const auto path = directory.toUtf8();
         enabled_ = ldomDocCache::init(Utf8ToUnicode(lString8(path.constData())), maxBytes);

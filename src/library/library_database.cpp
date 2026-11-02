@@ -1,6 +1,7 @@
 #include "library_index.h"
 #include "storage/annotation_database.h"
 #include "storage/reader_storage.h"
+#include "support/diagnostics.h"
 #include <QCryptographicHash>
 #include <QFile>
 #include <QJsonDocument>
@@ -95,6 +96,7 @@ bool Index::loadDatabase(const QString &directory) {
     Index loaded;
     const auto legacy = directory + "/library.json";
     bool imported = false;
+    QString transactionError;
     const bool ok = AnnotationDatabase::transaction(directory, [&](QSqlDatabase &db) {
         QSqlQuery query(db);
         if (!query.exec("SELECT format FROM profile_state WHERE name='library'")) return false;
@@ -147,7 +149,12 @@ bool Index::loadDatabase(const QString &directory) {
         }
         loaded.settings = parseSettings(preferences.object.value("library").toObject());
         return true;
-    });
+    }, &transactionError);
+    if (!ok) {
+        QJsonObject fields;
+        fields.insert("error_code", transactionError);
+        diagnostic("library-database-open-failed", fields, DiagnosticSeverity::Warning);
+    }
     if (!ok) return false;
     *this = std::move(loaded);
     // Also retries a rename interrupted after the previous successful commit.

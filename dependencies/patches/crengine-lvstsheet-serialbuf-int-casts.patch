@@ -1,0 +1,22 @@
+diff --git a/crengine/src/lvstsheet.cpp b/crengine/src/lvstsheet.cpp
+index 1fae233..6077d41 100644
+--- a/crengine/src/lvstsheet.cpp
++++ b/crengine/src/lvstsheet.cpp
+@@ -4720,7 +4720,7 @@ bool LVCssDeclaration::parse( const char * &decl, bool higher_importance, lxmlDo
+                         }
+                         buf<<(lUInt32) (prop_code | importance | parse_important(decl));
+                         buf<<(lUInt32)initial_letter.type;
+-                        buf<<initial_letter.value;
++                        buf<<(lInt32)initial_letter.value;
+                         break;
+                     }
+                     css_length_t size_num;
+@@ -4801,7 +4801,7 @@ bool LVCssDeclaration::parse( const char * &decl, bool higher_importance, lxmlDo
+                         }
+                         buf<<(lUInt32) (prop_code | importance | parse_important(decl));
+                         buf<<(lUInt32)initial_letter.type;
+-                        buf<<initial_letter.value;
++                        buf<<(lInt32)initial_letter.value;
+                     }
+                     else {
+                         decl = orig_pos;

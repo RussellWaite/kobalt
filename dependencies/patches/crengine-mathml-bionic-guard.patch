@@ -1,0 +1,16 @@
+diff --git a/crengine/src/lvrend.cpp b/crengine/src/lvrend.cpp
+index 819ff5c..9b0ae77 100644
+--- a/crengine/src/lvrend.cpp
++++ b/crengine/src/lvrend.cpp
+@@ -3748,7 +3748,11 @@ static LVFontRef bionicFont(ldomNode *node, LVFontRef font, int length, int offs
+     for (auto *ancestor = parent; ancestor; ancestor = ancestor->getParentNode()) {
+         auto ancestorStyle = ancestor->getStyle();
+         int writing = ancestorStyle.isNull() ? css_wm_horizontal_tb : ancestorStyle->writing_mode;
++#if MATHML_SUPPORT==1
+         if (ancestor->getNodeId() == el_math || ancestor->getNodeId() == el_ruby || ancestor->getNodeId() == el_code
++#else
++        if (ancestor->getNodeId() == el_ruby || ancestor->getNodeId() == el_code
++#endif
+             || writing == css_wm_vertical_rl || writing == css_wm_vertical_lr)
+             return LVFontRef();
+     }

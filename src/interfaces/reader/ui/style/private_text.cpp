@@ -29,7 +29,19 @@
 #include FT_OUTLINE_H
 #include FT_FONT_FORMATS_H
 #include FT_TRUETYPE_TABLES_H
+#if !defined(KOBALT_USE_FRIBIDI)
+#define KOBALT_USE_FRIBIDI 1
+#endif
+#if KOBALT_USE_FRIBIDI
+#if __has_include(<fribidi.h>)
 #include <fribidi.h>
+#else
+#include <fribidi/fribidi.h>
+#endif
+#else
+using FriBidiLevel = unsigned char;
+using FriBidiStrIndex = int;
+#endif
 #include <hb-ft.h>
 #include <hb.h>
 
@@ -580,6 +592,7 @@ static PrivateText layoutPrivateText(const QString &input, const QFont &font, in
     }
     QVector<FriBidiLevel> levels(count);
     QVector<FriBidiStrIndex> logicalToVisual(count);
+#if KOBALT_USE_FRIBIDI
     FriBidiParType base = direction == Qt::RightToLeft   ? FRIBIDI_PAR_RTL
                           : direction == Qt::LeftToRight ? FRIBIDI_PAR_LTR
                                                          : FRIBIDI_PAR_ON;
@@ -593,13 +606,16 @@ static PrivateText layoutPrivateText(const QString &input, const QFont &font, in
                   FRIBIDI_IS_ISOLATE(type);
     }
     if (!reorder) {
-        for (int i = 0; i < count; ++i) {
+        for (int i = 0; i < count; ++i)
             logicalToVisual[i] = i;
-        }
     } else if (!fribidi_log2vis(characters.constData(), count, &base, nullptr, logicalToVisual.data(), nullptr,
                                 levels.data())) {
         return result;
     }
+#else
+    for (int i = 0; i < count; ++i)
+        logicalToVisual[i] = i;
+#endif
     std::vector<Run> runs;
     const auto primary = primaryFace(font);
     QFont boldFont = font;

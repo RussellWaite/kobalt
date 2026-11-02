@@ -1,0 +1,13 @@
+diff --git a/crengine/src/lvdrawbuf.cpp b/crengine/src/lvdrawbuf.cpp
+index b24159d..4faad7f 100644
+--- a/crengine/src/lvdrawbuf.cpp
++++ b/crengine/src/lvdrawbuf.cpp
+@@ -3254,5 +3254,5 @@ lUInt8 * LVColorDrawBuf::GetScanLine( int y ) const
+ #if !defined(__SYMBIAN32__) && defined(_WIN32) && !defined(QT_GL)
+-    return _data + _rowsize * (_dy-1-y);
+-#else
+-    return _data + _rowsize * y;
++    if (_ownData)
++        return _data + _rowsize * (_dy-1-y);
+ #endif
++    return _data + _rowsize * y;

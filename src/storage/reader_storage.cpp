@@ -19,6 +19,9 @@
 #include <QCryptographicHash>
 #include <cmath>
 #include <fcntl.h>
+#ifdef _WIN32
+#include <io.h>
+#endif
 #include <unistd.h>
 
 namespace kobalt::storage {
@@ -322,9 +325,20 @@ Damage jsonDamage(const QString &path, bool schemaRequired) {
     return version > 1 && version == std::floor(version) ? Damage::Incompatible : Damage::Corrupt;
 }
 bool syncDirectory(const QString &path) {
+#ifdef _WIN32
+    const QFileInfo info(path);
+    if (info.isDir())
+        return true;
+    const int descriptor = ::open(QFile::encodeName(path).constData(), O_RDWR);
+#else
     const int descriptor = ::open(QFile::encodeName(path).constData(), O_RDONLY);
+#endif
     if (descriptor < 0) return false;
+#ifdef _WIN32
+    const bool synced = ::_commit(descriptor) == 0;
+#else
     const bool synced = ::fsync(descriptor) == 0;
+#endif
     ::close(descriptor);
     return synced;
 }

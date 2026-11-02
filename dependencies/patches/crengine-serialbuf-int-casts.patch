@@ -1,0 +1,34 @@
+diff --git a/crengine/src/lvfntman.cpp b/crengine/src/lvfntman.cpp
+index 3db4e79..c32e9f5 100644
+--- a/crengine/src/lvfntman.cpp
++++ b/crengine/src/lvfntman.cpp
+@@ -386,15 +386,26 @@ static const char * EMBEDDED_FONT_DEF_MAGIC = "FNTD";
+ ////////////////////////////////////////////////////////////////////
+ bool LVEmbeddedFontDef::serialize(SerialBuf & buf) {
+     buf.putMagic(EMBEDDED_FONT_DEF_MAGIC);
+-    buf << _url << _face << _weight << _width << _italic << _isLocal << _docFragmentIdx;
++    const lInt32 weight = static_cast<lInt32>(_weight);
++    const lInt32 width = static_cast<lInt32>(_width);
++    const lInt32 docFragmentIdx = static_cast<lInt32>(_docFragmentIdx);
++    buf << _url << _face << weight << width << _italic << _isLocal << docFragmentIdx;
+     return !buf.error();
+ }
+ 
+ bool LVEmbeddedFontDef::deserialize(SerialBuf & buf) {
+     if (!buf.checkMagic(EMBEDDED_FONT_DEF_MAGIC))
+         return false;
+-    buf >> _url >> _face >> _weight >> _width >> _italic >> _isLocal >> _docFragmentIdx;
+-    return !buf.error();
++    lInt32 weight = 0;
++    lInt32 width = 0;
++    lInt32 docFragmentIdx = -1;
++    buf >> _url >> _face >> weight >> width >> _italic >> _isLocal >> docFragmentIdx;
++    if (buf.error())
++        return false;
++    _weight = static_cast<int>(weight);
++    _width = static_cast<int>(width);
++    _docFragmentIdx = static_cast<int>(docFragmentIdx);
++    return true;
+ }
+ 
+ ////////////////////////////////////////////////////////////////////

@@ -1,0 +1,22 @@
+diff --git a/crengine/src/lvstring.cpp b/crengine/src/lvstring.cpp
+index bb69d2c..492d359 100644
+--- a/crengine/src/lvstring.cpp
++++ b/crengine/src/lvstring.cpp
+@@ -38,7 +38,7 @@
+ #include <utf8proc.h>
+ #endif
+ 
+-#if !defined(__SYMBIAN32__) && defined(_WIN32)
++#if !defined(__SYMBIAN32__) && defined(_WIN32) && !defined(__MINGW32__)
+ extern "C" {
+ #include <windows.h>
+ }
+@@ -3287,7 +3287,7 @@ lString32 ByteToUnicode( const lString8 & str, const lChar32 * table )
+ }
+ 
+ 
+-#if !defined(__SYMBIAN32__) && defined(_WIN32)
++#if !defined(__SYMBIAN32__) && defined(_WIN32) && !defined(__MINGW32__)
+ 
+ lString8 UnicodeToLocal( const lString32 & str )
+ {

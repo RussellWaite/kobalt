@@ -1,0 +1,99 @@
+diff --git a/crengine/src/lvstream.cpp b/crengine/src/lvstream.cpp
+index cf8090b..a217b01 100644
+--- a/crengine/src/lvstream.cpp
++++ b/crengine/src/lvstream.cpp
+@@ -750,7 +750,11 @@ public:
+             crFatalError();
+             break;
+         }
++#if defined(__MINGW32__)
++        m_hFile = CreateFileA( UnicodeToLocal(fname).c_str(), m, s, NULL, c, FILE_ATTRIBUTE_NORMAL, NULL);
++#else
+         m_hFile = CreateFileW( fname.c_str(), m, s, NULL, c, FILE_ATTRIBUTE_NORMAL, NULL);
++#endif
+         if (m_hFile == INVALID_HANDLE_VALUE || !m_hFile) {
+ 			// unicode not implemented?
+ 			lUInt32 err = GetLastError();
+@@ -1313,7 +1317,11 @@ public:
+             crFatalError();
+             break;
+         }
++#if defined(__MINGW32__)
++        m_hFile = CreateFileA( UnicodeToLocal(fname).c_str(), m, s, NULL, c, FILE_ATTRIBUTE_NORMAL, NULL);
++#else
+         m_hFile = CreateFileW( fname.c_str(), m, s, NULL, c, FILE_ATTRIBUTE_NORMAL, NULL);
++#endif
+         if (m_hFile == INVALID_HANDLE_VALUE || !m_hFile) {
+          // unicode not implemented?
+             lUInt32 err = GetLastError();
+@@ -1601,6 +1609,14 @@ public:
+         WIN32_FIND_DATAW data = { 0 };
+         WIN32_FIND_DATAA dataa = { 0 };
+         //lString8 bs = DOMString(path).ToAnsiString();
++#if defined(__MINGW32__)
++        HANDLE hFind = FindFirstFileA(UnicodeToLocal(fn).c_str(), &dataa);
++        bool unicode=false;
++        if (hFind == INVALID_HANDLE_VALUE || !hFind) {
++            delete dir;
++            return NULL;
++        }
++#else
+         HANDLE hFind = FindFirstFileW(fn.c_str(), &data);
+         bool unicode=true;
+         if (hFind == INVALID_HANDLE_VALUE || !hFind) {
+@@ -1618,6 +1634,7 @@ public:
+                 return NULL;
+             }
+         }
++#endif
+ 
+         if (unicode) {
+             // unicode
+@@ -4087,7 +4104,11 @@ bool LVCreateDirectory( lString32 path )
+             return false;
+         }
+ #ifdef _WIN32
++#if defined(__MINGW32__)
++        return CreateDirectoryA( UnicodeToLocal(path).c_str(), NULL )!=0;
++#else
+         return CreateDirectoryW( path.c_str(), NULL )!=0;
++#endif
+ #else
+         //LVRemovePathDelimiter( path );
+         lString8 path8 = UnicodeToUtf8( path );
+@@ -4130,7 +4151,11 @@ LVStreamRef LVMapFileStream( const lChar32 * pathname, lvopen_mode_t mode, lvsiz
+ bool LVDeleteFile( lString32 filename )
+ {
+ #ifdef _WIN32
++#if defined(__MINGW32__)
++    return DeleteFileA( UnicodeToLocal(filename).c_str() ) ? true : false;
++#else
+     return DeleteFileW( filename.c_str() ) ? true : false;
++#endif
+ #else
+     if ( unlink( UnicodeToUtf8( filename ).c_str() ) )
+         return false;
+@@ -4147,7 +4172,11 @@ bool LVRenameFile(lString32 oldname, lString32 newname) {
+ bool LVRenameFile(lString8 oldname, lString8 newname) {
+ #ifdef _WIN32
+     CRLog::trace("Renaming %s to %s", oldname.c_str(), newname.c_str());
++#if defined(__MINGW32__)
++    bool res = MoveFileA(oldname.c_str(), newname.c_str()) != 0;
++#else
+     bool res = MoveFileW(Utf8ToUnicode(oldname).c_str(), Utf8ToUnicode(newname).c_str()) != 0;
++#endif
+     if (!res) {
+         CRLog::error("Renaming result: %s for renaming of %s to %s", res ? "success" : "failed", oldname.c_str(), newname.c_str());
+         CRLog::error("Last Error: %d", GetLastError());
+@@ -4166,7 +4195,11 @@ bool LVDeleteFile( lString8 filename ) {
+ /// delete directory, return true if directory is found and successfully deleted
+ bool LVDeleteDirectory( lString32 filename ) {
+ #ifdef _WIN32
++#if defined(__MINGW32__)
++    return RemoveDirectoryA( UnicodeToLocal(filename).c_str() ) ? true : false;
++#else
+     return RemoveDirectoryW( filename.c_str() ) ? true : false;
++#endif
+ #else
+     if ( rmdir( UnicodeToUtf8( filename ).c_str() ) )
+         return false;

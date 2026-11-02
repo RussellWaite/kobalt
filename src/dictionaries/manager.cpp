@@ -21,8 +21,8 @@
 #include <QPointer>
 #include <QSaveFile>
 #include <QRegularExpression>
+#include <QStorageInfo>
 #include <limits>
-#include <sys/statvfs.h>
 
 namespace kobalt {
 namespace {
@@ -236,14 +236,10 @@ qint64 DictionaryManager::availableBytes() const {
             return -1;
         path.setFile(parent);
     }
-    struct statvfs space {};
-    if (::statvfs(QFile::encodeName(path.absoluteFilePath()).constData(), &space) != 0)
+    const QStorageInfo storage(path.absoluteFilePath());
+    if (!storage.isValid() || !storage.isReady())
         return -1;
-    const auto maximum = quint64(std::numeric_limits<qint64>::max());
-    const auto blocks = quint64(space.f_bavail), size = quint64(space.f_frsize);
-    if (size && blocks > maximum / size)
-        return qint64(maximum);
-    return qint64(blocks * size);
+    return storage.bytesAvailable();
 }
 QString DictionaryManager::selectedDictionary(const QString &book) const {
     const auto selected = data->selected.value(book);

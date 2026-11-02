@@ -17,3 +17,12 @@ crengine-compaction-diagnostics.patch
 crengine-vertical-justification.patch
 crengine-position-name-lookup.patch
 crengine-image-proportions.patch
+crengine-mingw-posix-memalign.patch
+crengine-serialbuf-int-casts.patch
+crengine-windows-signal-guards.patch
+crengine-mingw-win32-fileapi.patch
+crengine-mingw-win32-unicode-iter.patch
+crengine-mingw-lvstring-local-conversion.patch
+crengine-lvstsheet-serialbuf-int-casts.patch
+crengine-mathml-bionic-guard.patch
+crengine-windows-external-buffer-scanline.patch

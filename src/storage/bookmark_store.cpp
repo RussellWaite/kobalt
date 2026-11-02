@@ -69,12 +69,20 @@ QString inventoryDigest(const QString &root, const QStringList &folders) {
         }
 #if defined(__APPLE__)
         const auto modified = info.st_mtimespec, changed = info.st_ctimespec;
+#elif defined(_WIN32)
+        const auto modifiedSec = qint64(info.st_mtime), changedSec = qint64(info.st_ctime);
+        const auto modifiedNsec = qint64(0), changedNsec = qint64(0);
 #else
         const auto modified = info.st_mtim, changed = info.st_ctim;
 #endif
         for (const qint64 value :
-             {qint64(info.st_dev), qint64(info.st_ino), qint64(info.st_size), qint64(modified.tv_sec),
-              qint64(modified.tv_nsec), qint64(changed.tv_sec), qint64(changed.tv_nsec)}) {
+             {qint64(info.st_dev), qint64(info.st_ino), qint64(info.st_size),
+#if defined(_WIN32)
+              modifiedSec, modifiedNsec, changedSec, changedNsec
+#else
+              qint64(modified.tv_sec), qint64(modified.tv_nsec), qint64(changed.tv_sec), qint64(changed.tv_nsec)
+#endif
+             }) {
             digest.addData(QByteArray::number(value));
             digest.addData(QByteArray(1, ':'));
         }

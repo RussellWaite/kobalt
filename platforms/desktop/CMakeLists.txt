@@ -1,12 +1,14 @@
 cmake_minimum_required(VERSION 3.22)
 project(Kobalt LANGUAGES C CXX)
 
-if(NOT APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
-    message(FATAL_ERROR "The desktop app supports macOS and Linux.")
+if(NOT APPLE AND NOT WIN32 AND NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    message(FATAL_ERROR "The desktop app supports macOS, Linux and Windows.")
 endif()
 
 if(APPLE)
     set(KOBALT_DESKTOP_PLATFORM mac)
+elseif(WIN32)
+    set(KOBALT_DESKTOP_PLATFORM windows)
 else()
     set(KOBALT_DESKTOP_PLATFORM linux)
 endif()
@@ -103,7 +105,11 @@ if(KOBALT_DESKTOP_SENSORS)
 else()
     target_compile_definitions(kobalt-core PUBLIC KOBALT_NO_SENSORS)
 endif()
-target_compile_options(kobalt-core PRIVATE -Wall -Wextra)
+if(MSVC)
+    target_compile_options(kobalt-core PRIVATE /W4)
+else()
+    target_compile_options(kobalt-core PRIVATE -Wall -Wextra)
+endif()
 option(KOBALT_SQLITE_ANNOTATIONS_DEFAULT "Use SQLite annotation storage by default" ON)
 if(KOBALT_SQLITE_ANNOTATIONS_DEFAULT)
     set_source_files_properties("${source}/storage/annotation_database.cpp" PROPERTIES
@@ -112,17 +118,48 @@ else()
     set_source_files_properties("${source}/storage/annotation_database.cpp" PROPERTIES
         COMPILE_DEFINITIONS KOBALT_SQLITE_ANNOTATIONS_DEFAULT=0)
 endif()
+if(MSVC)
+    set(crengine_library "${CRENGINE_BUILD}/crengine.lib")
+    set(harfbuzz_library "${KOBALT_TEST_DEPENDENCIES}/lib/harfbuzz.lib")
+    set(xxhash_library "${KOBALT_TEST_DEPENDENCIES}/lib/xxhash.lib")
+    set(utf8proc_library "${KOBALT_TEST_DEPENDENCIES}/lib/utf8proc.lib")
+    set(jpeg_library "${KOBALT_TEST_DEPENDENCIES}/lib/jpeg.lib")
+    set(lunasvg_library "${KOBALT_TEST_DEPENDENCIES}/lib/lunasvg.lib")
+    set(freetype_library "${KOBALT_TEST_DEPENDENCIES}/lib/freetype.lib")
+    set(fribidi_library "${KOBALT_TEST_DEPENDENCIES}/lib/fribidi.lib")
+    set(unibreak_library "${KOBALT_TEST_DEPENDENCIES}/lib/unibreak.lib")
+    set(zlib_link)
+elseif(WIN32)
+    set(crengine_library "${CRENGINE_BUILD}/libcrengine.a")
+    set(harfbuzz_library "${KOBALT_TEST_DEPENDENCIES}/lib/libharfbuzz.a")
+    set(xxhash_library "${KOBALT_TEST_DEPENDENCIES}/lib/libxxhash.a")
+    set(utf8proc_library "${KOBALT_TEST_DEPENDENCIES}/lib/libutf8proc.a")
+    set(jpeg_library "${KOBALT_TEST_DEPENDENCIES}/lib/libjpeg.a")
+    set(lunasvg_library "${KOBALT_TEST_DEPENDENCIES}/lib/liblunasvg.a")
+    set(freetype_library "${KOBALT_TEST_DEPENDENCIES}/lib/libfreetype.a")
+    set(fribidi_library)
+    set(unibreak_library)
+    set(zlib_link z)
+else()
+    set(crengine_library "${CRENGINE_BUILD}/libcrengine.a")
+    set(harfbuzz_library "${KOBALT_TEST_DEPENDENCIES}/lib/libharfbuzz.a")
+    set(xxhash_library "${KOBALT_TEST_DEPENDENCIES}/lib/libxxhash.a")
+    set(utf8proc_library "${KOBALT_TEST_DEPENDENCIES}/lib/libutf8proc.a")
+    set(jpeg_library "${KOBALT_TEST_DEPENDENCIES}/lib/libjpeg.a")
+    set(lunasvg_library "${KOBALT_TEST_DEPENDENCIES}/lib/liblunasvg.a")
+    set(freetype_library "${KOBALT_TEST_DEPENDENCIES}/lib/libfreetype.a")
+    set(fribidi_library "${KOBALT_TEST_DEPENDENCIES}/lib/libfribidi.a")
+    set(unibreak_library "${KOBALT_TEST_DEPENDENCIES}/lib/libunibreak.a")
+    set(zlib_link z)
+endif()
 target_link_libraries(kobalt-core PUBLIC Qt6::Widgets Qt6::Network Qt6::Sql
-    "${CRENGINE_BUILD}/libcrengine.a"
-    "${KOBALT_TEST_DEPENDENCIES}/lib/libharfbuzz.a" "${KOBALT_TEST_DEPENDENCIES}/lib/libxxhash.a"
-    "${KOBALT_TEST_DEPENDENCIES}/lib/libutf8proc.a" "${KOBALT_TEST_DEPENDENCIES}/lib/libjpeg.a"
-    "${KOBALT_TEST_DEPENDENCIES}/lib/liblunasvg.a" "${KOBALT_TEST_DEPENDENCIES}/lib/libfreetype.a"
-    "${KOBALT_TEST_DEPENDENCIES}/lib/libfribidi.a" "${KOBALT_TEST_DEPENDENCIES}/lib/libunibreak.a"
-    "${KOBALT_TEST_PNG}" z)
+    "${crengine_library}" "${harfbuzz_library}" "${xxhash_library}" "${utf8proc_library}"
+    "${jpeg_library}" "${lunasvg_library}" "${freetype_library}" "${fribidi_library}"
+    "${unibreak_library}" "${KOBALT_TEST_PNG}" ${zlib_link})
 # The engine and Qt must keep separate FreeType glyph implementations.
 if(APPLE)
     target_link_options(kobalt-core INTERFACE "LINKER:-force_load,${KOBALT_TEST_DEPENDENCIES}/lib/libfreetype.a")
-else()
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     # Keep private static dependencies out of the executable dynamic symbol table,
     # so Qt and its plugins resolve their own font and image library symbols.
     target_link_options(kobalt-core INTERFACE "LINKER:--exclude-libs,ALL")
@@ -133,9 +170,18 @@ add_library(kobalt-desktop OBJECT ${interfaces}
     ../android/reader.cpp ../android/start_screen.cpp
     "${source}/platform/api/reader_orientation.cpp")
 target_link_libraries(kobalt-desktop PUBLIC kobalt-core)
+if(fribidi_library)
+    target_compile_definitions(kobalt-desktop PRIVATE KOBALT_USE_FRIBIDI=1)
+else()
+    target_compile_definitions(kobalt-desktop PRIVATE KOBALT_USE_FRIBIDI=0)
+endif()
 set_source_files_properties("${source}/interfaces/reader/views/reading_page.cpp" PROPERTIES
     COMPILE_DEFINITIONS KOBALT_DESKTOP_POINTER)
-target_compile_options(kobalt-desktop PRIVATE -Wall -Wextra)
+if(MSVC)
+    target_compile_options(kobalt-desktop PRIVATE /W4)
+else()
+    target_compile_options(kobalt-desktop PRIVATE -Wall -Wextra)
+endif()
 # A build from a linked Git worktree is a variant named after the worktree's
 # folder. A variant has its own name, bundle identifier and profile, so it can
 # run beside other builds, and it opens no file types, so macOS does not offer
@@ -155,6 +201,8 @@ if(EXISTS "${KOBALT_ROOT}/.git")
 endif()
 if(APPLE)
     set(variant_option KOBALT_MAC_VARIANT)
+elseif(WIN32)
+    set(variant_option KOBALT_WINDOWS_VARIANT)
 else()
     set(variant_option KOBALT_LINUX_VARIANT)
 endif()
@@ -191,8 +239,10 @@ target_link_libraries(Kobalt PRIVATE kobalt-desktop kobalt-core)
 # The profile folder under Application Support follows the application name.
 target_compile_definitions(Kobalt PRIVATE KOBALT_PROFILE_NAME="${KOBALT_PROFILE_NAME}"
     KOBALT_RUNTIME_ASSET_PATH="${runtime_asset_path}")
-set_target_properties(Kobalt PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"
-    MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/Info.plist.in")
+set_target_properties(Kobalt PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+if(APPLE)
+    set_target_properties(Kobalt PROPERTIES MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/Info.plist.in")
+endif()
 set(resources "${KOBALT_ROOT}/assets")
 file(GLOB notices CONFIGURE_DEPENDS "${resources}/notices/*")
 qt_add_resources(kobalt-desktop desktop_artwork PREFIX "/desktop" BASE "${resources}" FILES "${resources}/kobalt-android.svg")

@@ -19,7 +19,6 @@
 #include <QSqlDatabase>
 #include <QSqlError>
 #include <QSqlQuery>
-#include <QTemporaryFile>
 #include <QUuid>
 #include <QVariant>
 #include <atomic>
@@ -28,6 +27,11 @@
 #include <fcntl.h>
 #include <functional>
 #include <limits>
+#include <string>
+#ifdef _WIN32
+#include <io.h>
+#include <windows.h>
+#endif
 #include <unistd.h>
 #include <utility>
 
@@ -151,11 +155,11 @@ void profileSchema(QSqlDatabase &db) {
 // leaves no canonical database, so the next open can retry. The
 // initialization lock serializes publication between processes.
 void createDatabase(const QString &path, const QString &directory) {
-    QTemporaryFile stage(directory + "/.kobalt-db-init-XXXXXX");
-    check(stage.open(), "database-open");
-    const auto stagingPath = stage.fileName();
-    stage.close();
+    const QString stagingPath = directory + "/.kobalt-db-init-" +
+                                QUuid::createUuid().toString(QUuid::WithoutBraces) + ".sqlite";
+    QFile::remove(stagingPath);
     const QString name = "kobalt-profile-init-" + QUuid::createUuid().toString();
+    try {
     {
         auto db = QSqlDatabase::addDatabase("QSQLITE", name);
         db.setDatabaseName(stagingPath);
@@ -193,13 +197,37 @@ void createDatabase(const QString &path, const QString &directory) {
         db.close();
     }
     QSqlDatabase::removeDatabase(name);
+#ifdef _WIN32
+    const std::wstring stagedPath = QDir::toNativeSeparators(stagingPath).toStdWString();
+    const std::wstring targetPath = QDir::toNativeSeparators(path).toStdWString();
+    const bool renamed = ::MoveFileExW(stagedPath.c_str(), targetPath.c_str(),
+                                       MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0;
+    if (!renamed) {
+        const auto error = ::GetLastError();
+        if (error == ERROR_FILE_EXISTS || error == ERROR_ALREADY_EXISTS) throw Failure{"database-publish-rename-exists"};
+        if (error == ERROR_ACCESS_DENIED || error == ERROR_SHARING_VIOLATION || error == ERROR_LOCK_VIOLATION) {
+            throw Failure{"database-publish-rename-locked"};
+        }
+        throw Failure{"database-publish-rename-failed"};
+    }
+    const int file = ::open(QFile::encodeName(path).constData(), O_RDWR);
+    check(file >= 0, "database-publish-open");
+    const bool synced = ::_commit(file) == 0;
+    ::close(file);
+    check(synced, "database-publish-sync");
+#else
     check(::rename(QFile::encodeName(stagingPath).constData(), QFile::encodeName(path).constData()) == 0,
-          "database-publish");
+          "database-publish-rename");
     const int parent = ::open(QFile::encodeName(directory).constData(), O_RDONLY);
-    check(parent >= 0, "database-publish");
+    check(parent >= 0, "database-publish-open");
     const bool synced = ::fsync(parent) == 0;
     ::close(parent);
-    check(synced, "database-publish");
+    check(synced, "database-publish-sync");
+#endif
+    } catch (...) {
+        QFile::remove(stagingPath);
+        throw;
+    }
 }
 // Profile state other threads read: whether routine commits wait for a sync,
 // when the log was last synced, and whether the file may be opened at all.

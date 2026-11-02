@@ -1,0 +1,17 @@
+diff --git a/crengine/qimagescale/qimagescale.cpp b/crengine/qimagescale/qimagescale.cpp
+index 4bc3a5e..79f7adf 100644
+--- a/crengine/qimagescale/qimagescale.cpp
++++ b/crengine/qimagescale/qimagescale.cpp
+@@ -779,7 +779,12 @@ unsigned char* qSmoothScaleImage(const unsigned char* __restrict src, int sw, in
+ #else
+     void *ptr;
+     // NOTE: Output format is always RGBA! So make enough room for 4 bytes per pixel ;).
++    #if defined(__MINGW32__)
++    ptr = malloc(dw * dh * 4);
++    if (ptr == nullptr) {
++    #else
+     if (posix_memalign(&ptr, 16, dw * dh * 4) != 0) {
++    #endif
+         std::cerr << "qSmoothScaleImage: out of memory, returning null!" << std::endl;
+         qimageFreeScaleInfo(scaleinfo);
+         return nullptr;

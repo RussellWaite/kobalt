@@ -40,6 +40,12 @@ bool identity(QIODevice &source, FileIdentity &result) {
     }
 #if defined(__APPLE__)
     result = {info.st_dev, info.st_ino, info.st_size, info.st_mtimespec, info.st_ctimespec};
+#elif defined(_WIN32)
+    result.device = info.st_dev;
+    result.inode = info.st_ino;
+    result.size = info.st_size;
+    result.modified = {info.st_mtime, 0};
+    result.changed = {info.st_ctime, 0};
 #else
     result = {info.st_dev, info.st_ino, info.st_size, info.st_mtim, info.st_ctim};
 #endif

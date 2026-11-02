@@ -18,7 +18,12 @@
 #include <utility>
 #include <cerrno>
 #include <fcntl.h>
+#ifdef _WIN32
+#include <io.h>
+#include <windows.h>
+#else
 #include <sys/file.h>
+#endif
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -33,6 +38,21 @@ QString bounded(QString text) {
 QByteArray utf8(const QString &text) {
     return text.isEmpty() ? QByteArray("") : text.toUtf8();
 }
+#ifdef _WIN32
+int lockExclusiveNonBlocking(int descriptor) {
+    const auto handle = reinterpret_cast<HANDLE>(_get_osfhandle(descriptor));
+    if (handle == INVALID_HANDLE_VALUE) {
+        errno = EBADF;
+        return -1;
+    }
+    OVERLAPPED overlap{};
+    if (LockFileEx(handle, LOCKFILE_EXCLUSIVE_LOCK | LOCKFILE_FAIL_IMMEDIATELY, 0, MAXDWORD, MAXDWORD, &overlap))
+        return 0;
+    const DWORD code = GetLastError();
+    errno = (code == ERROR_LOCK_VIOLATION || code == ERROR_IO_PENDING) ? EWOULDBLOCK : EINVAL;
+    return -1;
+}
+#endif
 }
 struct ReadingHistory::Saved {
     std::mutex mutex;
@@ -189,13 +209,29 @@ class ReadingHistory::Profile {
 public:
     explicit Profile(const QString &directory)
         : descriptor(::open(QFile::encodeName(directory + "/.reading-history.lock").constData(),
-                            O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK, 0600)) {}
+                            O_RDWR | O_CREAT
+#ifdef O_CLOEXEC
+                            | O_CLOEXEC
+#endif
+#ifdef O_NOFOLLOW
+                            | O_NOFOLLOW
+#endif
+#ifdef O_NONBLOCK
+                            | O_NONBLOCK
+#endif
+                            , 0600)) {}
     ~Profile() { if (descriptor >= 0) ::close(descriptor); }
     bool acquire(QString *error) {
         struct stat info {};
         if (descriptor < 0 || ::fstat(descriptor, &info) != 0 || !S_ISREG(info.st_mode)) return false;
         int result;
-        do { result = ::flock(descriptor, LOCK_EX | LOCK_NB); } while (result != 0 && errno == EINTR);
+        do {
+#ifdef _WIN32
+            result = lockExclusiveNonBlocking(descriptor);
+#else
+            result = ::flock(descriptor, LOCK_EX | LOCK_NB);
+#endif
+        } while (result != 0 && errno == EINTR);
         if (result == 0) return true;
         if (error && (errno == EWOULDBLOCK || errno == EAGAIN)) *error = "profile-in-use";
         return false;

@@ -1,0 +1,46 @@
+diff --git a/crengine/src/lvstream.cpp b/crengine/src/lvstream.cpp
+index a217b01..be89fd4 100644
+--- a/crengine/src/lvstream.cpp
++++ b/crengine/src/lvstream.cpp
+@@ -1648,19 +1648,38 @@ public:
+ 
+                 if ( (dwAttrs & FILE_ATTRIBUTE_DIRECTORY) ) {
+                     // directory
+-                    if (!lStr_cmp(pfn, L"..") || !lStr_cmp(pfn, L".")) {
++                    bool isDot = (pfn[0] == L'.' && pfn[1] == 0) || (pfn[0] == L'.' && pfn[1] == L'.' && pfn[2] == 0);
++                    if (isDot) {
+                         // .. or .
+                     } else {
+                         // normal directory
+                         LVDirectoryContainerItemInfo * item = new LVDirectoryContainerItemInfo;
+-                        item->m_name = pfn;
++                        int nameSize = WideCharToMultiByte(CP_UTF8, 0, pfn, -1, NULL, 0, NULL, NULL);
++                        if (nameSize > 0) {
++                            lString8 utf8Name;
++                            utf8Name.reserve(nameSize - 1);
++                            if (nameSize > 1) {
++                                utf8Name.resize(nameSize - 1);
++                                WideCharToMultiByte(CP_UTF8, 0, pfn, -1, utf8Name.modify(), nameSize, NULL, NULL);
++                            }
++                            item->m_name = Utf8ToUnicode(utf8Name);
++                        }
+                         item->m_is_container = true;
+                         dir->Add(item);
+                     }
+                 } else {
+                     // file
+                     LVDirectoryContainerItemInfo * item = new LVDirectoryContainerItemInfo;
+-                    item->m_name = pfn;
++                    int nameSize = WideCharToMultiByte(CP_UTF8, 0, pfn, -1, NULL, 0, NULL, NULL);
++                    if (nameSize > 0) {
++                        lString8 utf8Name;
++                        utf8Name.reserve(nameSize - 1);
++                        if (nameSize > 1) {
++                            utf8Name.resize(nameSize - 1);
++                            WideCharToMultiByte(CP_UTF8, 0, pfn, -1, utf8Name.modify(), nameSize, NULL, NULL);
++                        }
++                        item->m_name = Utf8ToUnicode(utf8Name);
++                    }
+                     item->m_size = data.nFileSizeLow;
+                     item->m_flags = data.dwFileAttributes;
+                     dir->Add(item);

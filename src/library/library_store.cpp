@@ -1,5 +1,6 @@
 #include "library_store.h"
 #include "book_metadata.h"
+#include "storage/profile_database.h"
 #include "support/diagnostics.h"
 #include "support/main_thread.h"
 #include <QDateTime>
@@ -17,7 +18,14 @@ Store::Store(QString directory, std::shared_ptr<Source> source, QObject *parent)
     : QObject(parent), directory(directory), coverDirectory(directory + "/library-covers"),
       scanner(std::move(source), coverDirectory) {
     ready = data.loadDatabase(directory);
-    if (!ready) diagnostic("library-storage-unavailable", {}, kobalt::DiagnosticSeverity::Warning);
+    if (!ready) {
+        QString error;
+        const auto state = storage::inspectProfileDatabase(directory, &error);
+        QJsonObject fields;
+        fields.insert("profile_state", int(state));
+        fields.insert("error_code", error);
+        diagnostic("library-storage-unavailable", fields, kobalt::DiagnosticSeverity::Warning);
+    }
     saving.setSingleShot(true);
     saving.setInterval(500);
     connect(&saving, &QTimer::timeout, this, &Store::save);
